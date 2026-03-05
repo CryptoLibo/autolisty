@@ -1,0 +1,132 @@
+{
+  "product_name": "Frame TV Art",
+  "product_type": "digital",
+
+  "title_rules": {
+    "capitalization": "title_case",
+
+    "mandatory_terms": [
+      "Frame TV Art",
+      "(Digital Download)"
+    ],
+
+    "structure": [
+      "PRIMARY_KEYWORDS",
+      "Frame TV Art",
+      ",",
+      "SECONDARY_KEYWORDS",
+      "(Digital Download)"
+    ],
+
+    "short_title": {
+      "max_words": 14,
+      "use_all_words": true,
+      "avoid_word_repetition": true
+    },
+
+    "long_title": {
+      "max_characters": 140,
+      "min_characters": 135,
+      "avoid_word_repetition": true
+    },
+
+    "seo_rules": {
+      "prioritize_primary_keywords": true,
+      "avoid_filler_words": [
+        "beautiful",
+        "cute",
+        "aesthetic",
+        "perfect",
+        "gorgeous"
+      ]
+    }
+  },
+
+  "image_rules": {
+
+    "analysis": "visual_per_image",
+
+    "image_binding": {
+      "method": "id_mapping",
+      "return_format": "json",
+      "require_exact_id_match": true
+    },
+
+    "alt_text": {
+      "min_characters": 150,
+      "max_characters": 250,
+      "describe_visual_scene": true,
+      "include_keywords_naturally": true,
+      "avoid_keyword_lists": true,
+      "avoid_patterns": true,
+      "unique_per_image": true
+    }
+  },
+
+  "description_rules": {
+
+    "template_file": "frame_tv_description.txt",
+
+    "keyword_slots": 5,
+
+    "placeholder_format": [
+      "KEYWORD_1",
+      "KEYWORD_2",
+      "KEYWORD_3",
+      "KEYWORD_4",
+      "KEYWORD_5"
+    ],
+
+    "keyword_insertion": {
+      "natural_language": true,
+      "avoid_forced_insertion": true
+    }
+  },
+
+  "tag_rules": {
+
+    "max_tags": 13,
+    "max_characters": 20,
+
+    "use_multi_word_phrases": true,
+    "avoid_duplicate_words": true,
+    "avoid_plural_variations": true,
+    "avoid_category_repetition": true,
+
+    "tag_sources": [
+      "primary_keywords",
+      "secondary_keywords",
+      "visual_analysis",
+      "style_keywords",
+      "decor_context"
+    ],
+
+    "generation_rules": {
+      "unique_per_listing": true,
+      "avoid_fixed_patterns": true,
+      "reflect_design_characteristics": true
+    }
+  },
+
+  "input_context": {
+
+    "primary_keywords": "required",
+    "secondary_keywords": "required",
+    "design_context": "optional",
+    "design_image": "required",
+    "mockup_images": "required"
+  },
+
+  "ai_instructions": {
+
+    "analyze_design_image": true,
+
+    "analyze_each_mockup_image": true,
+
+    "prioritize_primary_keywords": true,
+
+    "use_secondary_keywords_for_semantic_expansion": true,
+
+    "ensure_all_outputs_follow_product_configuration": true
+  }
+}
