@@ -1,35 +1,13 @@
-import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
+import { generateSeo } from "@/lib/openai/generateSeo";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
-
 async function fileToDataUrl(file: File): Promise<string> {
   const buffer = Buffer.from(await file.arrayBuffer());
   return `data:${file.type};base64,${buffer.toString("base64")}`;
-}
-
-function extractJsonObject(text: string): any {
-  const s = text.trim();
-
-  if (s.startsWith("{") && s.endsWith("}")) {
-    return JSON.parse(s);
-  }
-
-  const start = s.indexOf("{");
-  const end = s.lastIndexOf("}");
-
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error("Model did not return JSON.");
-  }
-
-  const candidate = s.slice(start, end + 1);
-  return JSON.parse(candidate);
 }
 
 function clampAltText(text: string, min = 150, max = 250) {
@@ -57,10 +35,6 @@ function titleCase(input: string) {
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     })
     .join(" ");
-}
-
-function wordCount(s: string) {
-  return (s || "").trim().split(/\s+/).filter(Boolean).length;
 }
 
 function ensureShortTitleMaxWords(title: string, maxWords = 14) {
@@ -110,8 +84,6 @@ function normalizeTags(tags: any, maxTags = 13, maxChars = 20) {
   return result.slice(0, maxTags);
 }
 
-/* ---------- DESCRIPTION KEYWORDS ---------- */
-
 function normalizeKeywords5(list: any) {
   const arr = Array.isArray(list) ? list : [];
 
@@ -125,8 +97,6 @@ function normalizeKeywords5(list: any) {
     });
 
   const result = clean.slice(0, 5);
-
-  // ordenar por fuerza (frases más largas primero)
   result.sort((a, b) => b.length - a.length);
 
   return result;
@@ -201,7 +171,7 @@ export async function POST(req: Request) {
 
     const designDataUrl = await fileToDataUrl(designImage);
 
-    const imageInputs = [];
+    const imageInputs: any[] = [];
 
     for (const img of orderedImages) {
       const dataUrl = await fileToDataUrl(img.file);
@@ -213,123 +183,37 @@ export async function POST(req: Request) {
       });
     }
 
-    const systemPrompt = `
-You are an expert Etsy SEO copywriter.
-
-Follow the product configuration strictly.
-
-TITLE RULES
-- Short title: max 14 words.
-- Long title: 135-140 characters.
-- Title Case.
-- Avoid filler words like cute, aesthetic, perfect.
-
-TAGS
-- exactly 13
-- max 20 characters
-- multi-word phrases
-- avoid duplicates
-
-DESCRIPTION KEYWORDS
-- choose exactly 5 keyword phrases
-- each must be 2–3 words
-- KEYWORD_1 must be the strongest phrase
-- avoid single words
-- avoid phrases longer than 3 words
-- keywords must fit naturally in the description template
-
-ALT TEXT
-- describe what the image shows
-- 150–250 characters
-- integrate keywords naturally
-- no keyword lists
-- unique for each image
-
-Return ONLY valid JSON.
-`;
-
-    const userPrompt = `
-product_config:
-${JSON.stringify(productConfig)}
-
-description_template:
-${descriptionTemplate}
-
-primary_keywords: ${primaryKeywords}
-secondary_keywords: ${secondaryKeywords}
-context: ${contextInfo}
-
-competitor_titles:
-${competitorTitles}
-
-competitor_tags:
-${competitorTags}
-
-Return JSON:
-
-{
-"title_short_14_words": "",
-"title_long_135_140_chars": "",
-"description_keywords_5": [],
-"description_final": "",
-"tags_13": [],
-"media":[
-{id:"",order:0,position:0,alt_text:""}
-]
-}
-`;
-
-    const response = await client.responses.create({
-      model: "gpt-4o",
-      temperature: 0.6,
-      input: [
-        {
-          role: "system",
-          content: [{ type: "input_text", text: systemPrompt }],
-        },
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: userPrompt },
-            { type: "input_image", image_url: designDataUrl },
-            ...imageInputs.flatMap((img) => [
-              {
-                type: "input_text",
-                text: `MOCKUP IMAGE id=${img.id} position=${img.position}`,
-              },
-              {
-                type: "input_image",
-                image_url: img.dataUrl,
-              },
-            ]),
-          ],
-        },
-      ],
+    const seoResult = await generateSeo({
+      designImage: designDataUrl,
+      images: imageInputs,
+      productConfig,
+      descriptionTemplate,
+      primaryKeywords,
+      secondaryKeywords,
+      contextInfo,
+      competitorTitles,
+      competitorTags
     });
 
-    const raw = response.output_text || "";
-
-    const parsed = extractJsonObject(raw);
-
     const shortTitle = ensureShortTitleMaxWords(
-      titleCase(parsed.title_short_14_words),
+      titleCase(seoResult.title_short_14_words),
       14
     );
 
     const longTitle = ensureLongTitleCharRange(
-      titleCase(parsed.title_long_135_140_chars),
+      titleCase(seoResult.title_long_135_140_chars),
       135,
       140
     );
 
-    const tags = normalizeTags(parsed.tags_13);
+    const tags = normalizeTags(seoResult.tags_13);
 
-    const keywords5 = normalizeKeywords5(parsed.description_keywords_5);
+    const keywords5 = normalizeKeywords5(seoResult.description_keywords_5);
 
     const description = fillTemplate(descriptionTemplate, keywords5);
 
     const media = orderedImages.map((img) => {
-      const found = parsed.media.find((m: any) => m.id === img.id);
+      const found = seoResult.media.find((m: any) => m.id === img.id);
 
       return {
         id: img.id,
@@ -351,6 +235,7 @@ Return JSON:
     return new Response(JSON.stringify(output), {
       headers: { "Content-Type": "application/json" },
     });
+
   } catch (err: any) {
     console.error("API ERROR:", err);
     return new Response(err.message || "Server error", { status: 500 });
