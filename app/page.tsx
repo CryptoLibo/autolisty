@@ -364,6 +364,13 @@ export default function Page() {
 
   // Mockups
   const [mockups, setMockups] = useState<MediaItem[]>([]);
+  
+  // Deliverables
+  const [deliverables, setDeliverables] = useState<File[]>([])
+  const [instructionsFile, setInstructionsFile] = useState<File | null>(null)
+  
+  const [deliveryId, setDeliveryId] = useState<string | null>(null)
+  const [deliveryPdfUrl, setDeliveryPdfUrl] = useState<string | null>(null)
 
   // Result
   const [loading, setLoading] = useState(false);
@@ -388,6 +395,13 @@ export default function Page() {
     const id = generateListingId();
     setListingId(id);
     return id;
+  }
+  
+  function generateDeliveryId() {
+
+    const random = Math.random().toString(36).substring(2,6)
+
+    return `LBCreaStudio-${random}`
   }
 
   async function uploadToR2(file: File, filename: string) {
@@ -577,6 +591,48 @@ export default function Page() {
     } finally {
       setLoading(false);
     }
+  }
+  
+  async function uploadDeliverables() {
+
+    if (!deliverables.length || !instructionsFile) {
+      alert("Upload design and instructions first")
+      return
+    }
+  
+    const id = generateDeliveryId()
+    setDeliveryId(id)
+  
+    const files = [
+      {file: deliverables[0], name:"design.png"},
+      {file: instructionsFile, name:"instructions.pdf"}
+    ]
+  
+    for (const f of files) {
+
+      const formData = new FormData()
+  
+      formData.append("file", f.file)
+      formData.append("deliveryId", id)
+      formData.append("filename", f.name)
+  
+      await fetch("/api/upload/deliverable", {
+        method:"POST",
+        body:formData
+      })
+  }
+
+    const res = await fetch("/api/generate/delivery",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ deliveryId:id })
+    })
+  
+    const data = await res.json()
+  
+    setDeliveryPdfUrl(data.url)
+  
+    alert("Delivery PDF generated")
   }
 
   return (
@@ -789,6 +845,62 @@ export default function Page() {
                   )
                 }
               />
+            </Card>
+			
+			<Card title="3) Deliverables">
+              <div className="space-y-4">
+            
+                <div>
+                  <div className="text-xs font-semibold text-neutral-300 mb-2">
+                    Final Design File
+                  </div>
+            
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    onChange={(e) => {
+                      if (!e.target.files) return
+                      setDeliverables([e.target.files[0]])
+                    }}
+                  />
+                </div>
+            
+                <div>
+                  <div className="text-xs font-semibold text-neutral-300 mb-2">
+                    Instructions PDF
+                  </div>
+            
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      if (!e.target.files) return
+                      setInstructionsFile(e.target.files[0])
+                    }}
+                  />
+                </div>
+            
+                <Button
+                  variant="primary"
+                  onClick={uploadDeliverables}
+                >
+                  Generate Delivery PDF
+                </Button>
+            
+                {deliveryPdfUrl && (
+                  <div className="text-sm text-green-400">
+                    Delivery ready:
+                    <a
+                      href={deliveryPdfUrl}
+                      target="_blank"
+                      className="underline ml-2"
+                    >
+                      Open PDF
+                    </a>
+                  </div>
+                )}
+            
+              </div>
             </Card>
 
             {uploading ? (
