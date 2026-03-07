@@ -204,63 +204,75 @@ export default function Page() {
 
   async function generateSeo() {
 
-    if (!canGenerate || !designFile) return;
+  if (!canGenerate || !designR2Url) return;
 
-    setLoading(true);
-    setError(null);
-    setResult(null);
+  setLoading(true);
+  setError(null);
+  setResult(null);
 
-    try {
+  try {
 
-      const fd = new FormData();
+    const payload = {
 
-      fd.append("productType", productType);
+      productType,
 
-      fd.append("designImage", designFile);
-      fd.append("primaryKeywords", primaryKeywords);
-      fd.append("secondaryKeywords", secondaryKeywords);
-      fd.append("contextInfo", contextInfo);
+      designUrl: designR2Url,
 
-      fd.append("competitorTitles", competitorTitles);
-      fd.append("competitorTags", competitorTags);
+      primaryKeywords,
+      secondaryKeywords,
+      contextInfo,
 
-      const manifest = mockups.map((m, i) => ({
+      competitorTitles,
+      competitorTags,
+
+      mockups: mockups.map((m, index) => ({
         id: m.id,
-        order: i,
-      }));
+        position: index + 1,
+        url: m.r2Url
+      }))
 
-      fd.append("listingManifest", JSON.stringify(manifest));
+    };
 
-      for (const m of mockups) {
-        fd.append("listingImages", new File([m.file], m.id, { type: m.file.type }));
-      }
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
 
-      const res = await fetch("/api/generate", { method: "POST", body: fd });
-
-      if (!res.ok) throw new Error(await res.text());
-
-      const data: SeoResult = await res.json();
-
-      const altMap = new Map<string, string>();
-      for (const it of data.media || []) {
-        altMap.set(it.id, it.alt_text);
-      }
-
-      setMockups((prev) =>
-        prev.map((m) => ({
-          ...m,
-          altText: altMap.get(m.id) ?? m.altText,
-        }))
-      );
-
-      setResult(data);
-
-    } catch (e: any) {
-      setError(e?.message || "Unknown error");
-    } finally {
-      setLoading(false);
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || `HTTP ${res.status}`);
     }
+
+    const data: SeoResult = await res.json();
+
+    const altMap = new Map<string, string>();
+
+    for (const it of data.media || []) {
+      altMap.set(it.id, it.alt_text);
+    }
+
+    setMockups((prev) =>
+      prev.map((m) => ({
+        ...m,
+        altText: altMap.get(m.id) ?? m.altText,
+      }))
+    );
+
+    setResult(data);
+
+  } catch (e: any) {
+
+    setError(e?.message || "Unknown error");
+
+  } finally {
+
+    setLoading(false);
+
   }
+}
 
   /* ---------- UI ---------- */
 
