@@ -1,78 +1,121 @@
 import OpenAI from "openai"
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
 })
 
 export async function generateSeo({
+  designImage,
   images,
   productConfig,
-  descriptionTemplate
-}: {
-  images: string[]
-  productConfig: any
-  descriptionTemplate: string
-}) {
+  descriptionTemplate,
+  primaryKeywords,
+  secondaryKeywords,
+  contextInfo,
+  competitorTitles,
+  competitorTags
+}: any) {
 
-  const prompt = `
-You are an Etsy SEO expert.
+  const systemPrompt = `
+You are an expert Etsy SEO copywriter.
 
-Generate a JSON response with the following fields:
+Follow the product configuration strictly.
 
-title_short_14_words
-title_long_135_140_chars
-tags_13
-description_keywords_5
-description_final
-media
+TITLE RULES
+- Short title: max 14 words
+- Long title: 135-140 characters
+- Title Case
+- Avoid filler words like cute, aesthetic, perfect
 
-Rules:
+TAGS
+- exactly 13
+- max 20 characters
+- multi-word phrases
+- avoid duplicates
 
-Short title:
-- Max 14 words
-- Capitalized
-- Must include "${productConfig.required_keyword}"
-- Must end with "(Digital Download)"
+DESCRIPTION KEYWORDS
+- choose exactly 5 keyword phrases
+- each must be 2–3 words
+- KEYWORD_1 must be the strongest phrase
 
-Long title:
-- Between 135 and 140 characters
-
-Tags:
-- Exactly 13 tags
-- Max 20 characters each
-
-Alt text:
-- Minimum 150 characters
-- Describe the image naturally
+ALT TEXT
+- describe what the image shows
+- 150–250 characters
+- unique for each image
 
 Return ONLY valid JSON.
 `
 
-  const response = await openai.chat.completions.create({
+  const userPrompt = `
+product_config:
+${JSON.stringify(productConfig)}
+
+description_template:
+${descriptionTemplate}
+
+primary_keywords: ${primaryKeywords}
+secondary_keywords: ${secondaryKeywords}
+context: ${contextInfo}
+
+competitor_titles:
+${competitorTitles}
+
+competitor_tags:
+${competitorTags}
+
+Return JSON:
+
+{
+"title_short_14_words": "",
+"title_long_135_140_chars": "",
+"description_keywords_5": [],
+"description_final": "",
+"tags_13": [],
+"media":[
+{id:"",order:0,position:0,alt_text:""}
+]
+}
+`
+
+  const response = await client.responses.create({
     model: "gpt-4o",
-    response_format: { type: "json_object" },
-    messages: [
+    temperature: 0.6,
+    input: [
       {
         role: "system",
-        content: prompt
+        content: [{ type: "input_text", text: systemPrompt }]
       },
       {
         role: "user",
-        content: images.map(img => ({
-          type: "image_url",
-          image_url: {
-            url: img
-          }
-        }))
+        content: [
+          { type: "input_text", text: userPrompt },
+          { type: "input_image", image_url: designImage },
+
+          ...images.flatMap((img: any) => [
+            {
+              type: "input_text",
+              text: `MOCKUP IMAGE id=${img.id} position=${img.position}`
+            },
+            {
+              type: "input_image",
+              image_url: img.dataUrl
+            }
+          ])
+        ]
       }
     ]
   })
 
-  const content = response.choices[0].message.content
+  const raw = response.output_text || ""
 
-  if (!content) {
-    throw new Error("OpenAI returned empty response")
+  const start = raw.indexOf("{")
+  const end = raw.lastIndexOf("}")
+
+  if (start === -1 || end === -1) {
+    throw new Error("Model did not return JSON")
   }
 
-  return JSON.parse(content)
+  const parsed = JSON.parse(raw.slice(start, end + 1))
+
+  return parsed
 }
