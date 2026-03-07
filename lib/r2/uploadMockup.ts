@@ -28,6 +28,6 @@ export async function uploadMockup({
 
   return {
     key,
-    url: `${process.env.R2_ENDPOINT}/${BUCKET}/${key}`,
+    url: `${process.env.R2_PUBLIC_URL}/${key}`,
   }
 }
