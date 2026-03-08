@@ -4,7 +4,7 @@ import path from "path"
 
 export async function generateDeliveryPdf(deliveryId: string) {
 
-  const templatePath = path.join(process.cwd(), "templates", "delivery-template.pdf")
+  const templatePath = path.join(process.cwd(), "templates", "delivery_template.pdf")
 
   const templateBytes = fs.readFileSync(templatePath)
 
