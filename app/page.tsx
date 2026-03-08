@@ -648,7 +648,7 @@ export default function Page() {
             <Image
               src="/logo.png"
               alt="Autolisty"
-              width={120}
+              width={200}
               height={28}
               priority
             />
