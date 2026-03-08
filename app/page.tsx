@@ -646,7 +646,7 @@ export default function Page() {
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3 text-sm text-neutral-400">
             <Image
-              src="/logo.svg"
+              src="/logo.png"
               alt="Autolisty"
               width={120}
               height={28}
