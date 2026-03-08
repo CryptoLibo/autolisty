@@ -10,7 +10,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import Image from "next/image"
+import Image from "next/image";
 import {
   ChevronDown,
   Copy,
@@ -19,12 +19,14 @@ import {
   Sparkles,
   Upload,
   X,
+  FileText,
+  CheckCircle2,
 } from "lucide-react";
 
 type ProductType = "frame_tv_art";
 
 type MediaItem = {
-  id: string; // stable ID for binding
+  id: string;
   file: File;
   previewUrl: string;
   r2Url?: string;
@@ -33,15 +35,11 @@ type MediaItem = {
 
 type SeoResult = {
   product_name?: string;
-
   title_short_14_words: string;
   title_long_135_140_chars: string;
-
   description_keywords_5: string[];
   description_final: string;
-
   tags_13: string[];
-
   media: Array<{
     id: string;
     order?: number;
@@ -98,13 +96,13 @@ function Button({
   type?: "button" | "submit";
 }) {
   const base =
-    "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition active:scale-[0.99] disabled:cursor-not-allowed";
+    "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60";
   const styles =
     variant === "primary"
-      ? "bg-white text-neutral-950 hover:bg-neutral-200 disabled:bg-neutral-800 disabled:text-neutral-400"
+      ? "bg-[#eeba2b] text-neutral-950 hover:bg-[#f4c84f] shadow-[0_10px_30px_rgba(238,186,43,0.18)]"
       : variant === "secondary"
-        ? "bg-neutral-800 text-neutral-100 hover:bg-neutral-700 disabled:opacity-60"
-        : "bg-transparent text-neutral-200 hover:bg-neutral-800/60 disabled:opacity-50";
+        ? "border border-[#eeba2b]/20 bg-neutral-900 text-neutral-100 hover:border-[#eeba2b]/40 hover:bg-neutral-800"
+        : "bg-transparent text-neutral-300 hover:bg-neutral-900";
   return (
     <button
       type={type}
@@ -121,18 +119,30 @@ function Card({
   title,
   children,
   right,
+  accent = false,
 }: {
   title: string;
   children: React.ReactNode;
   right?: React.ReactNode;
+  accent?: boolean;
 }) {
   return (
-    <section className="rounded-2xl border border-neutral-800 bg-neutral-950/60 shadow-[0_0_0_1px_rgba(255,255,255,0.02)] backdrop-blur">
-      <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-4">
-        <h2 className="text-sm font-semibold text-neutral-100">{title}</h2>
+    <section
+      className={cn(
+        "overflow-hidden rounded-3xl border bg-neutral-950/70 backdrop-blur",
+        accent
+          ? "border-[#eeba2b]/20 shadow-[0_0_0_1px_rgba(238,186,43,0.06),0_18px_50px_rgba(0,0,0,0.28)]"
+          : "border-neutral-800 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
+      )}
+    >
+      <div className="flex items-center justify-between border-b border-white/6 px-6 py-5">
+        <div className="flex items-center gap-3">
+          <div className="h-2.5 w-2.5 rounded-full bg-[#eeba2b]" />
+          <h2 className="text-sm font-semibold text-neutral-100">{title}</h2>
+        </div>
         {right}
       </div>
-      <div className="p-5">{children}</div>
+      <div className="p-6">{children}</div>
     </section>
   );
 }
@@ -152,13 +162,15 @@ function TextArea({
 }) {
   return (
     <div className="space-y-2">
-      <div className="text-xs font-semibold text-neutral-300">{label}</div>
+      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+        {label}
+      </div>
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         rows={rows}
-        className="w-full rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none focus:border-neutral-600"
+        className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
       />
     </div>
   );
@@ -177,13 +189,72 @@ function Input({
 }) {
   return (
     <div className="space-y-2">
-      <div className="text-xs font-semibold text-neutral-300">{label}</div>
+      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+        {label}
+      </div>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none focus:border-neutral-600"
+        className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
       />
+    </div>
+  );
+}
+
+function FilePicker({
+  label,
+  accept,
+  onChange,
+  selectedName,
+  icon,
+}: {
+  label: string;
+  accept: string;
+  onChange: (file: File | null) => void;
+  selectedName?: string | null;
+  icon?: React.ReactNode;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  return (
+    <div className="space-y-2">
+      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+        {label}
+      </div>
+
+      <div className="flex flex-col gap-3 rounded-2xl border border-neutral-800 bg-neutral-900/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 text-[#eeba2b]">
+            {icon ?? <FileText size={18} />}
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-neutral-100">
+              {selectedName || "No file selected"}
+            </div>
+            <div className="truncate text-xs text-neutral-500">
+              Choose the file you want to attach to this delivery.
+            </div>
+          </div>
+        </div>
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept={accept}
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0] || null;
+            onChange(file);
+            e.currentTarget.value = "";
+          }}
+        />
+
+        <Button variant="secondary" onClick={() => inputRef.current?.click()}>
+          <Upload size={16} />
+          Select file
+        </Button>
+      </div>
     </div>
   );
 }
@@ -220,12 +291,15 @@ function Dropzone({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <div className="text-xs font-semibold text-neutral-300">{title}</div>
-          <div className="text-xs text-neutral-500">{subtitle}</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+            {title}
+          </div>
+          <div className="max-w-xl text-sm text-neutral-500">{subtitle}</div>
         </div>
+
         <div className="flex items-center gap-2">
           <input
             ref={inputRef}
@@ -239,11 +313,13 @@ function Dropzone({
             }}
           />
           <Button variant="secondary" onClick={() => inputRef.current?.click()}>
-            <Upload size={16} /> Upload
+            <Upload size={16} />
+            Upload
           </Button>
           {onClear ? (
             <Button variant="ghost" onClick={onClear}>
-              <X size={16} /> Clear
+              <X size={16} />
+              Clear
             </Button>
           ) : null}
         </div>
@@ -257,21 +333,19 @@ function Dropzone({
         onDrop={(e) => {
           void onDrop(e);
         }}
-        className="rounded-2xl border border-neutral-800 bg-neutral-900/30 p-4"
+        className="rounded-3xl border border-dashed border-[#eeba2b]/20 bg-neutral-900/30 p-5 transition hover:border-[#eeba2b]/35"
       >
-        <div className="flex items-center gap-3 text-neutral-300">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950">
+        <div className="flex items-center gap-4 text-neutral-300">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 text-[#eeba2b]">
             <ImageIcon size={18} />
           </div>
           <div className="text-sm">
-            <span className="font-semibold text-neutral-100">
-              Drag & drop
-            </span>{" "}
+            <span className="font-semibold text-neutral-100">Drag & drop</span>{" "}
             <span className="text-neutral-400">files here, or use Upload.</span>
           </div>
         </div>
 
-        {preview ? <div className="mt-4">{preview}</div> : null}
+        {preview ? <div className="mt-5">{preview}</div> : null}
       </div>
     </div>
   );
@@ -301,11 +375,11 @@ function SortableMockupCard({
     <div
       ref={setNodeRef}
       style={style}
-      className="group relative overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950"
+      className="group relative overflow-hidden rounded-3xl border border-neutral-800 bg-neutral-950/80"
     >
-      <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-full border border-neutral-800 bg-neutral-950/90 px-3 py-1 text-xs font-semibold text-neutral-100">
+      <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-full border border-[#eeba2b]/20 bg-neutral-950/90 px-3 py-1 text-xs font-semibold text-neutral-100">
         Pos {index + 1}
-        <span className="text-neutral-500 font-medium">drag</span>
+        <span className="font-medium text-[#eeba2b]">drag</span>
       </div>
 
       <button
@@ -324,15 +398,13 @@ function SortableMockupCard({
         <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
       </div>
 
-      <div className="space-y-2 p-3">
-        <div className="text-[11px] font-semibold text-neutral-300">Alt text</div>
+      <div className="space-y-3 p-4">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+          Alt text
+        </div>
         <div className="flex items-start gap-2">
-          <div className="min-h-[44px] flex-1 rounded-xl border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs text-neutral-100">
-            {item.altText ? (
-              item.altText
-            ) : (
-              <span className="text-neutral-500">—</span>
-            )}
+          <div className="min-h-[88px] flex-1 rounded-2xl border border-neutral-800 bg-neutral-900/70 px-3 py-3 text-xs leading-relaxed text-neutral-100 break-words whitespace-normal">
+            {item.altText ? item.altText : <span className="text-neutral-500">No alt text generated yet.</span>}
           </div>
           <Button variant="secondary" disabled={!item.altText} onClick={onCopyAlt}>
             <Copy size={16} />
@@ -343,39 +415,50 @@ function SortableMockupCard({
   );
 }
 
+function OutputBlock({
+  title,
+  subtitle,
+  action,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl border border-neutral-800 bg-neutral-950/80 p-5">
+      <SectionTitle title={title} subtitle={subtitle} right={action} />
+      <div className="mt-4">{children}</div>
+    </div>
+  );
+}
+
 export default function Page() {
   const [productType, setProductType] = useState<ProductType>("frame_tv_art");
-
   const [listingId, setListingId] = useState<string | null>(null);
 
-  // Design
   const [designFile, setDesignFile] = useState<File | null>(null);
   const [designPreview, setDesignPreview] = useState<string | null>(null);
   const [designR2Url, setDesignR2Url] = useState<string | null>(null);
 
-  // Keywords
   const [primaryKeywords, setPrimaryKeywords] = useState("");
   const [secondaryKeywords, setSecondaryKeywords] = useState("");
   const [contextInfo, setContextInfo] = useState("");
 
-  // Optional competitor (accordion)
   const [competitorsOpen, setCompetitorsOpen] = useState(false);
   const [competitorTitles, setCompetitorTitles] = useState("");
   const [competitorTags, setCompetitorTags] = useState("");
 
-  // Mockups
   const [mockups, setMockups] = useState<MediaItem[]>([]);
-  
-  // Deliverables
-  const [deliverables, setDeliverables] = useState<File[]>([])
-  const [instructionsFile, setInstructionsFile] = useState<File | null>(null)
-  
-  const [deliveryId, setDeliveryId] = useState<string | null>(null)
-  const [deliveryPdfUrl, setDeliveryPdfUrl] = useState<string | null>(null)
-  
-  const [deliveryLoading, setDeliveryLoading] = useState(false)
 
-  // Result
+  const [deliverables, setDeliverables] = useState<File[]>([]);
+  const [instructionsFile, setInstructionsFile] = useState<File | null>(null);
+
+  const [deliveryId, setDeliveryId] = useState<string | null>(null);
+  const [deliveryPdfUrl, setDeliveryPdfUrl] = useState<string | null>(null);
+  const [deliveryLoading, setDeliveryLoading] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -399,12 +482,10 @@ export default function Page() {
     setListingId(id);
     return id;
   }
-  
+
   function generateDeliveryId() {
-
-    const random = Math.random().toString(36).substring(2,6)
-
-    return `LBCreaStudio-${random}`
+    const random = Math.random().toString(36).substring(2, 6);
+    return `LBCreaStudio-${random}`;
   }
 
   async function uploadToR2(file: File, filename: string) {
@@ -595,150 +676,148 @@ export default function Page() {
       setLoading(false);
     }
   }
-  
+
   async function uploadDeliverables() {
-  
     if (!deliverables.length || !instructionsFile) {
-      alert("Upload design and instructions first")
-      return
+      alert("Upload design and instructions first");
+      return;
     }
-  
-    setDeliveryLoading(true)
-  
-    const id = generateDeliveryId()
-    setDeliveryId(id)
-  
-    const files = [
-      {file: deliverables[0], name:"design.png"},
-      {file: instructionsFile, name:"instructions.pdf"}
-    ]
-  
-    for (const f of files) {
-  
-      const formData = new FormData()
-  
-      formData.append("file", f.file)
-      formData.append("deliveryId", id)
-      formData.append("filename", f.name)
-  
-      await fetch("/api/upload/deliverable", {
-        method:"POST",
-        body:formData
-      })
+
+    setDeliveryLoading(true);
+
+    const id = generateDeliveryId();
+    setDeliveryId(id);
+
+    try {
+      const files = [
+        { file: deliverables[0], name: "design.png" },
+        { file: instructionsFile, name: "instructions.pdf" },
+      ];
+
+      for (const f of files) {
+        const formData = new FormData();
+        formData.append("file", f.file);
+        formData.append("deliveryId", id);
+        formData.append("filename", f.name);
+
+        await fetch("/api/upload/deliverable", {
+          method: "POST",
+          body: formData,
+        });
+      }
+
+      const res = await fetch("/api/generate/delivery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deliveryId: id }),
+      });
+
+      const data = await res.json();
+      setDeliveryPdfUrl(data.url);
+    } finally {
+      setDeliveryLoading(false);
     }
-  
-    const res = await fetch("/api/generate/delivery",{
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ deliveryId:id })
-    })
-  
-    const data = await res.json()
-  
-    setDeliveryPdfUrl(data.url)
-  
-    setDeliveryLoading(false)
   }
 
   return (
     <main className="min-h-screen bg-[#0b0f14] text-neutral-100">
-      <div className="mx-auto max-w-6xl px-6 py-4">
-        <div className="flex flex-col gap-2">
-          <div className="flex justify-center mb-6">
-            <Image
-              src="/logo-final.png"
-              alt="Autolisty"
-              width={300}
-              height={50}
-              priority
-            />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-neutral-50">
-            Generate Etsy SEO from your design + mockups
-          </h1>
-          <p className="text-sm text-neutral-400">
-            Product config comes from JSON. Images are bound by ID to guarantee
-            alt text is placed under the correct mockup.
+      <div className="mx-auto max-w-7xl px-5 py-5 sm:px-6 lg:px-8">
+        <div className="flex flex-col items-center gap-3 pb-8 pt-2 text-center">
+          <Image
+            src="/logo-final.png"
+            alt="Autolisty"
+            width={320}
+            height={70}
+            priority
+          />
+          <p className="max-w-2xl text-sm leading-relaxed text-neutral-400">
+            AI workflow for preparing optimized Etsy listings, organizing mockups,
+            and managing digital delivery assets in one place.
           </p>
+
           {listingId ? (
-            <p className="text-xs text-neutral-500">Draft ID: {listingId}</p>
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-3 py-1 text-xs font-medium text-[#f1cc61]">
+              <CheckCircle2 size={14} />
+              Draft ID: {listingId}
+            </div>
           ) : null}
         </div>
 
-        <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_420px]">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
           <div className="space-y-6">
             <Card
-              title="1) Product & Inputs"
+              title="Product & Inputs"
+              accent
               right={
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" onClick={resetAll} disabled={loading || uploading}>
-                    Reset
-                  </Button>
-                </div>
+                <Button variant="ghost" onClick={resetAll} disabled={loading || uploading}>
+                  Reset
+                </Button>
               }
             >
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,360px)]">
                 <div className="space-y-5">
                   <div className="space-y-2">
-                    <div className="text-xs font-semibold text-neutral-300">
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
                       Product type
                     </div>
                     <select
                       value={productType}
                       onChange={(e) => setProductType(e.target.value as ProductType)}
-                      className="w-full rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-3 text-sm text-neutral-100 outline-none focus:border-neutral-600"
+                      className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
                     >
                       <option value="frame_tv_art">Frame TV Art (Digital)</option>
                     </select>
                   </div>
 
                   <Input
-                    label="Primary keywords (priority)"
+                    label="Primary keywords"
                     value={primaryKeywords}
                     onChange={setPrimaryKeywords}
-                    placeholder='e.g. "golden daisies landscape, wild daisies, daisy meadow art"'
+                    placeholder="Enter your main keyword phrases"
                   />
+
                   <Input
-                    label="Secondary keywords (support)"
+                    label="Secondary keywords"
                     value={secondaryKeywords}
                     onChange={setSecondaryKeywords}
-                    placeholder='e.g. "neutral farmhouse decor, oil painting style, rustic wall art"'
+                    placeholder="Add supporting keyword phrases"
                   />
+
                   <Input
-                    label="Context (optional)"
+                    label="Context"
                     value={contextInfo}
                     onChange={setContextInfo}
-                    placeholder='e.g. "Warm neutral palette, vintage botanical look, living room mockups."'
+                    placeholder="Add any style or audience context"
                   />
                 </div>
 
                 <div className="space-y-5">
                   <Dropzone
                     title="Design image"
-                    subtitle="Drag & drop your design, or upload."
+                    subtitle="Upload the main artwork that should be analyzed for the listing."
                     accept="image/png,image/jpeg,image/webp"
                     multiple={false}
                     onPick={setDesign}
                     onClear={designFile ? clearDesign : undefined}
                     preview={
-                      <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-3">
+                      <div className="rounded-3xl border border-neutral-800 bg-neutral-950 p-4">
                         <div className="flex items-center justify-between">
-                          <div className="text-xs font-semibold text-neutral-300">
+                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
                             Preview
                           </div>
                           {designFile ? (
-                            <div className="text-xs text-neutral-500">
+                            <div className="max-w-[140px] truncate text-xs text-neutral-500">
                               {designFile.name}
                             </div>
                           ) : null}
                         </div>
 
-                        <div className="mt-3 flex min-h-[220px] items-center justify-center rounded-xl border border-neutral-800 bg-neutral-900/40">
+                        <div className="mt-4 flex min-h-[260px] items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-900/40">
                           {designPreview ? (
                             <img
                               src={designPreview}
                               alt="Design preview"
-                              className="max-h-[210px] w-auto rounded-lg border border-neutral-800"
+                              className="max-h-[240px] w-auto rounded-xl border border-neutral-800"
                             />
                           ) : (
                             <div className="text-sm text-neutral-500">
@@ -748,15 +827,15 @@ export default function Page() {
                         </div>
 
                         {designR2Url ? (
-                          <div className="mt-3 text-[11px] text-emerald-400">
-                            Uploaded to R2
+                          <div className="mt-3 text-[11px] font-medium uppercase tracking-[0.12em] text-[#f1cc61]">
+                            Uploaded successfully
                           </div>
                         ) : null}
                       </div>
                     }
                   />
 
-                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60">
+                  <div className="rounded-3xl border border-neutral-800 bg-neutral-950/60">
                     <button
                       onClick={() => setCompetitorsOpen((v) => !v)}
                       className="flex w-full items-center justify-between px-5 py-4"
@@ -775,22 +854,19 @@ export default function Page() {
 
                     {competitorsOpen ? (
                       <div className="border-t border-neutral-800 px-5 py-5">
-                        <div className="text-xs text-neutral-500">
-                          Only used if you fill these fields.
-                        </div>
-                        <div className="mt-4 grid grid-cols-1 gap-4">
+                        <div className="grid grid-cols-1 gap-4">
                           <TextArea
                             label="Competitor titles"
                             value={competitorTitles}
                             onChange={setCompetitorTitles}
-                            placeholder="Paste competitor titles (optional)"
+                            placeholder="Paste any competitor titles you want to reference"
                             rows={4}
                           />
                           <TextArea
                             label="Competitor tags"
                             value={competitorTags}
                             onChange={setCompetitorTags}
-                            placeholder="Paste competitor tags (optional)"
+                            placeholder="Paste any competitor tags you want to reference"
                             rows={4}
                           />
                         </div>
@@ -802,22 +878,21 @@ export default function Page() {
             </Card>
 
             <Card
-              title="2) Listing mockups"
+              title="Listing mockups"
+              accent
               right={
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={clearMockups}
-                    disabled={mockups.length === 0 || loading || uploading}
-                  >
-                    Clear mockups
-                  </Button>
-                </div>
+                <Button
+                  variant="secondary"
+                  onClick={clearMockups}
+                  disabled={mockups.length === 0 || loading || uploading}
+                >
+                  Clear mockups
+                </Button>
               }
             >
               <Dropzone
                 title="Mockup images"
-                subtitle="Drag & drop multiple images. Then reorder by dragging."
+                subtitle="Upload and reorder your listing mockups. This section uses the full available width for easier visual review."
                 accept="image/png,image/jpeg,image/webp"
                 multiple
                 onPick={addMockups}
@@ -827,13 +902,13 @@ export default function Page() {
                       No mockups uploaded yet.
                     </div>
                   ) : (
-                    <div className="mt-4">
+                    <div className="mt-5">
                       <DndContext
                         collisionDetection={closestCenter}
                         onDragEnd={handleDragEnd}
                       >
                         <SortableContext items={mockupIds} strategy={rectSortingStrategy}>
-                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
                             {mockups.map((m, idx) => (
                               <SortableMockupCard
                                 key={m.id}
@@ -854,66 +929,69 @@ export default function Page() {
                 }
               />
             </Card>
-			
-			<Card title="3) Deliverables">
-              <div className="space-y-4">
-            
-                <div>
-                  <div className="text-xs font-semibold text-neutral-300 mb-2">
-                    Final Design File
-                  </div>
-            
-                  <input
-                    type="file"
+
+            <Card title="Deliverables">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <FilePicker
+                    label="Final design file"
                     accept="image/png,image/jpeg"
-                    onChange={(e) => {
-                      if (!e.target.files) return
-                      setDeliverables([e.target.files[0]])
+                    selectedName={deliverables[0]?.name || null}
+                    icon={<ImageIcon size={18} />}
+                    onChange={(file) => {
+                      if (!file) return;
+                      setDeliverables([file]);
                     }}
                   />
-                </div>
-            
-                <div>
-                  <div className="text-xs font-semibold text-neutral-300 mb-2">
-                    Instructions PDF
-                  </div>
-            
-                  <input
-                    type="file"
+
+                  <FilePicker
+                    label="Instructions PDF"
                     accept="application/pdf"
-                    onChange={(e) => {
-                      if (!e.target.files) return
-                      setInstructionsFile(e.target.files[0])
+                    selectedName={instructionsFile?.name || null}
+                    icon={<FileText size={18} />}
+                    onChange={(file) => {
+                      setInstructionsFile(file);
                     }}
                   />
                 </div>
-            
-                <Button
-                  variant="primary"
-                  onClick={uploadDeliverables}
-                  disabled={deliveryLoading}
-                >
-                  {deliveryLoading ? "Generating..." : "Generate Delivery PDF"}
-                </Button>
-            
-                {deliveryPdfUrl && (
-                  <div className="text-sm text-green-400">
-                    Delivery ready:
-                    <a
-                      href={deliveryPdfUrl}
-                      target="_blank"
-                      className="underline ml-2"
-                    >
-                      Open PDF
-                    </a>
-                  </div>
-                )}
-            
+
+                <div className="xl:pb-1">
+                  <Button
+                    variant="primary"
+                    onClick={uploadDeliverables}
+                    disabled={deliveryLoading}
+                  >
+                    {deliveryLoading ? (
+                      <>
+                        <Loader2 className="animate-spin" size={16} />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <FileText size={16} />
+                        Generate Delivery PDF
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
+
+              {deliveryPdfUrl && (
+                <div className="mt-5 rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-4 py-3 text-sm text-[#f1cc61]">
+                  Delivery ready:
+                  <a
+                    href={deliveryPdfUrl}
+                    target="_blank"
+                    className="ml-2 font-semibold underline underline-offset-4"
+                  >
+                    Open PDF
+                  </a>
+                </div>
+              )}
             </Card>
 
             {uploading ? (
-              <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm text-blue-200">
+              <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-4 text-sm text-[#f1cc61]">
                 Uploading images to R2...
               </div>
             ) : null}
@@ -928,6 +1006,7 @@ export default function Page() {
           <div className="space-y-6">
             <Card
               title="Generate"
+              accent
               right={
                 <Button
                   variant="primary"
@@ -936,28 +1015,33 @@ export default function Page() {
                 >
                   {loading ? (
                     <>
-                      <Loader2 className="animate-spin" size={16} /> Generating...
+                      <Loader2 className="animate-spin" size={16} />
+                      Generating...
                     </>
                   ) : uploading ? (
                     <>
-                      <Loader2 className="animate-spin" size={16} /> Uploading...
+                      <Loader2 className="animate-spin" size={16} />
+                      Uploading...
                     </>
                   ) : (
                     <>
-                      <Sparkles size={16} /> Generate SEO
+                      <Sparkles size={16} />
+                      Generate SEO
                     </>
                   )}
                 </Button>
               }
             >
-              <div className="text-sm text-neutral-400">
-                Uses your product JSON config + design + mockups to generate:
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-neutral-500">
-                  <li>Short title (≤14 words)</li>
-                  <li>Long title (135–140 chars)</li>
-                  <li>13 tags (≤20 chars each)</li>
-                  <li>Description filled from template (KEYWORD_1..5)</li>
-                  <li>Alt text per mockup image (150–250 chars)</li>
+              <div className="space-y-3 text-sm text-neutral-400">
+                <p>
+                  Generate polished listing copy, tags, descriptions, and alt text
+                  based on your uploaded artwork and mockups.
+                </p>
+                <ul className="space-y-2 text-sm text-neutral-500">
+                  <li>• optimized short and long titles</li>
+                  <li>• structured Etsy tags</li>
+                  <li>• description-ready copy</li>
+                  <li>• alt text mapped to each mockup</li>
                 </ul>
               </div>
             </Card>
@@ -965,97 +1049,120 @@ export default function Page() {
             <Card title="Outputs">
               {!result ? (
                 <div className="text-sm text-neutral-500">
-                  Run “Generate SEO” to see outputs.
+                  Generate SEO to preview the final listing content.
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-4 space-y-3">
-                    <SectionTitle
-                      title="Titles"
-                      subtitle="Copy/paste into Etsy"
-                      right={
-                        <Button
-                          variant="secondary"
-                          onClick={() =>
-                            copyToClipboard(
-                              `${result.title_short_14_words}\n\n${result.title_long_135_140_chars}`
-                            )
-                          }
-                        >
-                          <Copy size={16} /> Copy both
-                        </Button>
-                      }
-                    />
-                    <div className="space-y-2">
-                      <div className="text-xs font-semibold text-neutral-300">
-                        Short title (≤14 words)
-                      </div>
-                      <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 text-sm text-neutral-100">
-                        {result.title_short_14_words}
-                      </div>
-                      <div className="text-xs font-semibold text-neutral-300">
-                        Long title (135–140 chars)
-                      </div>
-                      <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 text-sm text-neutral-100">
-                        {result.title_long_135_140_chars}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-4 space-y-3">
-                    <SectionTitle
-                      title="Tags"
-                      subtitle="13 tags, max 20 chars each"
-                      right={
-                        <Button
-                          variant="secondary"
-                          onClick={() => copyToClipboard(result.tags_13.join(", "))}
-                        >
-                          <Copy size={16} /> Copy tags
-                        </Button>
-                      }
-                    />
-                    <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 text-sm text-neutral-100">
-                      {result.tags_13.join(", ")}
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-4 space-y-3">
-                    <SectionTitle
-                      title="Description"
-                      subtitle="Generated from template + 5 keywords"
-                      right={
-                        <Button
-                          variant="secondary"
-                          onClick={() => copyToClipboard(result.description_final)}
-                        >
-                          <Copy size={16} /> Copy description
-                        </Button>
-                      }
-                    />
-                    <div className="space-y-2">
-                      <div className="text-xs font-semibold text-neutral-300">
-                        Keywords used (5)
-                      </div>
-                      <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 text-sm text-neutral-100">
-                        {result.description_keywords_5.join(", ")}
+                  <OutputBlock
+                    title="Titles"
+                    subtitle="Ready to copy into Etsy"
+                    action={
+                      <Button
+                        variant="secondary"
+                        onClick={() =>
+                          copyToClipboard(
+                            `${result.title_short_14_words}\n\n${result.title_long_135_140_chars}`
+                          )
+                        }
+                      >
+                        <Copy size={16} />
+                        Copy both
+                      </Button>
+                    }
+                  >
+                    <div className="space-y-3">
+                      <div>
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                          Short title
+                        </div>
+                        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm leading-relaxed text-neutral-100 break-words">
+                          {result.title_short_14_words}
+                        </div>
                       </div>
 
-                      <div className="text-xs font-semibold text-neutral-300">
-                        Full description
+                      <div>
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                          Long title
+                        </div>
+                        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm leading-relaxed text-neutral-100 break-words">
+                          {result.title_long_135_140_chars}
+                        </div>
                       </div>
-                      <pre className="whitespace-pre-wrap rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 text-sm text-neutral-100">
-                        {result.description_final}
-                      </pre>
                     </div>
-                  </div>
+                  </OutputBlock>
+
+                  <OutputBlock
+                    title="Tags"
+                    subtitle="Structured for Etsy"
+                    action={
+                      <Button
+                        variant="secondary"
+                        onClick={() => copyToClipboard(result.tags_13.join(", "))}
+                      >
+                        <Copy size={16} />
+                        Copy tags
+                      </Button>
+                    }
+                  >
+                    <div className="flex flex-wrap gap-2">
+                      {result.tags_13.map((tag, idx) => (
+                        <span
+                          key={`${tag}-${idx}`}
+                          className="rounded-full border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-3 py-1.5 text-xs font-medium text-[#f4d56d]"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </OutputBlock>
+
+                  <OutputBlock
+                    title="Description"
+                    subtitle="Ready-to-use listing copy"
+                    action={
+                      <Button
+                        variant="secondary"
+                        onClick={() => copyToClipboard(result.description_final)}
+                      >
+                        <Copy size={16} />
+                        Copy description
+                      </Button>
+                    }
+                  >
+                    <div className="space-y-4">
+                      <div>
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                          Keywords used
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {result.description_keywords_5.map((keyword, idx) => (
+                            <span
+                              key={`${keyword}-${idx}`}
+                              className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5 text-xs text-neutral-200"
+                            >
+                              {keyword}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                          Full description
+                        </div>
+                        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm leading-7 text-neutral-100 whitespace-pre-wrap break-words">
+                          {result.description_final}
+                        </div>
+                      </div>
+                    </div>
+                  </OutputBlock>
                 </div>
               )}
             </Card>
           </div>
         </div>
 
-        <div className="mt-10 text-xs text-neutral-600">
+        <div className="mt-12 border-t border-white/6 pt-6 text-center text-xs text-neutral-600">
           © 2026 Autolisty
         </div>
       </div>
