@@ -18,7 +18,7 @@ export async function generateDeliveryPdf(deliveryId: string) {
   const artworkLink = pdfDoc.context.obj({
     Type: "Annot",
     Subtype: "Link",
-    Rect: [140, 330, 460, 380],
+    Rect: [140, 360, 460, 470],
     Border: [0, 0, 0],
     A: {
       Type: "Action",
@@ -30,7 +30,7 @@ export async function generateDeliveryPdf(deliveryId: string) {
   const instructionsLink = pdfDoc.context.obj({
     Type: "Annot",
     Subtype: "Link",
-    Rect: [140, 180, 460, 230],
+    Rect: [140, 130, 460, 250],
     Border: [0, 0, 0],
     A: {
       Type: "Action",
