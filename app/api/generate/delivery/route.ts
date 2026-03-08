@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import fs from "fs"
 import { uploadDeliverable } from "@/lib/r2/uploadDeliverable"
-import { generateDeliveryPdf } from "@/lib/generateDeliveryPdf"
+import { generateDeliveryPdf } from "@/lib/r2/generateDeliveryPdf"
 
 export async function POST(req: Request) {
 
