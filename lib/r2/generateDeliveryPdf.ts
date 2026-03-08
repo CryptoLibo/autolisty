@@ -15,55 +15,45 @@ export async function generateDeliveryPdf(deliveryId: string) {
   const artworkUrl = `https://download.autolisty.com/artwork/${deliveryId}`
   const instructionsUrl = `https://download.autolisty.com/instructions/${deliveryId}`
 
-  // BOTÓN 1 — DOWNLOAD DESIGN
-  page.drawRectangle({
-    x: 140,
-    y: 300,
-    width: 320,
-    height: 80,
-    borderWidth: 0,
-    color: undefined,
-    opacity: 0
+  const artworkLink = pdfDoc.context.obj({
+    Type: "Annot",
+    Subtype: "Link",
+    Rect: [140, 300, 460, 380],
+    Border: [0, 0, 0],
+    A: {
+      Type: "Action",
+      S: "URI",
+      URI: artworkUrl
+    }
   })
 
-  page.doc.context.register(
-    page.doc.context.obj({
-      Type: "Annot",
-      Subtype: "Link",
-      Rect: [140, 300, 460, 380],
-      Border: [0, 0, 0],
-      A: {
-        Type: "Action",
-        S: "URI",
-        URI: artworkUrl
-      }
-    })
-  )
-
-  // BOTÓN 2 — DOWNLOAD GUIDE
-  page.drawRectangle({
-    x: 140,
-    y: 180,
-    width: 320,
-    height: 80,
-    borderWidth: 0,
-    color: undefined,
-    opacity: 0
+  const instructionsLink = pdfDoc.context.obj({
+    Type: "Annot",
+    Subtype: "Link",
+    Rect: [140, 180, 460, 260],
+    Border: [0, 0, 0],
+    A: {
+      Type: "Action",
+      S: "URI",
+      URI: instructionsUrl
+    }
   })
 
-  page.doc.context.register(
-    page.doc.context.obj({
-      Type: "Annot",
-      Subtype: "Link",
-      Rect: [140, 180, 460, 260],
-      Border: [0, 0, 0],
-      A: {
-        Type: "Action",
-        S: "URI",
-        URI: instructionsUrl
-      }
-    })
-  )
+  const artworkRef = pdfDoc.context.register(artworkLink)
+  const instructionsRef = pdfDoc.context.register(instructionsLink)
+
+  const annots = page.node.Annots()
+
+  if (annots) {
+    annots.push(artworkRef)
+    annots.push(instructionsRef)
+  } else {
+    page.node.set(
+      pdfDoc.context.obj({
+        Annots: [artworkRef, instructionsRef]
+      })
+    )
+  }
 
   const pdfBytes = await pdfDoc.save()
 
