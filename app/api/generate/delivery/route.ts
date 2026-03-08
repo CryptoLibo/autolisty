@@ -1,33 +1,24 @@
-import { generateDeliveryPdf } from "@/lib/r2/generateDeliveryPdf"
-import { PutObjectCommand } from "@aws-sdk/client-s3"
-import { r2 } from "@/lib/r2/client"
-
-const BUCKET = process.env.R2_BUCKET!
+import { NextResponse } from "next/server"
+import fs from "fs"
+import { uploadDeliverable } from "@/lib/r2/uploadDeliverable"
+import { generateDeliveryPdf } from "@/lib/generateDeliveryPdf"
 
 export async function POST(req: Request) {
 
   const { deliveryId } = await req.json()
 
-  const downloadUrl =
-    `${process.env.R2_PUBLIC_URL}/deliverables/${deliveryId}/`
+  const pdfPath = await generateDeliveryPdf(deliveryId)
 
-  const pdfBuffer = await generateDeliveryPdf({
+  const pdfBuffer = fs.readFileSync(pdfPath)
+
+  const upload = await uploadDeliverable({
+    fileBuffer: pdfBuffer,
+    contentType: "application/pdf",
     deliveryId,
-    downloadUrl,
+    filename: "delivery.pdf"
   })
 
-  const key = `delivery-pdfs/${deliveryId}.pdf`
-
-  const command = new PutObjectCommand({
-    Bucket: BUCKET,
-    Key: key,
-    Body: pdfBuffer,
-    ContentType: "application/pdf",
-  })
-
-  await r2.send(command)
-
-  return Response.json({
-    url: `${process.env.R2_PUBLIC_URL}/${key}`
+  return NextResponse.json({
+    url: upload.url
   })
 }

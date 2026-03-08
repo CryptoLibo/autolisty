@@ -371,6 +371,8 @@ export default function Page() {
   
   const [deliveryId, setDeliveryId] = useState<string | null>(null)
   const [deliveryPdfUrl, setDeliveryPdfUrl] = useState<string | null>(null)
+  
+  const [deliveryLoading, setDeliveryLoading] = useState(false)
 
   // Result
   const [loading, setLoading] = useState(false);
@@ -594,11 +596,13 @@ export default function Page() {
   }
   
   async function uploadDeliverables() {
-
+  
     if (!deliverables.length || !instructionsFile) {
       alert("Upload design and instructions first")
       return
     }
+  
+    setDeliveryLoading(true)
   
     const id = generateDeliveryId()
     setDeliveryId(id)
@@ -609,7 +613,7 @@ export default function Page() {
     ]
   
     for (const f of files) {
-
+  
       const formData = new FormData()
   
       formData.append("file", f.file)
@@ -620,8 +624,8 @@ export default function Page() {
         method:"POST",
         body:formData
       })
-  }
-
+    }
+  
     const res = await fetch("/api/generate/delivery",{
       method:"POST",
       headers:{ "Content-Type":"application/json" },
@@ -632,7 +636,7 @@ export default function Page() {
   
     setDeliveryPdfUrl(data.url)
   
-    alert("Delivery PDF generated")
+    setDeliveryLoading(false)
   }
 
   return (
@@ -883,8 +887,9 @@ export default function Page() {
                 <Button
                   variant="primary"
                   onClick={uploadDeliverables}
+                  disabled={deliveryLoading}
                 >
-                  Generate Delivery PDF
+                  {deliveryLoading ? "Generating..." : "Generate Delivery PDF"}
                 </Button>
             
                 {deliveryPdfUrl && (
