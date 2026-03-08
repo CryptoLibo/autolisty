@@ -10,6 +10,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import Image from "next/image"
 import {
   ChevronDown,
   Copy,
@@ -643,11 +644,14 @@ export default function Page() {
     <main className="min-h-screen bg-[#0b0f14] text-neutral-100">
       <div className="mx-auto max-w-6xl px-6 py-10">
         <div className="flex flex-col gap-2">
-          <div className="inline-flex items-center gap-2 text-sm text-neutral-400">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950">
-              <Sparkles size={16} />
-            </span>
-            Autolisty • Listing SEO Generator
+          <div className="flex items-center gap-3 text-sm text-neutral-400">
+            <Image
+              src="/logo.svg"
+              alt="Autolisty"
+              width={120}
+              height={28}
+              priority
+            />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-neutral-50">
             Generate Etsy SEO from your design + mockups
