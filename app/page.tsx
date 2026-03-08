@@ -642,14 +642,14 @@ export default function Page() {
 
   return (
     <main className="min-h-screen bg-[#0b0f14] text-neutral-100">
-      <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mx-auto max-w-6xl px-6 py-4">
         <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-3 text-sm text-neutral-400">
+          <div className="flex justify-center mb-6">
             <Image
               src="/logo.png"
               alt="Autolisty"
-              width={200}
-              height={28}
+              width={300}
+              height={50}
               priority
             />
           </div>
