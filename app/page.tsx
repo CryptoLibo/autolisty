@@ -646,7 +646,7 @@ export default function Page() {
         <div className="flex flex-col gap-2">
           <div className="flex justify-center mb-6">
             <Image
-              src="/logo.png"
+              src="/logo-final.png"
               alt="Autolisty"
               width={300}
               height={50}
@@ -1056,7 +1056,7 @@ export default function Page() {
         </div>
 
         <div className="mt-10 text-xs text-neutral-600">
-          Autolisty local • JSON-driven SEO generation • Prepared for future Etsy integration.
+          © 2026 Autolisty
         </div>
       </div>
     </main>
