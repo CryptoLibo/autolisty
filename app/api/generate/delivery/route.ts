@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { generateDeliveryPdf } from "@/lib/r2/generateDeliveryPdf"
-import { uploadDeliverable } from "@/lib/r2/uploadDeliverable"
+import { uploadDeliveryPdf } from "@/lib/r2/uploadDeliveryPdf"
 
 export async function POST(req: Request) {
 
@@ -8,10 +8,8 @@ export async function POST(req: Request) {
 
   const pdfBytes = await generateDeliveryPdf(deliveryId)
 
-  const upload = await uploadDeliverable({
+  const upload = await uploadDeliveryPdf({
     fileBuffer: pdfBytes,
-    contentType: "application/pdf",
-    deliveryId: "delivery-pdfs",
     filename: `${deliveryId}.pdf`
   })
 
