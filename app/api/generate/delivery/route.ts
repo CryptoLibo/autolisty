@@ -1,21 +1,18 @@
 import { NextResponse } from "next/server"
-import fs from "fs"
-import { uploadDeliverable } from "@/lib/r2/uploadDeliverable"
 import { generateDeliveryPdf } from "@/lib/r2/generateDeliveryPdf"
+import { uploadDeliverable } from "@/lib/r2/uploadDeliverable"
 
 export async function POST(req: Request) {
 
   const { deliveryId } = await req.json()
 
-  const pdfPath = await generateDeliveryPdf(deliveryId)
-
-  const pdfBuffer = fs.readFileSync(pdfPath)
+  const pdfBytes = await generateDeliveryPdf(deliveryId)
 
   const upload = await uploadDeliverable({
-    fileBuffer: pdfBuffer,
+    fileBuffer: pdfBytes,
     contentType: "application/pdf",
-    deliveryId,
-    filename: "delivery.pdf"
+    deliveryId: "delivery-pdfs",
+    filename: `${deliveryId}.pdf`
   })
 
   return NextResponse.json({

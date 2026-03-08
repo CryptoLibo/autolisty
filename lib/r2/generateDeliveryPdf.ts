@@ -57,18 +57,5 @@ export async function generateDeliveryPdf(deliveryId: string) {
 
   const pdfBytes = await pdfDoc.save()
 
-  const tmpDir = path.join(process.cwd(), "tmp")
-
-  if (!fs.existsSync(tmpDir)) {
-    fs.mkdirSync(tmpDir, { recursive: true })
-  }
-
-  const outputPath = path.join(
-    tmpDir,
-    `${deliveryId}-delivery.pdf`
-  )
-
-  fs.writeFileSync(outputPath, pdfBytes)
-
-  return outputPath
+  return pdfBytes
 }
