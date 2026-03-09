@@ -90,10 +90,7 @@ function normalizeKeywords5(list: any) {
     .map((x) => String(x || "").trim())
     .filter(Boolean)
     .map((x) => x.replace(/\s+/g, " "))
-    .filter((x) => {
-      const wc = x.split(" ").length
-      return wc >= 2
-    })
+    .filter((x) => x.split(" ").length >= 2)
 
   return clean.slice(0, 5)
 }
@@ -145,47 +142,35 @@ You are an elite Etsy SEO strategist specialized in digital wall art and Frame T
 
 Follow the product configuration strictly.
 
-You must analyze the listing using this framework:
+Analyze the product using:
 STYLE
 SUBJECT
 SCENE
 CONTEXT
 
 TITLE RULES
-- Short title must contain 13 to 14 words.
-- Long title must contain 135 to 140 characters.
-- Use Title Case.
-- Maintain this structure naturally:
-  PRIMARY KEYWORDS + Frame TV Art + SECONDARY KEYWORDS + (Digital Download)
-- "Frame TV Art" must remain present.
-- "(Digital Download)" must remain present.
-- Avoid filler words like cute, perfect, aesthetic, beautiful.
-- Titles must sound premium, natural, and conversion-oriented.
-- Use as many relevant words as possible without sounding spammy.
+- Short title must contain 13 to 14 words
+- Long title must contain 135 to 140 characters
+- Use Title Case
+- Maintain structure:
+PRIMARY KEYWORDS + Frame TV Art + SECONDARY KEYWORDS + (Digital Download)
 
 DESCRIPTION KEYWORDS
-- choose exactly 5 keyword phrases
-- KEYWORD_1 must be the strongest search-intent phrase
-- all keywords must be coherent with the listing
+- generate exactly 5
+- KEYWORD_1 must be the strongest search-intent keyword
 - each keyword must contain at least 2 words
-- keywords must feel natural, strong, and commercially useful
 
 TAGS
 - generate exactly 13 tags
-- each tag max 20 characters
-- use as much of the 20-character limit as possible when natural
-- use multi-word phrases when possible
-- avoid duplicates, redundant singular/plural variants, and weak filler terms
+- max 20 characters
+- avoid duplicates
 
 ALT TEXT
-- generate one unique alt text per mockup image
-- each alt text must contain 200 to 250 characters
-- describe exactly what is visible in the image
-- include composition, interior setting, colors, decor style, and artwork placement
-- naturally integrate listing keywords where relevant
-- do not use generic filler
-- do not repeat the same sentence structure across images
-- do not output keyword stuffing
+- 200 to 250 characters
+- describe exactly what is visible
+- include scene, decor context, colors, composition
+- integrate keywords naturally
+- each alt text must be unique
 
 Return ONLY valid JSON.
 `
@@ -212,21 +197,22 @@ ${competitorTitles}
 competitor_tags:
 ${competitorTags}
 
-Return JSON in exactly this shape:
+IMPORTANT:
+Use the exact mockup id provided.
+Do NOT invent, rename, omit, or reorder ids.
+Each uploaded mockup must appear exactly once.
+
+Return JSON:
 
 {
-  "title_short_14_words": "",
-  "title_long_135_140_chars": "",
-  "description_keywords_5": [],
-  "description_final": "",
-  "tags_13": [],
-  "media": [
-    {
-      "id": "",
-      "position": 0,
-      "alt_text": ""
-    }
-  ]
+"title_short_14_words": "",
+"title_long_135_140_chars": "",
+"description_keywords_5": [],
+"description_final": "",
+"tags_13": [],
+"media":[
+{id:"",position:0,alt_text:""}
+]
 }
 `
 
@@ -288,7 +274,9 @@ Return JSON in exactly this shape:
     const description = fillTemplate(descriptionTemplate, keywords5)
 
     const media = mockups.map((img: any) => {
-      const found = parsed.media.find((m: any) => m.position === img.position)
+      const foundById = parsed.media.find((m: any) => m.id === img.id)
+      const foundByPosition = parsed.media.find((m: any) => m.position === img.position)
+      const found = foundById || foundByPosition
 
       return {
         id: img.id,
@@ -309,8 +297,11 @@ Return JSON in exactly this shape:
     return new Response(JSON.stringify(output), {
       headers: { "Content-Type": "application/json" }
     })
+
   } catch (err: any) {
+
     console.error("API ERROR:", err)
+
     return new Response(err.message || "Server error", { status: 500 })
   }
 }
