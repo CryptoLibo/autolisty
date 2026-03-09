@@ -1,9 +1,12 @@
 import OpenAI from "openai"
+import fs from "fs"
+import path from "path"
 
 export const runtime = "nodejs"
+export const maxDuration = 180
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
 })
 
 function clampAltText(text: string, min = 200, max = 250) {
@@ -11,201 +14,303 @@ function clampAltText(text: string, min = 200, max = 250) {
 
   if (t.length > max) {
     t = t.slice(0, max)
-    const last = t.lastIndexOf(" ")
-    if (last > 120) t = t.slice(0, last)
-  }
-
-  if (t.length < min) {
-    t = t.padEnd(min, ".")
+    const lastSpace = t.lastIndexOf(" ")
+    if (lastSpace > 140) t = t.slice(0, lastSpace)
   }
 
   return t
 }
 
-function ensureShortTitleMaxWords(title: string) {
+function titleCase(input: string) {
+  const words = input.split(" ").filter(Boolean)
+
+  return words
+    .map((word) => {
+      if (word.toUpperCase() === "TV") return "TV"
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    })
+    .join(" ")
+}
+
+function ensureShortTitleWordRange(title: string, minWords = 13, maxWords = 14) {
   const words = title.split(/\s+/).filter(Boolean)
 
-  if (words.length > 14) {
-    return words.slice(0, 14).join(" ")
-  }
-
-  if (words.length < 13) {
-    return title
+  if (words.length > maxWords) {
+    return words.slice(0, maxWords).join(" ")
   }
 
   return title
 }
 
-function ensureLongTitleCharRange(title: string, min = 135, max = 140) {
+function ensureLongTitleCharRange(title: string, minChars = 135, maxChars = 140) {
   let t = title.trim()
 
-  if (t.length > max) {
-    t = t.slice(0, max)
-    const last = t.lastIndexOf(" ")
-    if (last > 120) t = t.slice(0, last)
+  if (t.length > maxChars) {
+    t = t.slice(0, maxChars)
+    const lastSpace = t.lastIndexOf(" ")
+    if (lastSpace > 90) t = t.slice(0, lastSpace)
   }
 
-  if (t.length < min) {
-    t = t + " Digital Download"
+  if (t.length < minChars) {
+    if (!t.toLowerCase().includes("(digital download)")) {
+      t += " (Digital Download)"
+    }
   }
+
+  if (t.length > maxChars) t = t.slice(0, maxChars)
 
   return t
 }
 
-function normalizeTags(tags: string[]) {
-  const out: string[] = []
+function normalizeTags(tags: any, maxTags = 13, maxChars = 20) {
+  const arr = Array.isArray(tags) ? tags : []
+
+  const clean = arr
+    .map((x) => String(x).trim())
+    .filter(Boolean)
+    .map((x) => x.slice(0, maxChars))
+
   const seen = new Set<string>()
+  const result: string[] = []
 
-  for (let t of tags) {
-    t = t.trim()
+  for (const tag of clean) {
+    const key = tag.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(tag)
+  }
 
-    if (t.length > 20) {
-      t = t.slice(0, 20)
-    }
+  return result.slice(0, maxTags)
+}
 
-    const key = t.toLowerCase()
+function normalizeKeywords5(list: any) {
+  const arr = Array.isArray(list) ? list : []
 
-    if (!seen.has(key) && t.length >= 3) {
-      seen.add(key)
-      out.push(t)
-    }
+  const clean = arr
+    .map((x) => String(x || "").trim())
+    .filter(Boolean)
+    .map((x) => x.replace(/\s+/g, " "))
+    .filter((x) => {
+      const wc = x.split(" ").length
+      return wc >= 2
+    })
 
-    if (out.length === 13) break
+  return clean.slice(0, 5)
+}
+
+function fillTemplate(template: string, keywords5: string[]) {
+  let out = template
+
+  for (let i = 0; i < 5; i++) {
+    const key = `KEYWORD_${i + 1}`
+    out = out.replaceAll(key, keywords5[i] || "")
   }
 
   return out
 }
 
-function normalizeKeywords5(list: string[]) {
-  const cleaned = list
-    .map((k) => k.trim())
-    .filter((k) => k.split(" ").length >= 2)
-
-  return cleaned.slice(0, 5)
-}
-
 export async function POST(req: Request) {
-  const body = await req.json()
+  try {
+    const body = await req.json()
 
-  const {
-    productType,
-    designUrl,
-    primaryKeywords,
-    secondaryKeywords,
-    contextInfo,
-    competitorTitles,
-    competitorTags,
-    mockups
-  } = body
+    const {
+      productType,
+      designUrl,
+      mockups,
+      primaryKeywords,
+      secondaryKeywords,
+      contextInfo,
+      competitorTitles,
+      competitorTags
+    } = body
 
-  const systemPrompt = `
-You are an elite Etsy SEO strategist specialized in digital wall art.
+    const configPath = path.join(
+      process.cwd(),
+      "product_configs",
+      `${productType}.json`
+    )
 
-Your goal is to create high-converting Etsy listings.
+    const productConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"))
 
-Always analyze images and keywords using this framework:
+    const templatePath = path.join(
+      process.cwd(),
+      "templates",
+      productConfig.description_rules.template_file
+    )
 
+    const descriptionTemplate = fs.readFileSync(templatePath, "utf-8")
+
+    const systemPrompt = `
+You are an elite Etsy SEO strategist specialized in digital wall art and Frame TV art.
+
+Follow the product configuration strictly.
+
+You must analyze the listing using this framework:
 STYLE
 SUBJECT
 SCENE
 CONTEXT
 
-The final SEO must sound natural and premium, not keyword spam.
-
-Rules:
-
-SHORT TITLE
-13–14 words exactly.
-
-LONG TITLE
-135–140 characters exactly.
-
-Structure:
-PRIMARY KEYWORDS + Frame TV Art + SECONDARY KEYWORDS + (Digital Download)
-
-ALT TEXT
-200–250 characters.
-
-Describe:
-- visual elements
-- composition
-- colors
-- environment
-- interior styling context
-
-Integrate listing keywords naturally.
-
-Never write generic filler.
+TITLE RULES
+- Short title must contain 13 to 14 words.
+- Long title must contain 135 to 140 characters.
+- Use Title Case.
+- Maintain this structure naturally:
+  PRIMARY KEYWORDS + Frame TV Art + SECONDARY KEYWORDS + (Digital Download)
+- "Frame TV Art" must remain present.
+- "(Digital Download)" must remain present.
+- Avoid filler words like cute, perfect, aesthetic, beautiful.
+- Titles must sound premium, natural, and conversion-oriented.
+- Use as many relevant words as possible without sounding spammy.
 
 DESCRIPTION KEYWORDS
-Generate 5 phrases.
-
-KEYWORD_1 must be strongest phrase and match main search intent.
-
-Each keyword must contain at least two words.
+- choose exactly 5 keyword phrases
+- KEYWORD_1 must be the strongest search-intent phrase
+- all keywords must be coherent with the listing
+- each keyword must contain at least 2 words
+- keywords must feel natural, strong, and commercially useful
 
 TAGS
-Generate exactly 13 Etsy tags.
+- generate exactly 13 tags
+- each tag max 20 characters
+- use as much of the 20-character limit as possible when natural
+- use multi-word phrases when possible
+- avoid duplicates, redundant singular/plural variants, and weak filler terms
 
-Max 20 characters each.
+ALT TEXT
+- generate one unique alt text per mockup image
+- each alt text must contain 200 to 250 characters
+- describe exactly what is visible in the image
+- include composition, interior setting, colors, decor style, and artwork placement
+- naturally integrate listing keywords where relevant
+- do not use generic filler
+- do not repeat the same sentence structure across images
+- do not output keyword stuffing
 
-Use multi-word phrases when possible.
-
-Avoid duplicates.
+Return ONLY valid JSON.
 `
 
-  const userPrompt = `
-PRIMARY KEYWORDS:
+    const userPrompt = `
+product_config:
+${JSON.stringify(productConfig)}
+
+description_template:
+${descriptionTemplate}
+
+primary_keywords:
 ${primaryKeywords}
 
-SECONDARY KEYWORDS:
+secondary_keywords:
 ${secondaryKeywords}
 
-CONTEXT:
+context:
 ${contextInfo}
 
-COMPETITOR TITLES:
+competitor_titles:
 ${competitorTitles}
 
-COMPETITOR TAGS:
+competitor_tags:
 ${competitorTags}
 
-MOCKUPS:
-${mockups.map((m: any) => m.url).join("\n")}
+Return JSON in exactly this shape:
+
+{
+  "title_short_14_words": "",
+  "title_long_135_140_chars": "",
+  "description_keywords_5": [],
+  "description_final": "",
+  "tags_13": [],
+  "media": [
+    {
+      "id": "",
+      "position": 0,
+      "alt_text": ""
+    }
+  ]
+}
 `
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
-    temperature: 0.6,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    response_format: { type: "json_object" }
-  })
+    const response = await client.responses.create({
+      model: "gpt-4o",
+      temperature: 0.6,
+      input: [
+        {
+          role: "system",
+          content: [{ type: "input_text", text: systemPrompt }]
+        },
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: userPrompt },
+            { type: "input_image", image_url: designUrl },
+            ...mockups.flatMap((img: any) => [
+              {
+                type: "input_text",
+                text: `MOCKUP position=${img.position} id=${img.id}`
+              },
+              {
+                type: "input_image",
+                image_url: img.url
+              }
+            ])
+          ]
+        }
+      ]
+    })
 
-  const data = JSON.parse(completion.choices[0].message.content || "{}")
+    const raw = response.output_text || ""
 
-  const shortTitle = ensureShortTitleMaxWords(data.title_short_14_words)
-  const longTitle = ensureLongTitleCharRange(data.title_long_135_140_chars)
+    const start = raw.indexOf("{")
+    const end = raw.lastIndexOf("}")
 
-  const tags = normalizeTags(data.tags_13 || [])
+    if (start === -1 || end === -1) {
+      throw new Error("Model did not return JSON")
+    }
 
-  const keywords = normalizeKeywords5(data.description_keywords_5 || [])
+    const parsed = JSON.parse(raw.slice(start, end + 1))
 
-  const media = (data.media || []).map((m: any) => ({
-    id: m.id,
-    position: m.position,
-    alt_text: clampAltText(m.alt_text)
-  }))
+    const shortTitle = ensureShortTitleWordRange(
+      titleCase(parsed.title_short_14_words),
+      13,
+      14
+    )
 
-  return Response.json({
-    product_name: data.product_name,
-    title_short_14_words: shortTitle,
-    title_long_135_140_chars: longTitle,
-    description_keywords_5: keywords,
-    description_final: data.description_final,
-    tags_13: tags,
-    media
-  })
+    const longTitle = ensureLongTitleCharRange(
+      titleCase(parsed.title_long_135_140_chars),
+      135,
+      140
+    )
+
+    const tags = normalizeTags(parsed.tags_13)
+
+    const keywords5 = normalizeKeywords5(parsed.description_keywords_5)
+
+    const description = fillTemplate(descriptionTemplate, keywords5)
+
+    const media = mockups.map((img: any) => {
+      const found = parsed.media.find((m: any) => m.position === img.position)
+
+      return {
+        id: img.id,
+        position: img.position,
+        alt_text: clampAltText(found?.alt_text || "")
+      }
+    })
+
+    const output = {
+      title_short_14_words: shortTitle,
+      title_long_135_140_chars: longTitle,
+      description_keywords_5: keywords5,
+      description_final: description,
+      tags_13: tags,
+      media
+    }
+
+    return new Response(JSON.stringify(output), {
+      headers: { "Content-Type": "application/json" }
+    })
+  } catch (err: any) {
+    console.error("API ERROR:", err)
+    return new Response(err.message || "Server error", { status: 500 })
+  }
 }
