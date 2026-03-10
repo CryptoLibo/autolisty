@@ -10,123 +10,75 @@
       "(Digital Download)"
     ],
 
-    "structure": [
-      "PRIMARY_KEYWORDS",
+    "allow_variations": [
       "Frame TV Art",
+      "Samsung Frame TV Art"
+    ],
+
+    "structure": [
+      "STYLE",
+      "SUBJECT",
+      "SECOND_SUBJECT",
+      "PRODUCT",
       ",",
-      "SECONDARY_KEYWORDS",
+      "DECOR_CONTEXT",
       "(Digital Download)"
     ],
 
-    "short_title": {
-      "max_words": 14,
-      "use_all_words": true,
+    "word_rules": {
+      "min_words": 13,
+      "max_words": 15,
       "avoid_word_repetition": true
-    },
-
-    "long_title": {
-      "max_characters": 140,
-      "min_characters": 135,
-      "avoid_word_repetition": true
-    },
-
-    "seo_rules": {
-      "prioritize_primary_keywords": true,
-      "avoid_filler_words": [
-        "beautiful",
-        "cute",
-        "aesthetic",
-        "perfect",
-        "gorgeous"
-      ]
-    }
-  },
-
-  "image_rules": {
-
-    "analysis": "visual_per_image",
-
-    "image_binding": {
-      "method": "id_mapping",
-      "return_format": "json",
-      "require_exact_id_match": true
-    },
-
-    "alt_text": {
-      "min_characters": 150,
-      "max_characters": 250,
-      "describe_visual_scene": true,
-      "include_keywords_naturally": true,
-      "avoid_keyword_lists": true,
-      "avoid_patterns": true,
-      "unique_per_image": true
-    }
-  },
-
-  "description_rules": {
-
-    "template_file": "frame_tv_description.txt",
-
-    "keyword_slots": 5,
-
-    "placeholder_format": [
-      "KEYWORD_1",
-      "KEYWORD_2",
-      "KEYWORD_3",
-      "KEYWORD_4",
-      "KEYWORD_5"
-    ],
-
-    "keyword_insertion": {
-      "natural_language": true,
-      "avoid_forced_insertion": true
     }
   },
 
   "tag_rules": {
-
     "max_tags": 13,
     "max_characters": 20,
 
-    "use_multi_word_phrases": true,
-    "avoid_duplicate_words": true,
-    "avoid_plural_variations": true,
-    "avoid_category_repetition": true,
-
-    "tag_sources": [
-      "primary_keywords",
-      "secondary_keywords",
-      "visual_analysis",
-      "style_keywords",
-      "decor_context"
-    ],
-
-    "generation_rules": {
-      "unique_per_listing": true,
-      "avoid_fixed_patterns": true,
-      "reflect_design_characteristics": true
+    "semantic_distribution": {
+      "product_type": 3,
+      "style": 3,
+      "subject": 3,
+      "decor_context": 2,
+      "digital_format": 2
     }
   },
 
-  "input_context": {
+  "description_rules": {
+    "template_file": "frame_tv_description.txt",
 
-    "primary_keywords": "required",
-    "secondary_keywords": "required",
-    "design_context": "optional",
-    "design_image": "required",
-    "mockup_images": "required"
+    "keyword_slots": 5,
+
+    "roles": {
+      "KEYWORD_1": "main_search_phrase",
+      "KEYWORD_2": "artwork_phrase",
+      "KEYWORD_3": "style_phrase",
+      "KEYWORD_4": "decor_intent",
+      "KEYWORD_5": "digital_art_phrase"
+    }
   },
 
-  "ai_instructions": {
+  "image_rules": {
+    "analysis": "visual_per_image",
 
-    "analyze_design_image": true,
+    "alt_text": {
+      "min_characters": 200,
+      "max_characters": 250,
 
-    "analyze_each_mockup_image": true,
+      "structure": [
+        "visual_description",
+        "art_style",
+        "product_keyword",
+        "optional_decor_context"
+      ],
 
-    "prioritize_primary_keywords": true,
-
-    "use_secondary_keywords_for_semantic_expansion": true,
-
-    "ensure_all_outputs_follow_product_configuration": true
+      "image_types": [
+        "mockup",
+        "closeup",
+        "informational",
+        "promotional"
+      ]
+    }
   }
 }

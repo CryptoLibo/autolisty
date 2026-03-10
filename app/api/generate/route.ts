@@ -10,7 +10,7 @@ const client = new OpenAI({
 })
 
 function clampAltText(text: string, min = 200, max = 250) {
-  let t = (text || "").replace(/\s+/g, " ").trim()
+  let t = String(text || "").replace(/\s+/g, " ").trim()
 
   if (t.length > max) {
     t = t.slice(0, max)
@@ -18,48 +18,159 @@ function clampAltText(text: string, min = 200, max = 250) {
     if (lastSpace > 140) t = t.slice(0, lastSpace)
   }
 
+  if (t.length < min) {
+    return t
+  }
+
   return t
 }
 
 function titleCase(input: string) {
-  const words = input.split(" ").filter(Boolean)
-
-  return words
+  return String(input || "")
+    .split(/\s+/)
+    .filter(Boolean)
     .map((word) => {
-      if (word.toUpperCase() === "TV") return "TV"
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+      const clean = word.trim()
+
+      if (!clean) return clean
+
+      const upper = clean.toUpperCase()
+
+      if (upper === "TV") return "TV"
+      if (upper === "AI") return "AI"
+
+      if (clean.startsWith("(") && clean.endsWith(")")) {
+        const inner = clean.slice(1, -1)
+        if (inner.toUpperCase() === "DIGITAL DOWNLOAD") {
+          return "(Digital Download)"
+        }
+      }
+
+      if (clean.includes("-")) {
+        return clean
+          .split("-")
+          .map((part) => {
+            if (!part) return part
+            if (part.toUpperCase() === "TV") return "TV"
+            return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+          })
+          .join("-")
+      }
+
+      return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase()
     })
     .join(" ")
 }
 
-function ensureShortTitleWordRange(title: string, minWords = 13, maxWords = 14) {
-  const words = title.split(/\s+/).filter(Boolean)
+function dedupeWordRoots(words: string[]) {
+  const seen = new Set<string>()
+  const result: string[] = []
 
-  if (words.length > maxWords) {
-    return words.slice(0, maxWords).join(" ")
+  for (const word of words) {
+    const root = word
+      .toLowerCase()
+      .replace(/[(),]/g, "")
+      .replace(/'s$/i, "")
+      .replace(/s$/i, "")
+
+    if (!root) continue
+
+    if (root === "and" || root === "for" || root === "with") {
+      result.push(word)
+      continue
+    }
+
+    if (seen.has(root)) continue
+    seen.add(root)
+    result.push(word)
   }
 
-  return title
+  return result
 }
 
-function ensureLongTitleCharRange(title: string, minChars = 135, maxChars = 140) {
-  let t = title.trim()
+function normalizeTitle(rawTitle: any, minWords = 13, maxWords = 15) {
+  let title = String(rawTitle || "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+,/g, ",")
+    .trim()
 
-  if (t.length > maxChars) {
-    t = t.slice(0, maxChars)
-    const lastSpace = t.lastIndexOf(" ")
-    if (lastSpace > 90) t = t.slice(0, lastSpace)
+  if (!title) return ""
+
+  title = titleCase(title)
+
+  if (!/\(Digital Download\)$/i.test(title)) {
+    title = title.replace(/\s*\(?Digital Download\)?$/i, "").trim()
+    title += " (Digital Download)"
   }
 
-  if (t.length < minChars) {
-    if (!t.toLowerCase().includes("(digital download)")) {
-      t += " (Digital Download)"
-    }
+  const hasSamsungVariant = /Samsung Frame TV Art/i.test(title)
+  const hasFrameVariant = /Frame TV Art/i.test(title)
+
+  if (!hasSamsungVariant && !hasFrameVariant) {
+    title = `${title.replace(/\s*\(Digital Download\)$/i, "").trim()} Frame TV Art, (Digital Download)`.trim()
   }
 
-  if (t.length > maxChars) t = t.slice(0, maxChars)
+  title = title.replace(/\s+/g, " ").trim()
 
-  return t
+  const digitalSuffix = "(Digital Download)"
+  const withoutSuffix = title.replace(/\s*\(Digital Download\)$/i, "").trim()
+
+  let prefix = withoutSuffix
+  if (prefix.includes(",")) {
+    const firstComma = prefix.indexOf(",")
+    const before = prefix.slice(0, firstComma).trim()
+    const after = prefix.slice(firstComma + 1).replace(/,/g, "").trim()
+    prefix = `${before}, ${after}`.trim()
+  } else if (/Frame TV Art/i.test(prefix)) {
+    prefix = prefix.replace(
+      /(Samsung Frame TV Art|Frame TV Art)/i,
+      (match) => `${match},`
+    )
+  }
+
+  prefix = prefix.replace(/,+/g, ",").replace(/\s+,/g, ",").replace(/,\s*,/g, ",")
+  prefix = prefix.replace(/,\s*$/, "").trim()
+
+  let words = prefix.split(/\s+/).filter(Boolean)
+  words = dedupeWordRoots(words)
+
+  if (words.length > maxWords - 2) {
+    words = words.slice(0, maxWords - 2)
+  }
+
+  let normalized = `${words.join(" ")} ${digitalSuffix}`.replace(/\s+/g, " ").trim()
+
+  const commaCount = (normalized.match(/,/g) || []).length
+  if (commaCount === 0) {
+    normalized = normalized.replace(
+      /(Samsung Frame TV Art|Frame TV Art)/i,
+      (match) => `${match},`
+    )
+  } else if (commaCount > 1) {
+    let usedComma = false
+    normalized = normalized.replace(/,/g, () => {
+      if (usedComma) return ""
+      usedComma = true
+      return ","
+    })
+    normalized = normalized.replace(/\s+/g, " ").replace(/\s+,/g, ",").trim()
+  }
+
+  normalized = normalized.replace(/\s+\(Digital Download\)$/i, " (Digital Download)")
+  normalized = normalized.replace(/\s+/g, " ").trim()
+
+  const finalWords = normalized
+    .replace(/[(),]/g, "")
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (finalWords.length > maxWords) {
+    const parts = normalized.replace(/\s*\(Digital Download\)$/i, "").trim().split(/\s+/)
+    const allowed = Math.max(minWords, maxWords - 2)
+    normalized = `${parts.slice(0, allowed).join(" ")} (Digital Download)`.replace(/\s+/g, " ").trim()
+  }
+
+  return normalized
 }
 
 function normalizeTags(tags: any, maxTags = 13, maxChars = 20) {
@@ -68,6 +179,7 @@ function normalizeTags(tags: any, maxTags = 13, maxChars = 20) {
   const clean = arr
     .map((x) => String(x).trim())
     .filter(Boolean)
+    .map((x) => x.replace(/\s+/g, " "))
     .map((x) => x.slice(0, maxChars))
 
   const seen = new Set<string>()
@@ -91,8 +203,9 @@ function normalizeKeywords5(list: any) {
     .filter(Boolean)
     .map((x) => x.replace(/\s+/g, " "))
     .filter((x) => x.split(" ").length >= 2)
+    .slice(0, 5)
 
-  return clean.slice(0, 5)
+  return clean
 }
 
 function fillTemplate(template: string, keywords5: string[]) {
@@ -138,41 +251,80 @@ export async function POST(req: Request) {
     const descriptionTemplate = fs.readFileSync(templatePath, "utf-8")
 
     const systemPrompt = `
-You are an elite Etsy SEO strategist specialized in digital wall art and Frame TV art.
+You are an elite Etsy SEO strategist specialized in Samsung Frame TV digital art listings.
 
-Follow the product configuration strictly.
+Your job is to generate optimized Etsy SEO content using:
+- user keywords
+- style keywords
+- visual analysis of the artwork
+- visual analysis of each uploaded image
 
-Analyze the product using:
-STYLE
-SUBJECT
-SCENE
-CONTEXT
+First analyze the design image and identify:
+- STYLE
+- MAIN SUBJECT
+- SECONDARY SUBJECT
+- ART CATEGORY
+- DECOR CONTEXT
+- MOOD
+
+Then generate Etsy SEO output.
 
 TITLE RULES
-- Short title must contain 13 to 14 words
-- Long title must contain 135 to 140 characters
-- Use Title Case
-- Maintain structure:
-PRIMARY KEYWORDS + Frame TV Art + SECONDARY KEYWORDS + (Digital Download)
+- Generate ONE title only
+- Title must contain 13 to 15 words total
+- Use Title Case so every word starts with a capital letter
+- Avoid repeated word roots and filler words
+- Use exactly ONE comma
+- The comma must appear immediately after "Frame TV Art" or "Samsung Frame TV Art"
+- The title must always end with "(Digital Download)"
+- Prefer strong keyword coverage without making the title look stuffed
+- Structure:
+  STYLE + SUBJECT + SECOND SUBJECT + PRODUCT, DECOR CONTEXT (Digital Download)
+- PRODUCT can be either "Frame TV Art" or "Samsung Frame TV Art"
 
-DESCRIPTION KEYWORDS
-- generate exactly 5
-- KEYWORD_1 must be the strongest search-intent keyword
-- each keyword must contain at least 2 words
+TAG RULES
+- Generate exactly 13 tags
+- Each tag must be max 20 characters
+- Prefer multi-word phrases
+- Avoid duplicates
+- Avoid excessive reuse of the same root word
+- Distribute tags across semantic categories:
+  3 product type
+  3 style
+  3 subject
+  2 decor context
+  2 digital format
 
-TAGS
-- generate exactly 13 tags
-- max 20 characters
-- avoid duplicates
+DESCRIPTION KEYWORDS RULES
+- Generate exactly 5 keyword phrases
+- Each phrase must contain 2 to 4 words
+- The phrases must fit naturally inside the provided description template
+- Use these roles:
+  KEYWORD_1 = main search phrase
+  KEYWORD_2 = artwork phrase
+  KEYWORD_3 = visual style phrase
+  KEYWORD_4 = decor intent phrase
+  KEYWORD_5 = digital art phrase
 
-ALT TEXT
-- 200 to 250 characters
-- describe exactly what is visible
-- include scene, decor context, colors, composition
-- integrate keywords naturally
-- each alt text must be unique
+ALT TEXT RULES
+- Generate alt text for each uploaded image
+- First identify the image type:
+  mockup
+  close-up
+  informational
+  promotional
+- Then describe what is visually shown in the image
+- Integrate product keywords naturally only when relevant
+- Do not force the same keyword pattern into every image
+- If an image is informational or promotional, describe its content accurately instead of inventing decor context
+- Each alt text must be unique
+- Each alt text must be 200 to 250 characters
+- Describe exactly what is visible, including distance, framing, room scene, close-up details, informational content, offer banners, or compatibility graphics when present
 
-Return ONLY valid JSON.
+OUTPUT
+- Return ONLY valid JSON
+- Do not add markdown
+- Do not add commentary
 `
 
     const userPrompt = `
@@ -197,28 +349,28 @@ ${competitorTitles}
 competitor_tags:
 ${competitorTags}
 
-IMPORTANT:
-Use the exact mockup id provided.
-Do NOT invent, rename, omit, or reorder ids.
-Each uploaded mockup must appear exactly once.
+IMPORTANT IMAGE MAPPING RULES:
+- Use the exact mockup id provided
+- Do NOT invent, rename, omit, or reorder ids
+- Each uploaded image must appear exactly once in media
+- Keep the exact position value provided for each image
 
-Return JSON:
+Return JSON in this exact shape:
 
 {
-"title_short_14_words": "",
-"title_long_135_140_chars": "",
-"description_keywords_5": [],
-"description_final": "",
-"tags_13": [],
-"media":[
-{id:"",position:0,alt_text:""}
-]
+  "title": "",
+  "description_keywords_5": [],
+  "description_final": "",
+  "tags_13": [],
+  "media": [
+    { "id": "", "position": 0, "alt_text": "" }
+  ]
 }
 `
 
     const response = await client.responses.create({
       model: "gpt-4o",
-      temperature: 0.6,
+      temperature: 0.25,
       input: [
         {
           role: "system",
@@ -228,11 +380,12 @@ Return JSON:
           role: "user",
           content: [
             { type: "input_text", text: userPrompt },
+            { type: "input_text", text: "DESIGN IMAGE" },
             { type: "input_image", image_url: designUrl },
             ...mockups.flatMap((img: any) => [
               {
                 type: "input_text",
-                text: `MOCKUP position=${img.position} id=${img.id}`
+                text: `LISTING IMAGE position=${img.position} id=${img.id}`
               },
               {
                 type: "input_image",
@@ -255,27 +408,16 @@ Return JSON:
 
     const parsed = JSON.parse(raw.slice(start, end + 1))
 
-    const shortTitle = ensureShortTitleWordRange(
-      titleCase(parsed.title_short_14_words),
-      13,
-      14
-    )
-
-    const longTitle = ensureLongTitleCharRange(
-      titleCase(parsed.title_long_135_140_chars),
-      135,
-      140
-    )
-
+    const title = normalizeTitle(parsed.title, 13, 15)
     const tags = normalizeTags(parsed.tags_13)
-
     const keywords5 = normalizeKeywords5(parsed.description_keywords_5)
-
     const description = fillTemplate(descriptionTemplate, keywords5)
 
+    const parsedMedia = Array.isArray(parsed.media) ? parsed.media : []
+
     const media = mockups.map((img: any) => {
-      const foundById = parsed.media.find((m: any) => m.id === img.id)
-      const foundByPosition = parsed.media.find((m: any) => m.position === img.position)
+      const foundById = parsedMedia.find((m: any) => m.id === img.id)
+      const foundByPosition = parsedMedia.find((m: any) => m.position === img.position)
       const found = foundById || foundByPosition
 
       return {
@@ -286,8 +428,7 @@ Return JSON:
     })
 
     const output = {
-      title_short_14_words: shortTitle,
-      title_long_135_140_chars: longTitle,
+      title,
       description_keywords_5: keywords5,
       description_final: description,
       tags_13: tags,
@@ -297,9 +438,7 @@ Return JSON:
     return new Response(JSON.stringify(output), {
       headers: { "Content-Type": "application/json" }
     })
-
   } catch (err: any) {
-
     console.error("API ERROR:", err)
 
     return new Response(err.message || "Server error", { status: 500 })

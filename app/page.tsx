@@ -35,8 +35,7 @@ type MediaItem = {
 
 type SeoResult = {
   product_name?: string;
-  title_short_14_words: string;
-  title_long_135_140_chars: string;
+  title: string;
   description_keywords_5: string[];
   description_final: string;
   tags_13: string[];
@@ -770,17 +769,17 @@ export default function Page() {
                   </div>
 
                   <Input
-                    label="Primary keywords"
+                    label="Core keywords"
                     value={primaryKeywords}
                     onChange={setPrimaryKeywords}
-                    placeholder="Enter your main keyword phrases"
+                    placeholder="Enter the main keyword phrases describing the artwork"
                   />
 
                   <Input
-                    label="Secondary keywords"
+                    label="Style keywords"
                     value={secondaryKeywords}
                     onChange={setSecondaryKeywords}
-                    placeholder="Add supporting keyword phrases"
+                    placeholder="Enter artistic style or visual attributes"
                   />
 
                   <Input
@@ -1038,7 +1037,7 @@ export default function Page() {
                   based on your uploaded artwork and mockups.
                 </p>
                 <ul className="space-y-2 text-sm text-neutral-500">
-                  <li>• optimized short and long titles</li>
+                  <li>• optimized Etsy title</li>
                   <li>• structured Etsy tags</li>
                   <li>• description-ready copy</li>
                   <li>• alt text mapped to each mockup</li>
@@ -1059,34 +1058,20 @@ export default function Page() {
                     action={
                       <Button
                         variant="secondary"
-                        onClick={() =>
-                          copyToClipboard(
-                            `${result.title_short_14_words}\n\n${result.title_long_135_140_chars}`
-                          )
-                        }
+                        onClick={() => copyToClipboard(result.title)}
                       >
                         <Copy size={16} />
-                        Copy both
+                        Copy title
                       </Button>
                     }
                   >
-                    <div className="space-y-3">
-                      <div>
-                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
-                          Short title
-                        </div>
-                        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm leading-relaxed text-neutral-100 break-words">
-                          {result.title_short_14_words}
-                        </div>
+                    <div>
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                        Title
                       </div>
-
-                      <div>
-                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
-                          Long title
-                        </div>
-                        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm leading-relaxed text-neutral-100 break-words">
-                          {result.title_long_135_140_chars}
-                        </div>
+                    
+                      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm leading-relaxed text-neutral-100 break-words">
+                        {result.title}
                       </div>
                     </div>
                   </OutputBlock>
