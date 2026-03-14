@@ -11,6 +11,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Copy,
   Image as ImageIcon,
@@ -328,6 +329,7 @@ function Dropzone({
               Clear
             </Button>
           ) : null}
+        </div>
         </div>
       </div>
 
@@ -1053,6 +1055,66 @@ export default function Page() {
               />
             </Card>
 
+            <Card title="Deliverables">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <FilePicker
+                    label="Final design file"
+                    accept="image/png,image/jpeg"
+                    selectedName={deliverables[0]?.name || null}
+                    icon={<ImageIcon size={18} />}
+                    onChange={(file) => {
+                      if (!file) return;
+                      setDeliverables([file]);
+                    }}
+                  />
+
+                  <FilePicker
+                    label="Instructions PDF"
+                    accept="application/pdf"
+                    selectedName={instructionsFile?.name || null}
+                    icon={<FileText size={18} />}
+                    onChange={(file) => {
+                      setInstructionsFile(file);
+                    }}
+                  />
+                </div>
+
+                <div className="xl:pb-1">
+                  <Button
+                    variant="primary"
+                    onClick={uploadDeliverables}
+                    disabled={deliveryLoading}
+                  >
+                    {deliveryLoading ? (
+                      <>
+                        <Loader2 className="animate-spin" size={16} />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <FileText size={16} />
+                        Generate Delivery PDF
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {deliveryPdfUrl && (
+                <div className="mt-5 rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-4 py-3 text-sm text-[#f1cc61]">
+                  Delivery ready:
+                  <a
+                    href={deliveryPdfUrl}
+                    target="_blank"
+                    className="ml-2 font-semibold underline underline-offset-4"
+                  >
+                    Open PDF
+                  </a>
+                </div>
+              )}
+            </Card>
+
             <Card
               title="Pinterest"
               accent
@@ -1162,66 +1224,6 @@ export default function Page() {
                   </Button>
                 </div>
               </div>
-            </Card>
-
-            <Card title="Deliverables">
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <FilePicker
-                    label="Final design file"
-                    accept="image/png,image/jpeg"
-                    selectedName={deliverables[0]?.name || null}
-                    icon={<ImageIcon size={18} />}
-                    onChange={(file) => {
-                      if (!file) return;
-                      setDeliverables([file]);
-                    }}
-                  />
-
-                  <FilePicker
-                    label="Instructions PDF"
-                    accept="application/pdf"
-                    selectedName={instructionsFile?.name || null}
-                    icon={<FileText size={18} />}
-                    onChange={(file) => {
-                      setInstructionsFile(file);
-                    }}
-                  />
-                </div>
-
-                <div className="xl:pb-1">
-                  <Button
-                    variant="primary"
-                    onClick={uploadDeliverables}
-                    disabled={deliveryLoading}
-                  >
-                    {deliveryLoading ? (
-                      <>
-                        <Loader2 className="animate-spin" size={16} />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <FileText size={16} />
-                        Generate Delivery PDF
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-
-              {deliveryPdfUrl && (
-                <div className="mt-5 rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-4 py-3 text-sm text-[#f1cc61]">
-                  Delivery ready:
-                  <a
-                    href={deliveryPdfUrl}
-                    target="_blank"
-                    className="ml-2 font-semibold underline underline-offset-4"
-                  >
-                    Open PDF
-                  </a>
-                </div>
-              )}
             </Card>
 
             {uploading ? (
@@ -1465,6 +1467,15 @@ export default function Page() {
         </div>
 
         <div className="mt-12 border-t border-white/6 pt-6 text-center text-xs text-neutral-600">
+          <div className="flex flex-wrap items-center justify-center gap-4 text-neutral-500">
+            <Link href="/privacy-policy" className="transition hover:text-neutral-300">
+              Privacy Policy
+            </Link>
+            <Link href="/terms-of-use" className="transition hover:text-neutral-300">
+              Terms of Use
+            </Link>
+          </div>
+          <div className="mt-3">
           © 2026 Autolisty
         </div>
       </div>
