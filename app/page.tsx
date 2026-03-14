@@ -32,6 +32,15 @@ type MediaItem = {
   altText?: string;
 };
 
+type PinterestItem = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  r2Url?: string;
+  title?: string;
+  description?: string;
+};
+
 type SeoResult = {
   product_name?: string;
   title: string;
@@ -442,6 +451,9 @@ export default function Page() {
   const [midjourneyPrompt, setMidjourneyPrompt] = useState("");
 
   const [mockups, setMockups] = useState<MediaItem[]>([]);
+  const [pinterestImages, setPinterestImages] = useState<PinterestItem[]>([]);
+  const [pinterestLink, setPinterestLink] = useState("");
+  const [pinterestLoading, setPinterestLoading] = useState(false);
 
   const [deliverables, setDeliverables] = useState<File[]>([]);
   const [instructionsFile, setInstructionsFile] = useState<File | null>(null);
@@ -523,6 +535,27 @@ export default function Page() {
     if (!res.ok) {
       const txt = await res.text();
       throw new Error(txt || "Upload failed");
+    }
+
+    return (await res.json()) as { key: string; url: string };
+  }
+
+  async function uploadPinterestToR2(file: File, filename: string) {
+    const id = ensureListingId();
+
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("listingId", id);
+    fd.append("filename", filename);
+
+    const res = await fetch("/api/upload/pinterest", {
+      method: "POST",
+      body: fd,
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || "Pinterest upload failed");
     }
 
     return (await res.json()) as { key: string; url: string };
@@ -611,11 +644,51 @@ export default function Page() {
     setMockups([]);
   }
 
+  async function addPinterestImages(files: File[]) {
+    if (files.length === 0) return;
+
+    setError(null);
+    setUploading(true);
+
+    try {
+      const startIndex = pinterestImages.length;
+      const items: PinterestItem[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        if (!f.type.startsWith("image/")) continue;
+
+        const ext = getFileExtension(f, "jpg");
+        const upload = await uploadPinterestToR2(f, `pin-${startIndex + i + 1}.${ext}`);
+
+        items.push({
+          id: uid(),
+          file: f,
+          previewUrl: URL.createObjectURL(f),
+          r2Url: upload.url,
+        });
+      }
+
+      setPinterestImages((prev) => [...prev, ...items]);
+    } catch (e: any) {
+      setError(e?.message || "Failed to upload Pinterest images");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function clearPinterestImages() {
+    for (const item of pinterestImages) URL.revokeObjectURL(item.previewUrl);
+    setPinterestImages([]);
+  }
+
   function resetAll() {
     clearDesign();
     clearMockups();
+    clearPinterestImages();
     setListingId(null);
     setMidjourneyPrompt("");
+    setPinterestLink("");
     setDeliverables([]);
     setInstructionsFile(null);
     setDeliveryPdfUrl(null);
@@ -743,6 +816,65 @@ export default function Page() {
       setError(e?.message || "Failed to prepare delivery assets");
     } finally {
       setDeliveryLoading(false);
+    }
+  }
+
+  async function generatePinterestCopy() {
+    if (!result || pinterestImages.length === 0) {
+      setError("Generate SEO and upload Pinterest images first");
+      return;
+    }
+
+    setPinterestLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/generate/pinterest", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          productType,
+          listingTitle: result.title,
+          listingDescription: result.description_final,
+          listingKeywords: result.description_keywords_5,
+          destinationLink: pinterestLink,
+          pins: pinterestImages
+            .filter((item) => !!item.r2Url)
+            .map((item) => ({
+              id: item.id,
+              url: item.r2Url!,
+            })),
+        }),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "Failed to generate Pinterest copy");
+      }
+
+      const data = await res.json();
+      const pinMap = new Map<string, { title: string; description: string }>();
+
+      for (const item of data.pins || []) {
+        pinMap.set(item.id, {
+          title: item.title,
+          description: item.description,
+        });
+      }
+
+      setPinterestImages((prev) =>
+        prev.map((item) => ({
+          ...item,
+          title: pinMap.get(item.id)?.title ?? item.title,
+          description: pinMap.get(item.id)?.description ?? item.description,
+        }))
+      );
+    } catch (e: any) {
+      setError(e?.message || "Failed to generate Pinterest copy");
+    } finally {
+      setPinterestLoading(false);
     }
   }
 
@@ -919,6 +1051,117 @@ export default function Page() {
                   )
                 }
               />
+            </Card>
+
+            <Card
+              title="Pinterest"
+              accent
+              right={
+                <Button
+                  variant="secondary"
+                  onClick={clearPinterestImages}
+                  disabled={pinterestImages.length === 0 || uploading || pinterestLoading}
+                >
+                  Clear pins
+                </Button>
+              }
+            >
+              <div className="space-y-5">
+                <TextArea
+                  label="Destination link"
+                  value={pinterestLink}
+                  onChange={setPinterestLink}
+                  placeholder="Paste the Etsy product link when you have it. You can also leave this empty for now and add it manually later in Pinterest."
+                  rows={3}
+                />
+
+                <Dropzone
+                  title="Pinterest images"
+                  subtitle="Upload 2:3 vertical images for Pinterest. These will be stored in R2 with the same listing ID."
+                  accept="image/png,image/jpeg,image/webp"
+                  multiple
+                  onPick={addPinterestImages}
+                  preview={
+                    pinterestImages.length === 0 ? (
+                      <div className="mt-3 text-sm text-neutral-500">
+                        No Pinterest images uploaded yet.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                        {pinterestImages.map((item, index) => (
+                          <div
+                            key={item.id}
+                            className="overflow-hidden rounded-3xl border border-neutral-800 bg-neutral-950/80"
+                          >
+                            <div className="relative">
+                              <div className="absolute left-3 top-3 z-10 rounded-full border border-[#eeba2b]/20 bg-neutral-950/90 px-3 py-1 text-xs font-semibold text-neutral-100">
+                                Pin {index + 1}
+                              </div>
+                              <button
+                                onClick={() => {
+                                  URL.revokeObjectURL(item.previewUrl);
+                                  setPinterestImages((prev) =>
+                                    prev.filter((pin) => pin.id !== item.id)
+                                  );
+                                }}
+                                className="absolute right-3 top-3 z-10 rounded-full border border-neutral-800 bg-neutral-950/90 p-2 text-neutral-200 hover:bg-neutral-900"
+                                title="Remove"
+                              >
+                                <X size={16} />
+                              </button>
+                              <img
+                                src={item.previewUrl}
+                                alt=""
+                                className="aspect-[2/3] w-full object-cover"
+                              />
+                            </div>
+
+                            <div className="space-y-3 p-4">
+                              <div>
+                                <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                                  Pin title
+                                </div>
+                                <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-3 text-xs leading-relaxed text-neutral-100">
+                                  {item.title || "No title generated yet."}
+                                </div>
+                              </div>
+
+                              <div>
+                                <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                                  Pin description
+                                </div>
+                                <div className="min-h-[110px] rounded-2xl border border-neutral-800 bg-neutral-900/70 p-3 text-xs leading-relaxed text-neutral-100 whitespace-pre-wrap">
+                                  {item.description || "No description generated yet."}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  }
+                />
+
+                <div className="flex justify-end">
+                  <Button
+                    variant="primary"
+                    onClick={generatePinterestCopy}
+                    disabled={!result || pinterestImages.length === 0 || pinterestLoading}
+                  >
+                    {pinterestLoading ? (
+                      <>
+                        <Loader2 className="animate-spin" size={16} />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={16} />
+                        Generate Pinterest Copy
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
             </Card>
 
             <Card title="Deliverables">
