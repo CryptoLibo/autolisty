@@ -15,7 +15,7 @@ export async function uploadMockup({
   filename: string
 }) {
 
-  const key = `mockups/drafts/${listingId}/${filename}`
+  const key = `mockups/${listingId}/${filename}`
 
   const command = new PutObjectCommand({
     Bucket: BUCKET,

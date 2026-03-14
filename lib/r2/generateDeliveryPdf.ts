@@ -2,7 +2,7 @@ import { PDFDocument } from "pdf-lib"
 import fs from "fs"
 import path from "path"
 
-export async function generateDeliveryPdf(deliveryId: string) {
+export async function generateDeliveryPdf(listingId: string) {
 
   const templatePath = path.join(process.cwd(), "templates", "delivery_template.pdf")
 
@@ -12,8 +12,8 @@ export async function generateDeliveryPdf(deliveryId: string) {
 
   const page = pdfDoc.getPages()[0]
 
-  const artworkUrl = `https://download.autolisty.com/artwork/${deliveryId}`
-  const instructionsUrl = `https://download.autolisty.com/instructions/${deliveryId}`
+  const artworkUrl = `https://download.autolisty.com/artwork/${listingId}`
+  const instructionsUrl = `https://download.autolisty.com/instructions/${listingId}`
 
   const artworkLink = pdfDoc.context.obj({
     Type: "Annot",

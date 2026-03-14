@@ -6,16 +6,16 @@ const BUCKET = process.env.R2_BUCKET!
 export async function uploadDeliverable({
   fileBuffer,
   contentType,
-  deliveryId,
+  listingId,
   filename,
 }: {
   fileBuffer: Buffer
   contentType: string
-  deliveryId: string
+  listingId: string
   filename: string
 }) {
 
-  const key = `deliverables/${deliveryId}/${filename}`
+  const key = `deliverables/${listingId}/${filename}`
 
   const command = new PutObjectCommand({
     Bucket: BUCKET,

@@ -9,7 +9,7 @@ export async function uploadDeliveryPdf({
   filename: string
 }) {
 
-  const key = `delivery-pdfs/${filename}`
+  const key = `delivery-pdf/${filename}`
 
   await r2.send(
     new PutObjectCommand({

@@ -454,7 +454,6 @@ export default function Page() {
   const [deliverables, setDeliverables] = useState<File[]>([]);
   const [instructionsFile, setInstructionsFile] = useState<File | null>(null);
 
-  const [deliveryId, setDeliveryId] = useState<string | null>(null);
   const [deliveryPdfUrl, setDeliveryPdfUrl] = useState<string | null>(null);
   const [deliveryLoading, setDeliveryLoading] = useState(false);
 
@@ -480,11 +479,6 @@ export default function Page() {
     const id = generateListingId();
     setListingId(id);
     return id;
-  }
-
-  function generateDeliveryId() {
-    const random = Math.random().toString(36).substring(2, 6);
-    return `LBCreaStudio-${random}`;
   }
 
   async function uploadToR2(file: File, filename: string) {
@@ -601,6 +595,9 @@ export default function Page() {
     setCompetitorTitles("");
     setCompetitorTags("");
     setCompetitorsOpen(false);
+    setDeliverables([]);
+    setInstructionsFile(null);
+    setDeliveryPdfUrl(null);
     setError(null);
     setResult(null);
   }
@@ -683,9 +680,10 @@ export default function Page() {
     }
 
     setDeliveryLoading(true);
+    setError(null);
+    setDeliveryPdfUrl(null);
 
-    const id = generateDeliveryId();
-    setDeliveryId(id);
+    const id = ensureListingId();
 
     try {
       const files = [
@@ -696,23 +694,35 @@ export default function Page() {
       for (const f of files) {
         const formData = new FormData();
         formData.append("file", f.file);
-        formData.append("deliveryId", id);
+        formData.append("listingId", id);
         formData.append("filename", f.name);
 
-        await fetch("/api/upload/deliverable", {
+        const uploadRes = await fetch("/api/upload/deliverable", {
           method: "POST",
           body: formData,
         });
+
+        if (!uploadRes.ok) {
+          const txt = await uploadRes.text();
+          throw new Error(txt || "Failed to upload deliverables");
+        }
       }
 
       const res = await fetch("/api/generate/delivery", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deliveryId: id }),
+        body: JSON.stringify({ listingId: id }),
       });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "Failed to generate delivery PDF");
+      }
 
       const data = await res.json();
       setDeliveryPdfUrl(data.url);
+    } catch (e: any) {
+      setError(e?.message || "Failed to prepare delivery assets");
     } finally {
       setDeliveryLoading(false);
     }
@@ -737,7 +747,7 @@ export default function Page() {
           {listingId ? (
             <div className="inline-flex items-center gap-2 rounded-full border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-3 py-1 text-xs font-medium text-[#f1cc61]">
               <CheckCircle2 size={14} />
-              Draft ID: {listingId}
+              Listing ID: {listingId}
             </div>
           ) : null}
         </div>
