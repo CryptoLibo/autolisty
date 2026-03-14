@@ -1475,9 +1475,11 @@ export default function Page() {
             </Link>
           </div>
           <div className="mt-3">
-          © 2026 Autolisty
+          Copyright 2026 Autolisty
+        </div>
         </div>
       </div>
     </main>
   );
 }
+
