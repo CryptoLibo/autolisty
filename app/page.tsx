@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { generateListingId } from "@/lib/utils/generateListingId";
 import { DndContext, DragEndEvent, closestCenter } from "@dnd-kit/core";
 import {
@@ -44,6 +44,19 @@ type SeoResult = {
     position: number;
     alt_text: string;
   }>;
+};
+
+type EtsyAuthStatus = {
+  connected: boolean;
+  userId?: string;
+  scopes?: string[];
+  expiresAt?: number;
+  shops?: Array<{
+    shop_id?: number;
+    shop_name?: string;
+  }>;
+  shopsError?: string | null;
+  error?: string;
 };
 
 function uid() {
@@ -438,6 +451,9 @@ export default function Page() {
 
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [etsyAuth, setEtsyAuth] = useState<EtsyAuthStatus | null>(null);
+  const [etsyLoading, setEtsyLoading] = useState(true);
+  const [etsyMessage, setEtsyMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SeoResult | null>(null);
 
@@ -450,6 +466,39 @@ export default function Page() {
     !uploading;
 
   const mockupIds = useMemo(() => mockups.map((m) => m.id), [mockups]);
+
+  useEffect(() => {
+    async function loadEtsyStatus() {
+      try {
+        setEtsyLoading(true);
+        const res = await fetch("/api/etsy/status", { cache: "no-store" });
+        const data = (await res.json()) as EtsyAuthStatus;
+        setEtsyAuth(data);
+      } catch {
+        setEtsyAuth({ connected: false, error: "Failed to load Etsy status" });
+      } finally {
+        setEtsyLoading(false);
+      }
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("etsy_connected") === "1") {
+      setEtsyMessage("Etsy connected successfully.");
+      params.delete("etsy_connected");
+      const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+      window.history.replaceState({}, "", nextUrl);
+    }
+
+    const authError = params.get("etsy_error");
+    if (authError) {
+      setEtsyMessage(authError);
+      params.delete("etsy_error");
+      const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+      window.history.replaceState({}, "", nextUrl);
+    }
+
+    void loadEtsyStatus();
+  }, []);
 
   function ensureListingId() {
     if (listingId) return listingId;
@@ -697,6 +746,21 @@ export default function Page() {
     }
   }
 
+  async function disconnectEtsy() {
+    setEtsyLoading(true);
+    try {
+      await fetch("/api/etsy/disconnect", {
+        method: "POST",
+      });
+      setEtsyAuth({ connected: false });
+      setEtsyMessage("Etsy disconnected.");
+    } catch {
+      setEtsyMessage("Failed to disconnect Etsy.");
+    } finally {
+      setEtsyLoading(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#0b0f14] text-neutral-100">
       <div className="mx-auto max-w-7xl px-5 py-5 sm:px-6 lg:px-8">
@@ -931,6 +995,87 @@ export default function Page() {
           </div>
 
           <div className="space-y-6">
+            <Card
+              title="Etsy Connection"
+              accent
+              right={
+                etsyAuth?.connected ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => void disconnectEtsy()}
+                    disabled={etsyLoading}
+                  >
+                    Disconnect
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      window.location.href = "/api/etsy/auth/start";
+                    }}
+                    disabled={etsyLoading}
+                  >
+                    Connect Etsy
+                  </Button>
+                )
+              }
+            >
+              <div className="space-y-4 text-sm text-neutral-400">
+                <p>
+                  Connect your Etsy account to validate OAuth access and confirm
+                  the app can read your shop before we implement draft syncing.
+                </p>
+
+                {etsyMessage ? (
+                  <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-4 text-sm text-[#f1cc61]">
+                    {etsyMessage}
+                  </div>
+                ) : null}
+
+                {etsyLoading ? (
+                  <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm text-neutral-300">
+                    Checking Etsy connection...
+                  </div>
+                ) : etsyAuth?.connected ? (
+                  <div className="space-y-3 rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4">
+                    <div className="text-sm font-medium text-neutral-100">
+                      Connected to Etsy
+                    </div>
+                    <div className="text-xs text-neutral-400">
+                      User ID: {etsyAuth.userId}
+                    </div>
+                    <div className="text-xs text-neutral-400">
+                      Scopes: {(etsyAuth.scopes || []).join(", ") || "None"}
+                    </div>
+                    {etsyAuth.shops?.length ? (
+                      <div className="space-y-2">
+                        {etsyAuth.shops.map((shop) => (
+                          <div
+                            key={`${shop.shop_id}-${shop.shop_name}`}
+                            className="rounded-xl border border-neutral-800 bg-neutral-950/70 px-3 py-2 text-xs text-neutral-300"
+                          >
+                            {shop.shop_name || "Unnamed shop"} {shop.shop_id ? `(${shop.shop_id})` : ""}
+                          </div>
+                        ))}
+                      </div>
+                    ) : etsyAuth.shopsError ? (
+                      <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                        {etsyAuth.shopsError}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-neutral-500">
+                        Authentication succeeded, but no shops were returned yet.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm text-neutral-300">
+                    No Etsy account connected yet.
+                  </div>
+                )}
+              </div>
+            </Card>
+
             <Card
               title="Generate"
               accent
