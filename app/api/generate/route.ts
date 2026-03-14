@@ -9,55 +9,52 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 })
 
+function cleanText(value: unknown) {
+  return String(value || "").replace(/\s+/g, " ").trim()
+}
+
 function clampAltText(text: string, min = 200, max = 250) {
-  let t = String(text || "").replace(/\s+/g, " ").trim()
+  let normalized = cleanText(text)
 
-  if (t.length > max) {
-    t = t.slice(0, max)
-    const lastSpace = t.lastIndexOf(" ")
-    if (lastSpace > 140) t = t.slice(0, lastSpace)
+  if (normalized.length > max) {
+    normalized = normalized.slice(0, max)
+    const lastSpace = normalized.lastIndexOf(" ")
+    if (lastSpace > 140) normalized = normalized.slice(0, lastSpace)
   }
 
-  if (t.length < min) {
-    return t
-  }
-
-  return t
+  return normalized.length < min ? normalized : normalized
 }
 
 function titleCase(input: string) {
-  return String(input || "")
+  return cleanText(input)
     .split(/\s+/)
     .filter(Boolean)
     .map((word) => {
-      const clean = word.trim()
-
-      if (!clean) return clean
-
-      const upper = clean.toUpperCase()
+      const upper = word.toUpperCase()
 
       if (upper === "TV") return "TV"
       if (upper === "AI") return "AI"
 
-      if (clean.startsWith("(") && clean.endsWith(")")) {
-        const inner = clean.slice(1, -1)
+      if (word.startsWith("(") && word.endsWith(")")) {
+        const inner = word.slice(1, -1)
         if (inner.toUpperCase() === "DIGITAL DOWNLOAD") {
           return "(Digital Download)"
         }
       }
 
-      if (clean.includes("-")) {
-        return clean
+      if (word.includes("-")) {
+        return word
           .split("-")
           .map((part) => {
+            const partUpper = part.toUpperCase()
             if (!part) return part
-            if (part.toUpperCase() === "TV") return "TV"
+            if (partUpper === "TV") return "TV"
             return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
           })
           .join("-")
       }
 
-      return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase()
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
     })
     .join(" ")
 }
@@ -88,11 +85,8 @@ function dedupeWordRoots(words: string[]) {
   return result
 }
 
-function normalizeTitle(rawTitle: any, minWords = 13, maxWords = 15) {
-  let title = String(rawTitle || "")
-    .replace(/\s+/g, " ")
-    .replace(/\s+,/g, ",")
-    .trim()
+function normalizeTitle(rawTitle: unknown, minWords = 13, maxWords = 15) {
+  let title = cleanText(rawTitle).replace(/\s+,/g, ",")
 
   if (!title) return ""
 
@@ -109,8 +103,6 @@ function normalizeTitle(rawTitle: any, minWords = 13, maxWords = 15) {
   if (!hasSamsungVariant && !hasFrameVariant) {
     title = `${title.replace(/\s*\(Digital Download\)$/i, "").trim()} Frame TV Art, (Digital Download)`.trim()
   }
-
-  title = title.replace(/\s+/g, " ").trim()
 
   const digitalSuffix = "(Digital Download)"
   const withoutSuffix = title.replace(/\s*\(Digital Download\)$/i, "").trim()
@@ -131,8 +123,7 @@ function normalizeTitle(rawTitle: any, minWords = 13, maxWords = 15) {
   prefix = prefix.replace(/,+/g, ",").replace(/\s+,/g, ",").replace(/,\s*,/g, ",")
   prefix = prefix.replace(/,\s*$/, "").trim()
 
-  let words = prefix.split(/\s+/).filter(Boolean)
-  words = dedupeWordRoots(words)
+  let words = dedupeWordRoots(prefix.split(/\s+/).filter(Boolean))
 
   if (words.length > maxWords - 2) {
     words = words.slice(0, maxWords - 2)
@@ -153,7 +144,6 @@ function normalizeTitle(rawTitle: any, minWords = 13, maxWords = 15) {
       usedComma = true
       return ","
     })
-    normalized = normalized.replace(/\s+/g, " ").replace(/\s+,/g, ",").trim()
   }
 
   normalized = normalized.replace(/\s+\(Digital Download\)$/i, " (Digital Download)")
@@ -165,7 +155,10 @@ function normalizeTitle(rawTitle: any, minWords = 13, maxWords = 15) {
     .filter(Boolean)
 
   if (finalWords.length > maxWords) {
-    const parts = normalized.replace(/\s*\(Digital Download\)$/i, "").trim().split(/\s+/)
+    const parts = normalized
+      .replace(/\s*\(Digital Download\)$/i, "")
+      .trim()
+      .split(/\s+/)
     const allowed = Math.max(minWords, maxWords - 2)
     normalized = `${parts.slice(0, allowed).join(" ")} (Digital Download)`.replace(/\s+/g, " ").trim()
   }
@@ -173,73 +166,109 @@ function normalizeTitle(rawTitle: any, minWords = 13, maxWords = 15) {
   return normalized
 }
 
-function normalizeTags(tags: any, maxTags = 13, maxChars = 20) {
-  const arr = Array.isArray(tags) ? tags : []
-
-  const clean = arr
-    .map((x) => String(x).trim())
-    .filter(Boolean)
-    .map((x) => x.replace(/\s+/g, " "))
-    .map((x) => x.slice(0, maxChars))
-
+function normalizeTags(tags: unknown, maxTags = 13, maxChars = 20) {
+  const values = Array.isArray(tags) ? tags : []
   const seen = new Set<string>()
   const result: string[] = []
 
-  for (const tag of clean) {
-    const key = tag.toLowerCase()
+  for (const tag of values) {
+    const clean = cleanText(tag).slice(0, maxChars)
+    if (!clean) continue
+
+    const key = clean.toLowerCase()
     if (seen.has(key)) continue
+
     seen.add(key)
-    result.push(tag)
+    result.push(clean)
   }
 
   return result.slice(0, maxTags)
 }
 
-function normalizeKeywords5(list: any) {
-  const arr = Array.isArray(list) ? list : []
+function uniquePhrases(values: string[]) {
+  const seen = new Set<string>()
+  const result: string[] = []
 
-  const clean = arr
-    .map((x) => String(x || "").trim())
-    .filter(Boolean)
-    .map((x) => x.replace(/\s+/g, " "))
-    .filter((x) => x.split(" ").length >= 2)
-    .slice(0, 5)
+  for (const value of values) {
+    const cleaned = cleanText(value)
+    if (!cleaned) continue
 
-  return clean
+    const key = cleaned
+      .toLowerCase()
+      .replace(/[^\w\s]/g, "")
+      .split(/\s+/)
+      .map((word) => word.replace(/s$/i, ""))
+      .join(" ")
+
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    result.push(cleaned)
+  }
+
+  return result
+}
+
+function normalizeKeywords5(list: unknown, analysis: Record<string, unknown>) {
+  const requested = Array.isArray(list) ? list : []
+  const searchPhrases = Array.isArray(analysis.search_phrases)
+    ? analysis.search_phrases.map((item) => cleanText(item))
+    : []
+
+  const fallback = [
+    ...searchPhrases,
+    cleanText(analysis.search_intent),
+    cleanText(analysis.primary_subject) && `${cleanText(analysis.primary_subject)} artwork`,
+    cleanText(analysis.style) && `${cleanText(analysis.style)} wall art`,
+    cleanText(analysis.decor_context) && `${cleanText(analysis.decor_context)} decor`,
+    "digital frame tv art",
+  ].filter(Boolean) as string[]
+
+  return uniquePhrases(
+    [...requested.map((item) => cleanText(item)), ...fallback].filter(
+      (phrase) => {
+        const words = phrase.split(" ").filter(Boolean)
+        return words.length >= 2 && words.length <= 4
+      }
+    )
+  ).slice(0, 5)
 }
 
 function fillTemplate(template: string, keywords5: string[]) {
-  let out = template
+  let output = template
 
   for (let i = 0; i < 5; i++) {
-    const key = `KEYWORD_${i + 1}`
-    out = out.replaceAll(key, keywords5[i] || "")
+    output = output.replaceAll(`KEYWORD_${i + 1}`, keywords5[i] || "")
   }
 
-  return out
+  return output
+}
+
+function buildTitleFromComponents(
+  components: Record<string, unknown>,
+  productConfig: Record<string, any>
+) {
+  const parts = [
+    cleanText(components.style),
+    cleanText(components.primary_subject),
+    cleanText(components.secondary_subject),
+    cleanText(components.product_term) ||
+      productConfig?.title_rules?.allow_variations?.[0] ||
+      productConfig?.product_name ||
+      "Frame TV Art",
+  ].filter(Boolean)
+
+  const decorContext = cleanText(components.decor_context)
+
+  return `${parts.join(" ")}, ${decorContext} (Digital Download)`.replace(/\s+/g, " ").trim()
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json()
 
-    const {
-      productType,
-      designUrl,
-      mockups,
-      primaryKeywords,
-      secondaryKeywords,
-      contextInfo,
-      competitorTitles,
-      competitorTags
-    } = body
+    const { productType, designUrl, mockups = [], midjourneyPrompt } = body
 
-    const configPath = path.join(
-      process.cwd(),
-      "product_configs",
-      `${productType}.json`
-    )
-
+    const configPath = path.join(process.cwd(), "product_configs", `${productType}.json`)
     const productConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"))
 
     const templatePath = path.join(
@@ -247,84 +276,55 @@ export async function POST(req: Request) {
       "templates",
       productConfig.description_rules.template_file
     )
-
     const descriptionTemplate = fs.readFileSync(templatePath, "utf-8")
 
     const systemPrompt = `
-You are an elite Etsy SEO strategist specialized in Samsung Frame TV digital art listings.
+You are an elite Etsy SEO strategist working across multiple digital Etsy products.
 
-Your job is to generate optimized Etsy SEO content using:
-- user keywords
-- style keywords
-- visual analysis of the artwork
-- visual analysis of each uploaded image
+Your workflow is:
+1. Read the product configuration carefully.
+2. Analyze the design image and the Midjourney prompt together.
+3. Extract the strongest searchable signals for Etsy.
+4. Generate a coherent SEO package for the current product.
 
-First analyze the design image and identify:
-- STYLE
-- MAIN SUBJECT
-- SECONDARY SUBJECT
-- ART CATEGORY
-- DECOR CONTEXT
-- MOOD
+ANALYSIS PRINCIPLES
+- Use the image as the source of truth for what is visually present.
+- Use the Midjourney prompt to clarify style, subject intent, mood, and missing visual clues.
+- Do not copy Midjourney syntax, weights, parameters, aspect ratios, or camera jargon into the final SEO.
+- Think like an Etsy SEO expert, not like an image captioning model.
+- Prefer concrete, searchable language over vague aesthetic filler.
+- Choose terms that describe what buyers would actually search for on Etsy.
 
-Then generate Etsy SEO output.
+TITLE STRATEGY
+- Build a title that feels intentional, searchable, and coherent.
+- Follow the title rules from product_config exactly.
+- Use the strongest subject, style, and decor context discovered from the image plus prompt.
+- Avoid stuffing disconnected words together.
+- Prefer a strong search phrase cluster over decorative adjectives.
 
-TITLE RULES
-- Generate ONE title only
-- Title must contain 13 to 15 words total
-- Use Title Case so every word starts with a capital letter
-- Avoid repeated word roots and filler words
-- Use exactly ONE comma
-- The comma must appear immediately after "Frame TV Art" or "Samsung Frame TV Art"
-- The title must always end with "(Digital Download)"
-- Prefer strong keyword coverage without making the title look stuffed
-- Structure:
-  STYLE + SUBJECT + SECOND SUBJECT + PRODUCT, DECOR CONTEXT (Digital Download)
-- PRODUCT can be either "Frame TV Art" or "Samsung Frame TV Art"
+DESCRIPTION KEYWORDS STRATEGY
+- Generate exactly 5 keyword phrases.
+- These phrases must strengthen the existing description template.
+- KEYWORD_1 must be the strongest Etsy search phrase for this listing, even if it is long-tail.
+- Each keyword must have a distinct role and should not feel generic or repetitive.
+- Keywords must fit the template naturally.
 
-TAG RULES
-- Generate exactly 13 tags
-- Each tag must be max 20 characters
-- Prefer multi-word phrases
-- Avoid duplicates
-- Avoid excessive reuse of the same root word
-- Distribute tags across semantic categories:
-  3 product type
-  3 style
-  3 subject
-  2 decor context
-  2 digital format
+TAG STRATEGY
+- Generate exactly 13 tags.
+- Follow the product configuration.
+- Keep the current good balance across product, style, subject, decor, and digital format.
 
-DESCRIPTION KEYWORDS RULES
-- Generate exactly 5 keyword phrases
-- Each phrase must contain 2 to 4 words
-- The phrases must fit naturally inside the provided description template
-- Use these roles:
-  KEYWORD_1 = main search phrase
-  KEYWORD_2 = artwork phrase
-  KEYWORD_3 = visual style phrase
-  KEYWORD_4 = decor intent phrase
-  KEYWORD_5 = digital art phrase
-
-ALT TEXT RULES
-- Generate alt text for each uploaded image
-- First identify the image type:
-  mockup
-  close-up
-  informational
-  promotional
-- Then describe what is visually shown in the image
-- Integrate product keywords naturally only when relevant
-- Do not force the same keyword pattern into every image
-- If an image is informational or promotional, describe its content accurately instead of inventing decor context
-- Each alt text must be unique
-- Each alt text must be 200 to 250 characters
-- Describe exactly what is visible, including distance, framing, room scene, close-up details, informational content, offer banners, or compatibility graphics when present
+ALT TEXT STRATEGY
+- Analyze each mockup independently.
+- Describe what is actually visible in that image first.
+- Use listing keywords only when they fit naturally.
+- Keep each alt text unique and image-specific.
+- Maintain the original image id and position.
 
 OUTPUT
-- Return ONLY valid JSON
-- Do not add markdown
-- Do not add commentary
+- Return ONLY valid JSON.
+- Do not add markdown.
+- Do not add commentary.
 `
 
     const userPrompt = `
@@ -334,30 +334,35 @@ ${JSON.stringify(productConfig)}
 description_template:
 ${descriptionTemplate}
 
-primary_keywords:
-${primaryKeywords}
-
-secondary_keywords:
-${secondaryKeywords}
-
-context:
-${contextInfo}
-
-competitor_titles:
-${competitorTitles}
-
-competitor_tags:
-${competitorTags}
+midjourney_prompt:
+${midjourneyPrompt}
 
 IMPORTANT IMAGE MAPPING RULES:
-- Use the exact mockup id provided
-- Do NOT invent, rename, omit, or reorder ids
-- Each uploaded image must appear exactly once in media
-- Keep the exact position value provided for each image
+- Use the exact mockup id provided.
+- Do NOT invent, rename, omit, or reorder ids.
+- Each uploaded image must appear exactly once in media when mockups are provided.
+- Keep the exact position value provided for each image.
 
 Return JSON in this exact shape:
 
 {
+  "analysis": {
+    "primary_subject": "",
+    "secondary_subject": "",
+    "style": "",
+    "decor_context": "",
+    "mood": "",
+    "color_palette": [],
+    "search_intent": "",
+    "search_phrases": []
+  },
+  "title_components": {
+    "style": "",
+    "primary_subject": "",
+    "secondary_subject": "",
+    "decor_context": "",
+    "product_term": ""
+  },
   "title": "",
   "description_keywords_5": [],
   "description_final": "",
@@ -370,35 +375,34 @@ Return JSON in this exact shape:
 
     const response = await client.responses.create({
       model: "gpt-4o",
-      temperature: 0.25,
+      temperature: 0.2,
       input: [
         {
           role: "system",
-          content: [{ type: "input_text", text: systemPrompt }]
+          content: [{ type: "input_text", text: systemPrompt }],
         },
         {
           role: "user",
           content: [
             { type: "input_text", text: userPrompt },
-            { type: "input_text", text: "DESIGN IMAGE" },
+            { type: "input_text", text: "PRIMARY DESIGN IMAGE" },
             { type: "input_image", image_url: designUrl },
             ...mockups.flatMap((img: any) => [
               {
                 type: "input_text",
-                text: `LISTING IMAGE position=${img.position} id=${img.id}`
+                text: `LISTING IMAGE position=${img.position} id=${img.id}`,
               },
               {
                 type: "input_image",
-                image_url: img.url
-              }
-            ])
-          ]
-        }
-      ]
+                image_url: img.url,
+              },
+            ]),
+          ],
+        },
+      ],
     })
 
     const raw = response.output_text || ""
-
     const start = raw.indexOf("{")
     const end = raw.lastIndexOf("}")
 
@@ -407,23 +411,35 @@ Return JSON in this exact shape:
     }
 
     const parsed = JSON.parse(raw.slice(start, end + 1))
+    const analysis = parsed.analysis && typeof parsed.analysis === "object" ? parsed.analysis : {}
+    const titleBase =
+      cleanText(parsed.title) || buildTitleFromComponents(parsed.title_components || {}, productConfig)
 
-    const title = normalizeTitle(parsed.title, 13, 15)
-    const tags = normalizeTags(parsed.tags_13)
-    const keywords5 = normalizeKeywords5(parsed.description_keywords_5)
+    const title = normalizeTitle(
+      titleBase,
+      productConfig?.title_rules?.word_rules?.min_words ?? 13,
+      productConfig?.title_rules?.word_rules?.max_words ?? 15
+    )
+    const tags = normalizeTags(
+      parsed.tags_13,
+      productConfig?.tag_rules?.max_tags ?? 13,
+      productConfig?.tag_rules?.max_characters ?? 20
+    )
+    const keywords5 = normalizeKeywords5(parsed.description_keywords_5, analysis)
     const description = fillTemplate(descriptionTemplate, keywords5)
 
     const parsedMedia = Array.isArray(parsed.media) ? parsed.media : []
-
     const media = mockups.map((img: any) => {
-      const foundById = parsedMedia.find((m: any) => m.id === img.id)
-      const foundByPosition = parsedMedia.find((m: any) => m.position === img.position)
+      const foundById = parsedMedia.find((entry: any) => entry.id === img.id)
+      const foundByPosition = parsedMedia.find(
+        (entry: any) => entry.position === img.position
+      )
       const found = foundById || foundByPosition
 
       return {
         id: img.id,
         position: img.position,
-        alt_text: clampAltText(found?.alt_text || "")
+        alt_text: clampAltText(found?.alt_text || ""),
       }
     })
 
@@ -432,15 +448,14 @@ Return JSON in this exact shape:
       description_keywords_5: keywords5,
       description_final: description,
       tags_13: tags,
-      media
+      media,
     }
 
     return new Response(JSON.stringify(output), {
-      headers: { "Content-Type": "application/json" }
+      headers: { "Content-Type": "application/json" },
     })
   } catch (err: any) {
     console.error("API ERROR:", err)
-
     return new Response(err.message || "Server error", { status: 500 })
   }
 }

@@ -12,7 +12,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import Image from "next/image";
 import {
-  ChevronDown,
   Copy,
   Image as ImageIcon,
   Loader2,
@@ -169,32 +168,6 @@ function TextArea({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         rows={rows}
-        className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
-      />
-    </div>
-  );
-}
-
-function Input({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <div className="space-y-2">
-      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
-        {label}
-      </div>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
         className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
       />
     </div>
@@ -441,13 +414,7 @@ export default function Page() {
   const [designPreview, setDesignPreview] = useState<string | null>(null);
   const [designR2Url, setDesignR2Url] = useState<string | null>(null);
 
-  const [primaryKeywords, setPrimaryKeywords] = useState("");
-  const [secondaryKeywords, setSecondaryKeywords] = useState("");
-  const [contextInfo, setContextInfo] = useState("");
-
-  const [competitorsOpen, setCompetitorsOpen] = useState(false);
-  const [competitorTitles, setCompetitorTitles] = useState("");
-  const [competitorTags, setCompetitorTags] = useState("");
+  const [midjourneyPrompt, setMidjourneyPrompt] = useState("");
 
   const [mockups, setMockups] = useState<MediaItem[]>([]);
 
@@ -465,10 +432,8 @@ export default function Page() {
   const canGenerate =
     !!designFile &&
     !!designR2Url &&
-    mockups.length > 0 &&
+    midjourneyPrompt.trim().length > 0 &&
     mockups.every((m) => !!m.r2Url) &&
-    primaryKeywords.trim().length > 0 &&
-    secondaryKeywords.trim().length > 0 &&
     !loading &&
     !uploading;
 
@@ -589,12 +554,7 @@ export default function Page() {
     clearDesign();
     clearMockups();
     setListingId(null);
-    setPrimaryKeywords("");
-    setSecondaryKeywords("");
-    setContextInfo("");
-    setCompetitorTitles("");
-    setCompetitorTags("");
-    setCompetitorsOpen(false);
+    setMidjourneyPrompt("");
     setDeliverables([]);
     setInstructionsFile(null);
     setDeliveryPdfUrl(null);
@@ -624,11 +584,7 @@ export default function Page() {
       const payload = {
         productType,
         designUrl: designR2Url,
-        primaryKeywords,
-        secondaryKeywords,
-        contextInfo,
-        competitorTitles,
-        competitorTags,
+        midjourneyPrompt,
         mockups: mockups
           .filter((m) => !!m.r2Url)
           .map((m, index) => ({
@@ -778,25 +734,12 @@ export default function Page() {
                     </select>
                   </div>
 
-                  <Input
-                    label="Core keywords"
-                    value={primaryKeywords}
-                    onChange={setPrimaryKeywords}
-                    placeholder="Enter the main keyword phrases describing the artwork"
-                  />
-
-                  <Input
-                    label="Style keywords"
-                    value={secondaryKeywords}
-                    onChange={setSecondaryKeywords}
-                    placeholder="Enter artistic style or visual attributes"
-                  />
-
-                  <Input
-                    label="Context"
-                    value={contextInfo}
-                    onChange={setContextInfo}
-                    placeholder="Add any style or audience context"
+                  <TextArea
+                    label="Midjourney prompt"
+                    value={midjourneyPrompt}
+                    onChange={setMidjourneyPrompt}
+                    placeholder="Paste the original Midjourney prompt used to create the artwork."
+                    rows={12}
                   />
                 </div>
 
@@ -844,44 +787,6 @@ export default function Page() {
                     }
                   />
 
-                  <div className="rounded-3xl border border-neutral-800 bg-neutral-950/60">
-                    <button
-                      onClick={() => setCompetitorsOpen((v) => !v)}
-                      className="flex w-full items-center justify-between px-5 py-4"
-                    >
-                      <div className="text-sm font-semibold text-neutral-100">
-                        Competitor research (optional)
-                      </div>
-                      <ChevronDown
-                        size={18}
-                        className={cn(
-                          "text-neutral-400 transition",
-                          competitorsOpen && "rotate-180"
-                        )}
-                      />
-                    </button>
-
-                    {competitorsOpen ? (
-                      <div className="border-t border-neutral-800 px-5 py-5">
-                        <div className="grid grid-cols-1 gap-4">
-                          <TextArea
-                            label="Competitor titles"
-                            value={competitorTitles}
-                            onChange={setCompetitorTitles}
-                            placeholder="Paste any competitor titles you want to reference"
-                            rows={4}
-                          />
-                          <TextArea
-                            label="Competitor tags"
-                            value={competitorTags}
-                            onChange={setCompetitorTags}
-                            placeholder="Paste any competitor tags you want to reference"
-                            rows={4}
-                          />
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
                 </div>
               </div>
             </Card>
@@ -1043,13 +948,14 @@ export default function Page() {
             >
               <div className="space-y-3 text-sm text-neutral-400">
                 <p>
-                  Generate polished listing copy, tags, descriptions, and alt text
-                  based on your uploaded artwork and mockups.
+                  Generate listing SEO from the main artwork and its Midjourney
+                  prompt. If mockups are uploaded, the app also maps alt text to
+                  each image.
                 </p>
                 <ul className="space-y-2 text-sm text-neutral-500">
-                  <li>• optimized Etsy title</li>
+                  <li>• prompt-aware Etsy title</li>
+                  <li>• stronger description keywords</li>
                   <li>• structured Etsy tags</li>
-                  <li>• description-ready copy</li>
                   <li>• alt text mapped to each mockup</li>
                 </ul>
               </div>

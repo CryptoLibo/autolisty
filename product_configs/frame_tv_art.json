@@ -29,6 +29,36 @@
       "min_words": 13,
       "max_words": 15,
       "avoid_word_repetition": true
+    },
+
+    "seo_priorities": {
+      "lead_with_searchable_language": true,
+      "prefer_concrete_subjects_over_generic_adjectives": true,
+      "require_semantic_coherence": true,
+      "decor_context_must_support_the_art": true
+    }
+  },
+
+  "analysis_rules": {
+    "source_inputs": [
+      "design_image",
+      "midjourney_prompt"
+    ],
+
+    "required_outputs": [
+      "primary_subject",
+      "secondary_subject",
+      "style",
+      "decor_context",
+      "mood",
+      "color_palette",
+      "search_intent"
+    ],
+
+    "prompt_handling": {
+      "use_prompt_to_clarify_visual_intent": true,
+      "do_not_copy_midjourney_syntax_into_seo": true,
+      "prefer_etsy_search_language_over_prompt_jargon": true
     }
   },
 
@@ -42,6 +72,12 @@
       "subject": 3,
       "decor_context": 2,
       "digital_format": 2
+    },
+
+    "quality_rules": {
+      "avoid_title_duplication": true,
+      "avoid_near_duplicate_roots": true,
+      "prefer_searchable_phrases": true
     }
   },
 
@@ -56,6 +92,15 @@
       "KEYWORD_3": "style_phrase",
       "KEYWORD_4": "decor_intent",
       "KEYWORD_5": "digital_art_phrase"
+    },
+
+    "keyword_rules": {
+      "min_words": 2,
+      "max_words": 4,
+      "main_phrase_can_be_long_tail": true,
+      "avoid_generic_keywords": true,
+      "fit_template_naturally": true,
+      "require_distinct_roles": true
     }
   },
 
@@ -72,6 +117,8 @@
         "product_keyword",
         "optional_decor_context"
       ],
+
+      "keyword_integration": "natural_and_selective",
 
       "image_types": [
         "mockup",
