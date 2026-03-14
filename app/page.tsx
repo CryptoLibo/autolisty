@@ -50,6 +50,18 @@ function uid() {
   return crypto.randomUUID();
 }
 
+function getFileExtension(file: File, fallback: string) {
+  const explicit = file.name.split(".").pop()?.toLowerCase();
+
+  if (explicit) return explicit;
+
+  if (file.type === "image/png") return "png";
+  if (file.type === "image/webp") return "webp";
+  if (file.type === "image/jpeg") return "jpg";
+
+  return fallback;
+}
+
 async function copyToClipboard(text: string) {
   await navigator.clipboard.writeText(text);
 }
@@ -642,8 +654,9 @@ export default function Page() {
     const id = ensureListingId();
 
     try {
+      const designExt = getFileExtension(deliverables[0], "jpg");
       const files = [
-        { file: deliverables[0], name: "design.png" },
+        { file: deliverables[0], name: `design.${designExt}` },
         { file: instructionsFile, name: "instructions.pdf" },
       ];
 
