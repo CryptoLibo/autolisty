@@ -330,7 +330,6 @@ function Dropzone({
             </Button>
           ) : null}
         </div>
-        </div>
       </div>
 
       <div
