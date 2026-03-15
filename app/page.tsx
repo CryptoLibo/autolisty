@@ -463,6 +463,7 @@ function OutputBlock({
 export default function Page() {
   const [productType, setProductType] = useState<ProductType>("frame_tv_art");
   const [listingId, setListingId] = useState<string | null>(null);
+  const listingIdRef = useRef<string | null>(null);
 
   const [designFile, setDesignFile] = useState<File | null>(null);
   const [designPreview, setDesignPreview] = useState<string | null>(null);
@@ -570,8 +571,14 @@ export default function Page() {
   }, []);
 
   function ensureListingId() {
-    if (listingId) return listingId;
+    if (listingIdRef.current) return listingIdRef.current;
+    if (listingId) {
+      listingIdRef.current = listingId;
+      return listingId;
+    }
+
     const id = generateListingId();
+    listingIdRef.current = id;
     setListingId(id);
     return id;
   }
@@ -743,7 +750,6 @@ export default function Page() {
     clearDesign();
     clearMockups();
     clearPinterestImages();
-    setListingId(null);
     setMidjourneyPrompt("");
     setPinterestLink("");
     setSelectedPinterestBoardId("");
