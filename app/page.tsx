@@ -69,6 +69,22 @@ type EtsyAuthStatus = {
   error?: string;
 };
 
+type PinterestAuthStatus = {
+  connected: boolean;
+  scopes?: string[];
+  expiresAt?: number;
+  user?: {
+    username?: string;
+    account_type?: string;
+  };
+  boards?: Array<{
+    id: string;
+    name: string;
+    privacy?: string;
+  }>;
+  error?: string;
+};
+
 function uid() {
   return crypto.randomUUID();
 }
@@ -455,6 +471,9 @@ export default function Page() {
   const [pinterestImages, setPinterestImages] = useState<PinterestItem[]>([]);
   const [pinterestLink, setPinterestLink] = useState("");
   const [pinterestLoading, setPinterestLoading] = useState(false);
+  const [pinterestAuth, setPinterestAuth] = useState<PinterestAuthStatus | null>(null);
+  const [pinterestAuthLoading, setPinterestAuthLoading] = useState(true);
+  const [pinterestMessage, setPinterestMessage] = useState<string | null>(null);
 
   const [deliverables, setDeliverables] = useState<File[]>([]);
   const [instructionsFile, setInstructionsFile] = useState<File | null>(null);
@@ -494,6 +513,22 @@ export default function Page() {
       }
     }
 
+    async function loadPinterestStatus() {
+      try {
+        setPinterestAuthLoading(true);
+        const res = await fetch("/api/pinterest/status", { cache: "no-store" });
+        const data = (await res.json()) as PinterestAuthStatus;
+        setPinterestAuth(data);
+      } catch {
+        setPinterestAuth({
+          connected: false,
+          error: "Failed to load Pinterest status",
+        });
+      } finally {
+        setPinterestAuthLoading(false);
+      }
+    }
+
     const params = new URLSearchParams(window.location.search);
     if (params.get("etsy_connected") === "1") {
       setEtsyMessage("Etsy connected successfully.");
@@ -510,7 +545,23 @@ export default function Page() {
       window.history.replaceState({}, "", nextUrl);
     }
 
+    if (params.get("pinterest_connected") === "1") {
+      setPinterestMessage("Pinterest connected successfully.");
+      params.delete("pinterest_connected");
+      const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+      window.history.replaceState({}, "", nextUrl);
+    }
+
+    const pinterestError = params.get("pinterest_error");
+    if (pinterestError) {
+      setPinterestMessage(pinterestError);
+      params.delete("pinterest_error");
+      const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+      window.history.replaceState({}, "", nextUrl);
+    }
+
     void loadEtsyStatus();
+    void loadPinterestStatus();
   }, []);
 
   function ensureListingId() {
@@ -894,6 +945,21 @@ export default function Page() {
     }
   }
 
+  async function disconnectPinterest() {
+    setPinterestAuthLoading(true);
+    try {
+      await fetch("/api/pinterest/disconnect", {
+        method: "POST",
+      });
+      setPinterestAuth({ connected: false });
+      setPinterestMessage("Pinterest disconnected.");
+    } catch {
+      setPinterestMessage("Failed to disconnect Pinterest.");
+    } finally {
+      setPinterestAuthLoading(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#0b0f14] text-neutral-100">
       <div className="mx-auto max-w-7xl px-5 py-5 sm:px-6 lg:px-8">
@@ -1118,16 +1184,73 @@ export default function Page() {
               title="Pinterest"
               accent
               right={
-                <Button
-                  variant="secondary"
-                  onClick={clearPinterestImages}
-                  disabled={pinterestImages.length === 0 || uploading || pinterestLoading}
-                >
-                  Clear pins
-                </Button>
+                <div className="flex items-center gap-2">
+                  {pinterestAuth?.connected ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => void disconnectPinterest()}
+                      disabled={pinterestAuthLoading}
+                    >
+                      Disconnect
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      onClick={() => {
+                        window.location.href = "/api/pinterest/auth/start";
+                      }}
+                      disabled={pinterestAuthLoading}
+                    >
+                      Connect Pinterest
+                    </Button>
+                  )}
+                  <Button
+                    variant="secondary"
+                    onClick={clearPinterestImages}
+                    disabled={pinterestImages.length === 0 || uploading || pinterestLoading}
+                  >
+                    Clear pins
+                  </Button>
+                </div>
               }
             >
               <div className="space-y-5">
+                {pinterestMessage ? (
+                  <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-4 text-sm text-[#f1cc61]">
+                    {pinterestMessage}
+                  </div>
+                ) : null}
+
+                {pinterestAuthLoading ? (
+                  <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm text-neutral-300">
+                    Checking Pinterest connection...
+                  </div>
+                ) : pinterestAuth?.connected ? (
+                  <div className="space-y-3 rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4">
+                    <div className="text-sm font-medium text-neutral-100">
+                      Connected to Pinterest
+                    </div>
+                    <div className="text-xs text-neutral-400">
+                      Username: {pinterestAuth.user?.username || "Unknown"}
+                    </div>
+                    <div className="text-xs text-neutral-400">
+                      Account type: {pinterestAuth.user?.account_type || "Unknown"}
+                    </div>
+                    <div className="text-xs text-neutral-400">
+                      Scopes: {(pinterestAuth.scopes || []).join(", ") || "None"}
+                    </div>
+                    {pinterestAuth.boards?.length ? (
+                      <div className="rounded-xl border border-neutral-800 bg-neutral-950/70 p-3 text-xs text-neutral-300">
+                        {pinterestAuth.boards.length} board(s) available for the next phase.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm text-neutral-300">
+                    No Pinterest account connected yet.
+                  </div>
+                )}
+
                 <TextArea
                   label="Destination link"
                   value={pinterestLink}
