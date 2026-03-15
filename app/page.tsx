@@ -40,6 +40,9 @@ type PinterestItem = {
   r2Url?: string;
   title?: string;
   description?: string;
+  publishedPinId?: string;
+  publishUrl?: string | null;
+  publishError?: string | null;
 };
 
 type SeoResult = {
@@ -471,9 +474,11 @@ export default function Page() {
   const [pinterestImages, setPinterestImages] = useState<PinterestItem[]>([]);
   const [pinterestLink, setPinterestLink] = useState("");
   const [pinterestLoading, setPinterestLoading] = useState(false);
+  const [pinterestPublishing, setPinterestPublishing] = useState(false);
   const [pinterestAuth, setPinterestAuth] = useState<PinterestAuthStatus | null>(null);
   const [pinterestAuthLoading, setPinterestAuthLoading] = useState(true);
   const [pinterestMessage, setPinterestMessage] = useState<string | null>(null);
+  const [selectedPinterestBoardId, setSelectedPinterestBoardId] = useState("");
 
   const [deliverables, setDeliverables] = useState<File[]>([]);
   const [instructionsFile, setInstructionsFile] = useState<File | null>(null);
@@ -741,6 +746,7 @@ export default function Page() {
     setListingId(null);
     setMidjourneyPrompt("");
     setPinterestLink("");
+    setSelectedPinterestBoardId("");
     setDeliverables([]);
     setInstructionsFile(null);
     setDeliveryPdfUrl(null);
@@ -927,6 +933,89 @@ export default function Page() {
       setError(e?.message || "Failed to generate Pinterest copy");
     } finally {
       setPinterestLoading(false);
+    }
+  }
+
+  async function publishPinterestPins() {
+    if (!pinterestAuth?.connected) {
+      setError("Connect Pinterest first");
+      return;
+    }
+
+    if (!selectedPinterestBoardId) {
+      setError("Select a Pinterest board first");
+      return;
+    }
+
+    if (pinterestImages.length === 0) {
+      setError("Upload Pinterest images first");
+      return;
+    }
+
+    const readyPins = pinterestImages.filter(
+      (item) => item.r2Url && item.title && item.description
+    );
+
+    if (readyPins.length === 0) {
+      setError("Generate Pinterest copy before publishing");
+      return;
+    }
+
+    setPinterestPublishing(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/pinterest/publish", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          boardId: selectedPinterestBoardId,
+          destinationLink: pinterestLink,
+          pins: readyPins.map((item) => ({
+            id: item.id,
+            title: item.title,
+            description: item.description,
+            imageUrl: item.r2Url,
+          })),
+        }),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "Failed to publish Pinterest pins");
+      }
+
+      const data = await res.json();
+      const resultMap = new Map<
+        string,
+        { ok: boolean; pinId?: string; url?: string | null; error?: string }
+      >();
+
+      for (const item of data.results || []) {
+        resultMap.set(item.id, item);
+      }
+
+      setPinterestImages((prev) =>
+        prev.map((item) => {
+          const published = resultMap.get(item.id);
+          if (!published) return item;
+
+          return {
+            ...item,
+            publishedPinId: published.pinId ?? item.publishedPinId,
+            publishUrl: published.url ?? item.publishUrl ?? null,
+            publishError: published.ok ? null : published.error || "Failed to publish",
+          };
+        })
+      );
+
+      setPinterestMessage("Pinterest publish request completed.");
+    } catch (e: any) {
+      setError(e?.message || "Failed to publish Pinterest pins");
+    } finally {
+      setPinterestPublishing(false);
     }
   }
 
@@ -1240,10 +1329,29 @@ export default function Page() {
                       Scopes: {(pinterestAuth.scopes || []).join(", ") || "None"}
                     </div>
                     {pinterestAuth.boards?.length ? (
-                      <div className="rounded-xl border border-neutral-800 bg-neutral-950/70 p-3 text-xs text-neutral-300">
-                        {pinterestAuth.boards.length} board(s) available for the next phase.
+                      <div className="space-y-2">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                          Pinterest board
+                        </div>
+                        <select
+                          value={selectedPinterestBoardId}
+                          onChange={(e) => setSelectedPinterestBoardId(e.target.value)}
+                          className="w-full rounded-2xl border border-neutral-800 bg-neutral-950/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                        >
+                          <option value="">Select a board</option>
+                          {pinterestAuth.boards.map((board) => (
+                            <option key={board.id} value={board.id}>
+                              {board.name}
+                              {board.privacy ? ` (${board.privacy})` : ""}
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="rounded-xl border border-neutral-800 bg-neutral-950/70 p-3 text-xs text-neutral-300">
+                        No boards were returned by Pinterest.
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm text-neutral-300">
@@ -1318,6 +1426,25 @@ export default function Page() {
                                   {item.description || "No description generated yet."}
                                 </div>
                               </div>
+
+                              {item.publishedPinId ? (
+                                <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-3 text-xs text-[#f1cc61]">
+                                  Published to Pinterest
+                                  {item.publishUrl ? (
+                                    <a
+                                      href={item.publishUrl}
+                                      target="_blank"
+                                      className="ml-2 underline underline-offset-4"
+                                    >
+                                      Open pin
+                                    </a>
+                                  ) : null}
+                                </div>
+                              ) : item.publishError ? (
+                                <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
+                                  {item.publishError}
+                                </div>
+                              ) : null}
                             </div>
                           </div>
                         ))}
@@ -1327,23 +1454,48 @@ export default function Page() {
                 />
 
                 <div className="flex justify-end">
-                  <Button
-                    variant="primary"
-                    onClick={generatePinterestCopy}
-                    disabled={!result || pinterestImages.length === 0 || pinterestLoading}
-                  >
-                    {pinterestLoading ? (
-                      <>
-                        <Loader2 className="animate-spin" size={16} />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={16} />
-                        Generate Pinterest Copy
-                      </>
-                    )}
-                  </Button>
+                  <div className="flex flex-wrap justify-end gap-3">
+                    <Button
+                      variant="secondary"
+                      onClick={generatePinterestCopy}
+                      disabled={!result || pinterestImages.length === 0 || pinterestLoading}
+                    >
+                      {pinterestLoading ? (
+                        <>
+                          <Loader2 className="animate-spin" size={16} />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={16} />
+                          Generate Pinterest Copy
+                        </>
+                      )}
+                    </Button>
+
+                    <Button
+                      variant="primary"
+                      onClick={publishPinterestPins}
+                      disabled={
+                        !pinterestAuth?.connected ||
+                        !selectedPinterestBoardId ||
+                        pinterestImages.length === 0 ||
+                        pinterestPublishing
+                      }
+                    >
+                      {pinterestPublishing ? (
+                        <>
+                          <Loader2 className="animate-spin" size={16} />
+                          Publishing...
+                        </>
+                      ) : (
+                        <>
+                          <Upload size={16} />
+                          Publish Pins
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </Card>
