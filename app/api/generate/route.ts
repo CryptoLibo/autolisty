@@ -16,6 +16,7 @@ type ProductConfig = {
       min_words?: number
       max_words?: number
       max_characters?: number
+      target_full_word_budget?: boolean
     }
     allow_variations?: string[]
   }
@@ -52,10 +53,10 @@ function clampAltText(text: string, min = 200, max = 250) {
   if (normalized.length > max) {
     normalized = normalized.slice(0, max)
     const lastSpace = normalized.lastIndexOf(" ")
-    if (lastSpace > 140) normalized = normalized.slice(0, lastSpace)
+    if (lastSpace > Math.max(40, min - 20)) normalized = normalized.slice(0, lastSpace)
   }
 
-  return normalized.length < min ? normalized : normalized
+  return normalized
 }
 
 function titleCase(input: string) {
@@ -161,6 +162,27 @@ function buildPrintableWallArtTitle(
   const primary = cleanText(components.primary_subject)
   const secondary = cleanText(components.secondary_subject)
   const decorContext = cleanText(components.decor_context)
+  const searchIntent = cleanText((components as any).search_intent)
+
+  const stripStopWords = (value: string) =>
+    uniquePhrases(
+      value
+        .split(/\s+/)
+        .filter(Boolean)
+        .filter(
+          (word) =>
+            ![
+              "art",
+              "wall",
+              "print",
+              "digital",
+              "download",
+              "printable",
+              "modern",
+              "abstract",
+            ].includes(word.toLowerCase())
+        )
+    )
 
   const subjectWords = uniquePhrases(
     [primary, secondary]
@@ -170,54 +192,37 @@ function buildPrintableWallArtTitle(
   )
 
   const styleWords = uniquePhrases(
-    [style, decorContext]
+    [style, decorContext, searchIntent]
       .filter(Boolean)
       .flatMap((value) => value.split(/\s+/))
       .filter(Boolean)
   )
 
-  let firstSegment = [...subjectWords]
-  let secondSegment = [...styleWords]
+  const prioritizedSubjectWords = uniquePhrases([
+    ...stripStopWords(primary),
+    ...stripStopWords(secondary),
+    ...subjectWords,
+  ])
+  const prioritizedStyleWords = uniquePhrases([
+    ...stripStopWords(style),
+    ...stripStopWords(decorContext),
+    ...stripStopWords(searchIntent),
+    ...styleWords,
+  ])
 
-  const ensureSegmentWordBudget = () => {
-    let candidate = `${firstSegment.join(" ")} Print, ${secondSegment.join(" ")} Wall Art, ${suffix}`
+  let firstSegment = prioritizedSubjectWords.slice(0, 3)
+  let secondSegment = prioritizedStyleWords.slice(0, 4)
+
+  if (firstSegment.length === 0) firstSegment = ["Printable"]
+  if (secondSegment.length === 0) secondSegment = ["Modern"]
+
+  const buildCandidate = (subjectPart: string[], stylePart: string[]) =>
+    `${subjectPart.join(" ")} Print, ${stylePart.join(" ")} Wall Art (${suffix})`
       .replace(/\s+/g, " ")
       .replace(/\s+,/g, ",")
       .trim()
 
-    const totalWordCount = candidate
-      .replace(/,/g, "")
-      .split(/\s+/)
-      .filter(Boolean).length
-
-    if (totalWordCount >= minWords) return candidate
-
-    const reserveForFixedWords = 5
-    while (firstSegment.length + secondSegment.length + reserveForFixedWords < minWords) {
-      if (firstSegment.length <= secondSegment.length && styleWords.length > secondSegment.length) {
-        secondSegment.push(styleWords[secondSegment.length])
-      } else if (decorContext) {
-        const extras = decorContext.split(/\s+/).filter(Boolean)
-        const next = extras[secondSegment.length - styleWords.length]
-        if (next) {
-          secondSegment.push(next)
-        } else {
-          break
-        }
-      } else {
-        break
-      }
-
-      candidate = `${firstSegment.join(" ")} Print, ${secondSegment.join(" ")} Wall Art, ${suffix}`
-        .replace(/\s+/g, " ")
-        .replace(/\s+,/g, ",")
-        .trim()
-    }
-
-    return candidate
-  }
-
-  let normalized = ensureSegmentWordBudget()
+  let normalized = buildCandidate(firstSegment, secondSegment)
 
   const sourceWords = uniquePhrases(
     [
@@ -236,35 +241,88 @@ function buildPrintableWallArtTitle(
   )
 
   const fixedWords = new Set(
-    ["print", "wall", "art", "digital", "download", ...firstSegment, ...secondSegment].map((word) =>
-      word.toLowerCase()
+    ["print", "wall", "art", "digital", "download", ...firstSegment, ...secondSegment].map(
+      (word) => word.toLowerCase()
     )
   )
 
   const extras = sourceWords.filter((word) => !fixedWords.has(word.toLowerCase()))
 
-  for (const extra of extras) {
-    const tryFirst = `${firstSegment.join(" ")} ${extra} Print, ${secondSegment.join(" ")} Wall Art, ${suffix}`
-      .replace(/\s+/g, " ")
-      .replace(/\s+,/g, ",")
-      .trim()
-    const tryFirstWords = tryFirst.replace(/,/g, "").split(/\s+/).filter(Boolean).length
+  const targetWords = productConfig.title_rules?.word_rules?.target_full_word_budget
+    ? maxWords
+    : minWords
 
-    if (tryFirstWords <= maxWords && tryFirst.length <= maxCharacters) {
-      firstSegment.push(extra)
-      normalized = tryFirst
+  const appendWordIfFits = (segment: "first" | "second", extra: string) => {
+    const candidateFirst = segment === "first" ? [...firstSegment, extra] : firstSegment
+    const candidateSecond = segment === "second" ? [...secondSegment, extra] : secondSegment
+    const candidate = buildCandidate(candidateFirst, candidateSecond)
+    const candidateWords = candidate
+      .replace(/[(),]/g, "")
+      .split(/\s+/)
+      .filter(Boolean).length
+
+    if (candidateWords <= maxWords && candidate.length <= maxCharacters) {
+      if (segment === "first") {
+        firstSegment = candidateFirst
+      } else {
+        secondSegment = candidateSecond
+      }
+      normalized = candidate
+      return true
+    }
+
+    return false
+  }
+
+  for (const extra of extras) {
+    const currentWordCount = normalized
+      .replace(/[(),]/g, "")
+      .split(/\s+/)
+      .filter(Boolean).length
+
+    if (currentWordCount >= targetWords) break
+
+    if (firstSegment.length <= secondSegment.length) {
+      if (appendWordIfFits("first", extra)) continue
+      appendWordIfFits("second", extra)
       continue
     }
 
-    const trySecond = `${firstSegment.join(" ")} Print, ${secondSegment.join(" ")} ${extra} Wall Art, ${suffix}`
-      .replace(/\s+/g, " ")
-      .replace(/\s+,/g, ",")
-      .trim()
-    const trySecondWords = trySecond.replace(/,/g, "").split(/\s+/).filter(Boolean).length
+    if (appendWordIfFits("second", extra)) continue
+    appendWordIfFits("first", extra)
+  }
 
-    if (trySecondWords <= maxWords && trySecond.length <= maxCharacters) {
-      secondSegment.push(extra)
-      normalized = trySecond
+  const currentWordCount = normalized
+    .replace(/[(),]/g, "")
+    .split(/\s+/)
+    .filter(Boolean).length
+
+  if (currentWordCount < minWords) {
+    const fillerPool = uniquePhrases([
+      ...prioritizedStyleWords,
+      ...prioritizedSubjectWords,
+      "serene",
+      "bathroom",
+      "coastal",
+      "blue",
+      "teal",
+      "modern",
+      "abstract",
+    ]).filter(
+      (word) => ![...firstSegment, ...secondSegment].some((item) => item.toLowerCase() === word.toLowerCase())
+    )
+
+    for (const filler of fillerPool) {
+      const updatedWordCount = normalized
+        .replace(/[(),]/g, "")
+        .split(/\s+/)
+        .filter(Boolean).length
+
+      if (updatedWordCount >= minWords) break
+
+      if (!appendWordIfFits("second", filler)) {
+        appendWordIfFits("first", filler)
+      }
     }
   }
 
@@ -274,11 +332,6 @@ function buildPrintableWallArtTitle(
     .join(" ")
     .replace(/\s+,/g, ",")
     .trim()
-
-  const wordCount = normalized.replace(/,/g, "").split(/\s+/).filter(Boolean).length
-  if (wordCount < minWords) {
-    return normalized
-  }
 
   if (normalized.length > maxCharacters) {
     return normalized.slice(0, maxCharacters).replace(/\s+\S*$/, "").trim()
@@ -409,7 +462,16 @@ function normalizeTags(tags: unknown, maxTags = 13, maxChars = 20) {
   const result: string[] = []
 
   for (const tag of values) {
-    const clean = cleanText(tag).slice(0, maxChars)
+    let clean = cleanText(tag)
+    if (!clean) continue
+
+    if (clean.length > maxChars) {
+      const truncated = clean.slice(0, maxChars)
+      const lastSpace = truncated.lastIndexOf(" ")
+      clean = lastSpace > 0 ? truncated.slice(0, lastSpace) : ""
+    }
+
+    clean = cleanText(clean)
     if (!clean) continue
 
     const key = clean.toLowerCase()
@@ -448,14 +510,20 @@ function uniquePhrases(values: string[]) {
 function normalizeKeywords5(
   list: unknown,
   analysis: Record<string, unknown>,
-  productConfig: ProductConfig
+  productConfig: ProductConfig,
+  title: string
 ) {
   const requested = Array.isArray(list) ? list : []
+  const titlePhrases = cleanText(title)
+    .split(",")
+    .map((item) => cleanText(item))
+    .filter(Boolean)
   const searchPhrases = Array.isArray(analysis.search_phrases)
     ? analysis.search_phrases.map((item) => cleanText(item))
     : []
 
   const fallback = [
+    ...titlePhrases,
     ...searchPhrases,
     cleanText(analysis.search_intent),
     cleanText(analysis.primary_subject) && `${cleanText(analysis.primary_subject)} artwork`,
@@ -464,7 +532,7 @@ function normalizeKeywords5(
     ...(productConfig.normalization_rules?.keyword_fallback_phrases || []),
   ].filter(Boolean) as string[]
 
-  return uniquePhrases(
+  const normalized = uniquePhrases(
     [...requested.map((item) => cleanText(item)), ...fallback].filter(
       (phrase) => {
         const words = phrase.split(" ").filter(Boolean)
@@ -472,6 +540,12 @@ function normalizeKeywords5(
       }
     )
   ).slice(0, 5)
+
+  if (titlePhrases[0] && !normalized.some((item) => item.toLowerCase() === titlePhrases[0].toLowerCase())) {
+    return uniquePhrases([titlePhrases[0], ...normalized]).slice(0, 5)
+  }
+
+  return normalized
 }
 
 function fillTemplate(template: string, keywords5: string[]) {
@@ -488,7 +562,8 @@ function appendListingId(description: string, listingId: string | null) {
   const cleanListingId = cleanText(listingId)
   if (!cleanListingId) return description
 
-  const marker = `Listing ID: ${cleanListingId}`
+  const shortCode = cleanListingId.split("-").pop() || cleanListingId
+  const marker = cleanText(shortCode)
   const normalized = description.trim()
 
   if (!normalized) return marker
@@ -518,6 +593,35 @@ function extendAltTextIfNeeded(text: string, min: number, max: number, fallbackP
   }
 
   return clampAltText(normalized, min, max)
+}
+
+function buildAltKeywordVariants(
+  analysis: Record<string, unknown>,
+  productConfig: ProductConfig,
+  index: number
+) {
+  const primary = cleanText(analysis.primary_subject)
+  const secondary = cleanText(analysis.secondary_subject)
+  const style = cleanText(analysis.style)
+  const decor = cleanText(analysis.decor_context)
+  const productTerm = getProductTerms(productConfig).preferred || cleanText(productConfig.product_name)
+
+  const variants = uniquePhrases([
+    primary && `${primary} ${productTerm}`.trim(),
+    primary && secondary ? `${primary} ${secondary} print` : "",
+    style && `${style} ${productTerm}`.trim(),
+    decor && `${decor} ${productTerm}`.trim(),
+    primary && `${primary} wall decor`,
+    secondary && `${secondary} wall art`,
+    cleanText(analysis.search_intent),
+  ].filter(Boolean) as string[])
+
+  if (variants.length === 0) {
+    return [productTerm]
+  }
+
+  const offset = index % variants.length
+  return [...variants.slice(offset), ...variants.slice(0, offset)]
 }
 
 function buildTitleFromComponents(
@@ -583,6 +687,7 @@ TITLE STRATEGY
 - Avoid stuffing disconnected words together.
 - Prefer a strong search phrase cluster over decorative adjectives.
 - If the product rules require a full word budget, use as much of that allowed budget as possible without breaking coherence.
+- For printable wall art, think in 3 clear blocks: subject cluster ending in "Print", style/decor cluster ending in "Wall Art", and a final "(Digital Download)" suffix.
 
 DESCRIPTION KEYWORDS STRATEGY
 - Generate exactly 5 keyword phrases.
@@ -603,6 +708,7 @@ ALT TEXT STRATEGY
 - Keep each alt text unique and image-specific.
 - Maintain the original image id and position.
 - Obey the product-specific alt text character range strictly.
+- Rotate keyword emphasis across images instead of repeating the exact same product phrase every time.
 
 OUTPUT
 - Return ONLY valid JSON.
@@ -711,14 +817,14 @@ Return JSON in this exact shape:
       productConfig?.tag_rules?.max_tags ?? 13,
       productConfig?.tag_rules?.max_characters ?? 20
     )
-    const keywords5 = normalizeKeywords5(parsed.description_keywords_5, analysis, productConfig)
+    const keywords5 = normalizeKeywords5(parsed.description_keywords_5, analysis, productConfig, title)
     const description = appendListingId(
       fillTemplate(descriptionTemplate, keywords5),
       listingId
     )
 
     const parsedMedia = Array.isArray(parsed.media) ? parsed.media : []
-    const media = mockups.map((img: any) => {
+    const media = mockups.map((img: any, index: number) => {
       const foundById = parsedMedia.find((entry: any) => entry.id === img.id)
       const foundByPosition = parsedMedia.find(
         (entry: any) => entry.position === img.position
@@ -726,7 +832,7 @@ Return JSON in this exact shape:
       const found = foundById || foundByPosition
       const minAlt = productConfig?.image_rules?.alt_text?.min_characters ?? 200
       const maxAlt = productConfig?.image_rules?.alt_text?.max_characters ?? 250
-      const productTerm = getProductTerms(productConfig).preferred || cleanText(productConfig.product_name)
+      const altKeywordVariants = buildAltKeywordVariants(analysis, productConfig, index)
 
       return {
         id: img.id,
@@ -736,9 +842,9 @@ Return JSON in this exact shape:
           minAlt,
           maxAlt,
           [
-            analysis.style && `${cleanText(analysis.style)} ${productTerm}`.trim(),
+            ...altKeywordVariants,
             analysis.decor_context && `Styled for ${cleanText(analysis.decor_context)} interiors.`,
-            productTerm && `${productTerm} digital download mockup.`,
+            cleanText(title),
           ].filter(Boolean) as string[]
         ),
       }

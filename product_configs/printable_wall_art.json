@@ -29,7 +29,7 @@
     ],
 
     "word_rules": {
-      "min_words": 14,
+      "min_words": 13,
       "max_words": 14,
       "max_characters": 100,
       "avoid_word_repetition": true,
