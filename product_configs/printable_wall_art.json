@@ -6,30 +6,34 @@
     "capitalization": "title_case",
 
     "mandatory_terms": [
-      "Printable Wall Art",
-      "(Instant Download)"
+      "Print",
+      "Wall Art",
+      "Digital Download"
     ],
 
     "allow_variations": [
-      "Printable Wall Art",
-      "Printable Art",
-      "Wall Art Print"
+      "Print",
+      "Wall Art"
     ],
 
     "structure": [
-      "STYLE",
       "SUBJECT",
       "SECOND_SUBJECT",
-      "PRODUCT",
+      "Print",
       ",",
+      "STYLE",
       "DECOR_CONTEXT",
-      "(Instant Download)"
+      "Wall Art",
+      ",",
+      "Digital Download"
     ],
 
     "word_rules": {
-      "min_words": 10,
+      "min_words": 14,
       "max_words": 14,
-      "avoid_word_repetition": true
+      "max_characters": 100,
+      "avoid_word_repetition": true,
+      "target_full_word_budget": true
     },
 
     "seo_priorities": {
@@ -41,14 +45,15 @@
   },
 
   "normalization_rules": {
-    "primary_product_term": "Printable Wall Art",
+    "primary_product_term": "Wall Art",
     "alternate_product_terms": [
+      "Print",
+      "Printable Wall Art",
       "Printable Art",
-      "Wall Art Print",
       "Digital Wall Art"
     ],
-    "title_suffix": "(Instant Download)",
-    "comma_after_product_term": true,
+    "title_suffix": "Digital Download",
+    "title_format": "print_wall_art_commas",
     "keyword_fallback_phrases": [
       "printable wall art",
       "digital wall art",
@@ -126,7 +131,7 @@
 
     "alt_text": {
       "min_characters": 170,
-      "max_characters": 230,
+      "max_characters": 200,
 
       "structure": [
         "visual_description",

@@ -433,7 +433,7 @@ function SortableMockupCard({
           Alt text
         </div>
         <div className="flex items-start gap-2">
-          <div className="min-h-[88px] flex-1 rounded-2xl border border-neutral-800 bg-neutral-900/70 px-3 py-3 text-xs leading-relaxed text-neutral-100 break-words whitespace-normal">
+          <div className="min-h-[88px] flex-1 rounded-2xl border border-neutral-800 bg-neutral-900/70 px-3 py-3 text-xs leading-relaxed text-neutral-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
             {item.altText ? item.altText : <span className="text-neutral-500">No alt text generated yet.</span>}
           </div>
           <Button variant="secondary" disabled={!item.altText} onClick={onCopyAlt}>
