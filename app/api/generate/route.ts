@@ -597,56 +597,106 @@ function appendListingId(description: string, listingId: string | null) {
   return `${normalized}\n\n${marker}`
 }
 
-function extendAltTextIfNeeded(text: string, min: number, max: number, fallbackParts: string[]) {
-  let normalized = cleanText(text)
+async function rewriteAltTexts({
+  productConfig,
+  listingTitle,
+  analysis,
+  mediaDrafts,
+}: {
+  productConfig: ProductConfig
+  listingTitle: string
+  analysis: Record<string, unknown>
+  mediaDrafts: Array<{
+    id: string
+    position: number
+    alt_text: string
+  }>
+}) {
+  if (mediaDrafts.length === 0) return mediaDrafts
 
-  if (normalized.length >= min) {
-    return clampAltText(normalized, min, max)
-  }
+  const minAlt = productConfig?.image_rules?.alt_text?.min_characters ?? 200
+  const maxAlt = productConfig?.image_rules?.alt_text?.max_characters ?? 250
 
-  const additions = fallbackParts.map((part) => cleanText(part)).filter(Boolean)
+  const systemPrompt = `
+You are rewriting Etsy listing image alt text for a digital art product.
 
-  for (const addition of additions) {
-    if (normalized.toLowerCase().includes(addition.toLowerCase())) continue
+YOUR GOAL
+- Rewrite each alt text so it sounds fully natural, human, and coherent.
+- Describe what is actually visible in the image.
+- Integrate relevant listing keywords naturally, without stuffing.
+- Make each image sound unique.
 
-    const candidate = `${normalized} ${addition}`.replace(/\s+/g, " ").trim()
-    normalized = candidate
+STRICT RULES
+- Each alt text must be between ${minAlt} and ${maxAlt} characters.
+- Do not append keyword fragments or keyword lists.
+- Do not repeat the exact same keyword phrase across every image.
+- Use complete sentences or one coherent sentence only.
+- Keep the original image id and position exactly.
+- Preserve image-specific differences such as framed mockup, room scene, promo graphic, size guide, or tabletop styling.
 
-    if (normalized.length >= min) {
-      break
-    }
-  }
+OUTPUT
+- Return ONLY valid JSON.
+- Do not add markdown.
+- Do not add commentary.
+`
 
-  return clampAltText(normalized, min, max)
+  const userPrompt = `
+product_config:
+${JSON.stringify(productConfig)}
+
+listing_title:
+${listingTitle}
+
+listing_analysis:
+${JSON.stringify(analysis)}
+
+Rewrite the following alt text drafts into polished final alt text:
+${JSON.stringify(mediaDrafts)}
+
+Return JSON in this exact shape:
+{
+  "media": [
+    { "id": "", "position": 0, "alt_text": "" }
+  ]
 }
+`
 
-function buildAltKeywordVariants(
-  analysis: Record<string, unknown>,
-  productConfig: ProductConfig,
-  index: number
-) {
-  const primary = cleanText(analysis.primary_subject)
-  const secondary = cleanText(analysis.secondary_subject)
-  const style = cleanText(analysis.style)
-  const decor = cleanText(analysis.decor_context)
-  const productTerm = getProductTerms(productConfig).preferred || cleanText(productConfig.product_name)
+  const response = await client.responses.create({
+    model: "gpt-4o",
+    temperature: 0.2,
+    input: [
+      {
+        role: "system",
+        content: [{ type: "input_text", text: systemPrompt }],
+      },
+      {
+        role: "user",
+        content: [{ type: "input_text", text: userPrompt }],
+      },
+    ],
+  })
 
-  const variants = uniquePhrases([
-    primary && `${primary} ${productTerm}`.trim(),
-    primary && secondary ? `${primary} ${secondary} print` : "",
-    style && `${style} ${productTerm}`.trim(),
-    decor && `${decor} ${productTerm}`.trim(),
-    primary && `${primary} wall decor`,
-    secondary && `${secondary} wall art`,
-    cleanText(analysis.search_intent),
-  ].filter(Boolean) as string[])
+  const raw = response.output_text || ""
+  const start = raw.indexOf("{")
+  const end = raw.lastIndexOf("}")
 
-  if (variants.length === 0) {
-    return [productTerm]
+  if (start === -1 || end === -1) {
+    return mediaDrafts
   }
 
-  const offset = index % variants.length
-  return [...variants.slice(offset), ...variants.slice(0, offset)]
+  const parsed = JSON.parse(raw.slice(start, end + 1))
+  const rewrittenMedia = Array.isArray(parsed.media) ? parsed.media : []
+
+  return mediaDrafts.map((draft) => {
+    const found =
+      rewrittenMedia.find((entry: any) => entry.id === draft.id) ||
+      rewrittenMedia.find((entry: any) => entry.position === draft.position)
+
+    return {
+      ...draft,
+      alt_text: clampAltText(found?.alt_text || draft.alt_text || "", minAlt, maxAlt),
+    }
+  })
 }
 
 function buildTitleFromComponents(
@@ -849,7 +899,7 @@ Return JSON in this exact shape:
     )
 
     const parsedMedia = Array.isArray(parsed.media) ? parsed.media : []
-    const media = mockups.map((img: any, index: number) => {
+    const mediaDrafts = mockups.map((img: any, index: number) => {
       const foundById = parsedMedia.find((entry: any) => entry.id === img.id)
       const foundByPosition = parsedMedia.find(
         (entry: any) => entry.position === img.position
@@ -857,22 +907,19 @@ Return JSON in this exact shape:
       const found = foundById || foundByPosition
       const minAlt = productConfig?.image_rules?.alt_text?.min_characters ?? 200
       const maxAlt = productConfig?.image_rules?.alt_text?.max_characters ?? 250
-      const altKeywordVariants = buildAltKeywordVariants(analysis, productConfig, index)
 
       return {
         id: img.id,
         position: img.position,
-        alt_text: extendAltTextIfNeeded(
-          found?.alt_text || "",
-          minAlt,
-          maxAlt,
-          [
-            ...altKeywordVariants,
-            analysis.decor_context && `Styled for ${cleanText(analysis.decor_context)} interiors.`,
-            cleanText(title),
-          ].filter(Boolean) as string[]
-        ),
+        alt_text: clampAltText(found?.alt_text || "", minAlt, maxAlt),
       }
+    })
+
+    const media = await rewriteAltTexts({
+      productConfig,
+      listingTitle: title,
+      analysis,
+      mediaDrafts,
     })
 
     const output = {
