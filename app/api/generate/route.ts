@@ -47,6 +47,10 @@ function cleanText(value: unknown) {
   return String(value || "").replace(/\s+/g, " ").trim()
 }
 
+function normalizeWord(value: string) {
+  return cleanText(value).replace(/^[^\w]+|[^\w]+$/g, "")
+}
+
 function clampAltText(text: string, min = 200, max = 250) {
   let normalized = cleanText(text)
 
@@ -168,6 +172,7 @@ function buildPrintableWallArtTitle(
     uniquePhrases(
       value
         .split(/\s+/)
+        .map((word) => normalizeWord(word))
         .filter(Boolean)
         .filter(
           (word) =>
@@ -187,14 +192,14 @@ function buildPrintableWallArtTitle(
   const subjectWords = uniquePhrases(
     [primary, secondary]
       .filter(Boolean)
-      .flatMap((value) => value.split(/\s+/))
+      .flatMap((value) => value.split(/\s+/).map((word) => normalizeWord(word)))
       .filter(Boolean)
   )
 
   const styleWords = uniquePhrases(
     [style, decorContext, searchIntent]
       .filter(Boolean)
-      .flatMap((value) => value.split(/\s+/))
+      .flatMap((value) => value.split(/\s+/).map((word) => normalizeWord(word)))
       .filter(Boolean)
   )
 
@@ -212,6 +217,15 @@ function buildPrintableWallArtTitle(
 
   let firstSegment = prioritizedSubjectWords.slice(0, 3)
   let secondSegment = prioritizedStyleWords.slice(0, 4)
+
+  while (
+    firstSegment.length > 1 &&
+    ["water", "art", "painting", "decor", "wall"].includes(
+      firstSegment[firstSegment.length - 1].toLowerCase()
+    )
+  ) {
+    firstSegment = firstSegment.slice(0, -1)
+  }
 
   if (firstSegment.length === 0) firstSegment = ["Printable"]
   if (secondSegment.length === 0) secondSegment = ["Modern"]
@@ -236,17 +250,25 @@ function buildPrintableWallArtTitle(
       "download",
     ]
       .filter(Boolean)
-      .flatMap((value) => value.split(/\s+/))
+      .flatMap((value) => value.split(/\s+/).map((word) => normalizeWord(word)))
       .filter(Boolean)
   )
 
   const fixedWords = new Set(
     ["print", "wall", "art", "digital", "download", ...firstSegment, ...secondSegment].map(
-      (word) => word.toLowerCase()
+      (word) => normalizeWord(word).toLowerCase()
     )
   )
 
-  const extras = sourceWords.filter((word) => !fixedWords.has(word.toLowerCase()))
+  const extras = sourceWords.filter((word) => {
+    const normalizedWord = normalizeWord(word).toLowerCase()
+    if (!normalizedWord) return false
+    if (fixedWords.has(normalizedWord)) return false
+    if (["print", "art", "wall", "digital", "download"].includes(normalizedWord)) {
+      return false
+    }
+    return true
+  })
 
   const targetWords = productConfig.title_rules?.word_rules?.target_full_word_budget
     ? maxWords
@@ -309,7 +331,10 @@ function buildPrintableWallArtTitle(
       "modern",
       "abstract",
     ]).filter(
-      (word) => ![...firstSegment, ...secondSegment].some((item) => item.toLowerCase() === word.toLowerCase())
+      (word) =>
+        ![...firstSegment, ...secondSegment].some(
+          (item) => normalizeWord(item).toLowerCase() === normalizeWord(word).toLowerCase()
+        )
     )
 
     for (const filler of fillerPool) {
