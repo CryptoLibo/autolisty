@@ -2,7 +2,12 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { generateListingId } from "@/lib/utils/generateListingId";
-import { getProductOption, PRODUCT_OPTIONS, ProductType } from "@/lib/products";
+import {
+  DeliveryField,
+  getProductOption,
+  PRODUCT_OPTIONS,
+  ProductType,
+} from "@/lib/products";
 import { DndContext, DragEndEvent, closestCenter } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -480,8 +485,7 @@ export default function Page() {
   const [pinterestMessage, setPinterestMessage] = useState<string | null>(null);
   const [selectedPinterestBoardId, setSelectedPinterestBoardId] = useState("");
 
-  const [deliverables, setDeliverables] = useState<File[]>([]);
-  const [instructionsFile, setInstructionsFile] = useState<File | null>(null);
+  const [deliveryFiles, setDeliveryFiles] = useState<Record<string, File | null>>({});
 
   const [deliveryPdfUrl, setDeliveryPdfUrl] = useState<string | null>(null);
   const [deliveryLoading, setDeliveryLoading] = useState(false);
@@ -504,6 +508,10 @@ export default function Page() {
 
   const mockupIds = useMemo(() => mockups.map((m) => m.id), [mockups]);
   const selectedProduct = useMemo(() => getProductOption(productType), [productType]);
+  const activeDeliveryFields = useMemo(
+    () => selectedProduct.delivery.fields,
+    [selectedProduct]
+  );
 
   useEffect(() => {
     async function loadEtsyStatus() {
@@ -753,8 +761,7 @@ export default function Page() {
     setMidjourneyPrompt("");
     setPinterestLink("");
     setSelectedPinterestBoardId("");
-    setDeliverables([]);
-    setInstructionsFile(null);
+    setDeliveryFiles({});
     setDeliveryPdfUrl(null);
     setError(null);
     setResult(null);
@@ -785,7 +792,9 @@ export default function Page() {
     setResult(null);
 
     try {
+      const id = ensureListingId();
       const payload = {
+        listingId: id,
         productType,
         designUrl: designR2Url,
         midjourneyPrompt,
@@ -834,13 +843,10 @@ export default function Page() {
   }
 
   async function uploadDeliverables() {
-    if (!selectedProduct.delivery.ready) {
-      setError("Delivery PDF setup is not ready for this product yet");
-      return;
-    }
+    const missingFields = activeDeliveryFields.filter((field) => !deliveryFiles[field.id]);
 
-    if (!deliverables.length || !instructionsFile) {
-      alert("Upload design and instructions first");
+    if (missingFields.length > 0) {
+      alert("Upload all required delivery files first");
       return;
     }
 
@@ -851,11 +857,18 @@ export default function Page() {
     const id = ensureListingId();
 
     try {
-      const designExt = getFileExtension(deliverables[0], "jpg");
-      const files = [
-        { file: deliverables[0], name: `design.${designExt}` },
-        { file: instructionsFile, name: "instructions.pdf" },
-      ];
+      const files = activeDeliveryFields.map((field) => {
+        const file = deliveryFiles[field.id];
+
+        if (!file) {
+          throw new Error(`Missing required file for ${field.label}`);
+        }
+
+        return {
+          file,
+          name: getDeliveryFilename(field, file),
+        };
+      });
 
       for (const f of files) {
         const formData = new FormData();
@@ -877,7 +890,7 @@ export default function Page() {
       const res = await fetch("/api/generate/delivery", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ listingId: id }),
+        body: JSON.stringify({ listingId: id, productType }),
       });
 
       if (!res.ok) {
@@ -951,6 +964,30 @@ export default function Page() {
     } finally {
       setPinterestLoading(false);
     }
+  }
+
+  function setDeliveryFile(fieldId: string, file: File | null) {
+    setDeliveryFiles((prev) => {
+      if (!file) {
+        const next = { ...prev };
+        delete next[fieldId];
+        return next;
+      }
+
+      return {
+        ...prev,
+        [fieldId]: file,
+      };
+    });
+  }
+
+  function getDeliveryFilename(field: DeliveryField, file: File) {
+    if (field.filenameBase.includes(".")) {
+      return field.filenameBase;
+    }
+
+    const ext = getFileExtension(file, field.fallbackExtension || "jpg");
+    return `${field.filenameBase}.${ext}`;
   }
 
   async function publishPinterestPins() {
@@ -1236,70 +1273,57 @@ export default function Page() {
                   {selectedProduct.delivery.summary}
                 </div>
 
-                {selectedProduct.delivery.ready ? (
-                  <>
-                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
-                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                        <FilePicker
-                          label="Final design file"
-                          accept="image/png,image/jpeg"
-                          selectedName={deliverables[0]?.name || null}
-                          icon={<ImageIcon size={18} />}
-                          onChange={(file) => {
-                            if (!file) return;
-                            setDeliverables([file]);
-                          }}
-                        />
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {activeDeliveryFields.map((field) => (
+                    <FilePicker
+                      key={field.id}
+                      label={field.label}
+                      accept={field.accept}
+                      selectedName={deliveryFiles[field.id]?.name || null}
+                      icon={
+                        field.accept.includes("pdf") ? (
+                          <FileText size={18} />
+                        ) : (
+                          <ImageIcon size={18} />
+                        )
+                      }
+                      onChange={(file) => {
+                        setDeliveryFile(field.id, file);
+                      }}
+                    />
+                  ))}
+                </div>
 
-                        <FilePicker
-                          label="Instructions PDF"
-                          accept="application/pdf"
-                          selectedName={instructionsFile?.name || null}
-                          icon={<FileText size={18} />}
-                          onChange={(file) => {
-                            setInstructionsFile(file);
-                          }}
-                        />
-                      </div>
-
-                      <div className="xl:pb-1">
-                        <Button
-                          variant="primary"
-                          onClick={uploadDeliverables}
-                          disabled={deliveryLoading}
-                        >
-                          {deliveryLoading ? (
-                            <>
-                              <Loader2 className="animate-spin" size={16} />
-                              Generating...
-                            </>
-                          ) : (
-                            <>
-                              <FileText size={16} />
-                              Generate Delivery PDF
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-
-                    {deliveryPdfUrl && (
-                      <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-4 py-3 text-sm text-[#f1cc61]">
-                        Delivery ready:
-                        <a
-                          href={deliveryPdfUrl}
-                          target="_blank"
-                          className="ml-2 font-semibold underline underline-offset-4"
-                        >
-                          Open PDF
-                        </a>
-                      </div>
+                <div className="flex justify-end">
+                  <Button
+                    variant="primary"
+                    onClick={uploadDeliverables}
+                    disabled={deliveryLoading}
+                  >
+                    {deliveryLoading ? (
+                      <>
+                        <Loader2 className="animate-spin" size={16} />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <FileText size={16} />
+                        {selectedProduct.delivery.buttonLabel}
+                      </>
                     )}
-                  </>
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-[#eeba2b]/20 bg-[#eeba2b]/5 p-4 text-sm text-neutral-300">
-                    Printable Wall Art delivery is intentionally paused until its new Canva PDF template is ready.
-                    Once you create that template, we will wire the 5 download buttons and the final upload flow here.
+                  </Button>
+                </div>
+
+                {deliveryPdfUrl && (
+                  <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-4 py-3 text-sm text-[#f1cc61]">
+                    Delivery ready:
+                    <a
+                      href={deliveryPdfUrl}
+                      target="_blank"
+                      className="ml-2 font-semibold underline underline-offset-4"
+                    >
+                      Open PDF
+                    </a>
                   </div>
                 )}
               </div>

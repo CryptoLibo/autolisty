@@ -1,6 +1,7 @@
 import { PDFArray, PDFDocument, PDFName, PDFNumber, PDFString } from "pdf-lib"
 import fs from "fs"
 import path from "path"
+import { ProductType } from "@/lib/products"
 
 function createLinkAnnotation(
   pdfDoc: PDFDocument,
@@ -32,32 +33,81 @@ function setAnnotationRect(annotation: any, rect: [number, number, number, numbe
   annotation.set(PDFName.of("Rect"), rectArray)
 }
 
-export async function generateDeliveryPdf(listingId: string) {
-  const templatePath = path.join(process.cwd(), "templates", "delivery_template.pdf")
+const DELIVERY_LAYOUTS: Record<
+  ProductType,
+  {
+    templateFile: string
+    links: Array<{
+      rect: [number, number, number, number]
+      url: (listingId: string) => string
+    }>
+  }
+> = {
+  frame_tv_art: {
+    templateFile: "frame_tv_delivery.pdf",
+    links: [
+      {
+        rect: [140, 330, 460, 430],
+        url: (listingId) => `https://download.autolisty.com/artwork/${listingId}`,
+      },
+      {
+        rect: [140, 135, 460, 240],
+        url: (listingId) => `https://download.autolisty.com/instructions/${listingId}`,
+      },
+    ],
+  },
+  printable_wall_art: {
+    templateFile: "print_art_delivery.pdf",
+    links: [
+      {
+        rect: [42, 331, 195, 373],
+        url: (listingId) => `https://download.autolisty.com/printable/2-3/${listingId}`,
+      },
+      {
+        rect: [361, 331, 515, 373],
+        url: (listingId) => `https://download.autolisty.com/printable/3-4/${listingId}`,
+      },
+      {
+        rect: [201, 242, 358, 285],
+        url: (listingId) => `https://download.autolisty.com/printable/4-5/${listingId}`,
+      },
+      {
+        rect: [41, 109, 194, 150],
+        url: (listingId) => `https://download.autolisty.com/printable/11-14/${listingId}`,
+      },
+      {
+        rect: [361, 109, 515, 150],
+        url: (listingId) => `https://download.autolisty.com/printable/iso/${listingId}`,
+      },
+    ],
+  },
+}
+
+export async function generateDeliveryPdf(productType: ProductType, listingId: string) {
+  const delivery = DELIVERY_LAYOUTS[productType]
+  if (!delivery) {
+    throw new Error(`Unsupported product type for delivery PDF: ${productType}`)
+  }
+
+  const templatePath = path.join(process.cwd(), "templates", delivery.templateFile)
   const templateBytes = fs.readFileSync(templatePath)
 
   const pdfDoc = await PDFDocument.load(templateBytes)
   const page = pdfDoc.getPages()[0]
 
-  const artworkUrl = `https://download.autolisty.com/artwork/${listingId}`
-  const instructionsUrl = `https://download.autolisty.com/instructions/${listingId}`
-
-  const artworkLink = createLinkAnnotation(pdfDoc, [140, 330, 460, 430], artworkUrl)
-  const instructionsLink = createLinkAnnotation(pdfDoc, [140, 135, 460, 240], instructionsUrl)
-
-  setAnnotationRect(artworkLink, [140, 330, 460, 430], pdfDoc)
-  setAnnotationRect(instructionsLink, [140, 135, 460, 240], pdfDoc)
-
-  const artworkRef = pdfDoc.context.register(artworkLink)
-  const instructionsRef = pdfDoc.context.register(instructionsLink)
-
   const existingAnnots = page.node.Annots()
+  const annotationRefs = delivery.links.map((link) => {
+    const annotation = createLinkAnnotation(pdfDoc, link.rect, link.url(listingId))
+    setAnnotationRect(annotation, link.rect, pdfDoc)
+    return pdfDoc.context.register(annotation)
+  })
 
   if (existingAnnots) {
-    existingAnnots.push(artworkRef)
-    existingAnnots.push(instructionsRef)
+    for (const annotationRef of annotationRefs) {
+      existingAnnots.push(annotationRef)
+    }
   } else {
-    const annots = pdfDoc.context.obj([artworkRef, instructionsRef])
+    const annots = pdfDoc.context.obj(annotationRefs)
     page.node.set(PDFName.of("Annots"), annots)
   }
 

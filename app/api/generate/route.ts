@@ -322,6 +322,19 @@ function fillTemplate(template: string, keywords5: string[]) {
   return output
 }
 
+function appendListingId(description: string, listingId: string | null) {
+  const cleanListingId = cleanText(listingId)
+  if (!cleanListingId) return description
+
+  const marker = `Listing ID: ${cleanListingId}`
+  const normalized = description.trim()
+
+  if (!normalized) return marker
+  if (normalized.includes(marker)) return normalized
+
+  return `${normalized}\n\n${marker}`
+}
+
 function buildTitleFromComponents(
   components: Record<string, unknown>,
   productConfig: ProductConfig
@@ -349,7 +362,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json()
 
-    const { productType, designUrl, mockups = [], midjourneyPrompt } = body
+    const { productType, designUrl, mockups = [], midjourneyPrompt, listingId } = body
 
     const configPath = path.join(process.cwd(), "product_configs", `${productType}.json`)
     const productConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")) as ProductConfig
@@ -505,7 +518,10 @@ Return JSON in this exact shape:
       productConfig?.tag_rules?.max_characters ?? 20
     )
     const keywords5 = normalizeKeywords5(parsed.description_keywords_5, analysis, productConfig)
-    const description = fillTemplate(descriptionTemplate, keywords5)
+    const description = appendListingId(
+      fillTemplate(descriptionTemplate, keywords5),
+      listingId
+    )
 
     const parsedMedia = Array.isArray(parsed.media) ? parsed.media : []
     const media = mockups.map((img: any) => {
