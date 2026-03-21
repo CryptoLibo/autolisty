@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { generateListingId } from "@/lib/utils/generateListingId";
+import { getProductOption, PRODUCT_OPTIONS, ProductType } from "@/lib/products";
 import { DndContext, DragEndEvent, closestCenter } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -22,8 +23,6 @@ import {
   FileText,
   CheckCircle2,
 } from "lucide-react";
-
-type ProductType = "frame_tv_art";
 
 type MediaItem = {
   id: string;
@@ -504,6 +503,7 @@ export default function Page() {
     !uploading;
 
   const mockupIds = useMemo(() => mockups.map((m) => m.id), [mockups]);
+  const selectedProduct = useMemo(() => getProductOption(productType), [productType]);
 
   useEffect(() => {
     async function loadEtsyStatus() {
@@ -760,6 +760,12 @@ export default function Page() {
     setResult(null);
   }
 
+  function handleProductTypeChange(nextProductType: ProductType) {
+    if (nextProductType === productType) return;
+    resetAll();
+    setProductType(nextProductType);
+  }
+
   function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
@@ -828,6 +834,11 @@ export default function Page() {
   }
 
   async function uploadDeliverables() {
+    if (!selectedProduct.delivery.ready) {
+      setError("Delivery PDF setup is not ready for this product yet");
+      return;
+    }
+
     if (!deliverables.length || !instructionsFile) {
       alert("Upload design and instructions first");
       return;
@@ -1098,10 +1109,14 @@ export default function Page() {
                     </div>
                     <select
                       value={productType}
-                      onChange={(e) => setProductType(e.target.value as ProductType)}
+                      onChange={(e) => handleProductTypeChange(e.target.value as ProductType)}
                       className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
                     >
-                      <option value="frame_tv_art">Frame TV Art (Digital)</option>
+                      {PRODUCT_OPTIONS.map((product) => (
+                        <option key={product.value} value={product.value}>
+                          {product.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -1216,63 +1231,78 @@ export default function Page() {
             </Card>
 
             <Card title="Deliverables">
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <FilePicker
-                    label="Final design file"
-                    accept="image/png,image/jpeg"
-                    selectedName={deliverables[0]?.name || null}
-                    icon={<ImageIcon size={18} />}
-                    onChange={(file) => {
-                      if (!file) return;
-                      setDeliverables([file]);
-                    }}
-                  />
-
-                  <FilePicker
-                    label="Instructions PDF"
-                    accept="application/pdf"
-                    selectedName={instructionsFile?.name || null}
-                    icon={<FileText size={18} />}
-                    onChange={(file) => {
-                      setInstructionsFile(file);
-                    }}
-                  />
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 text-sm text-neutral-300">
+                  {selectedProduct.delivery.summary}
                 </div>
 
-                <div className="xl:pb-1">
-                  <Button
-                    variant="primary"
-                    onClick={uploadDeliverables}
-                    disabled={deliveryLoading}
-                  >
-                    {deliveryLoading ? (
-                      <>
-                        <Loader2 className="animate-spin" size={16} />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <FileText size={16} />
-                        Generate Delivery PDF
-                      </>
+                {selectedProduct.delivery.ready ? (
+                  <>
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <FilePicker
+                          label="Final design file"
+                          accept="image/png,image/jpeg"
+                          selectedName={deliverables[0]?.name || null}
+                          icon={<ImageIcon size={18} />}
+                          onChange={(file) => {
+                            if (!file) return;
+                            setDeliverables([file]);
+                          }}
+                        />
+
+                        <FilePicker
+                          label="Instructions PDF"
+                          accept="application/pdf"
+                          selectedName={instructionsFile?.name || null}
+                          icon={<FileText size={18} />}
+                          onChange={(file) => {
+                            setInstructionsFile(file);
+                          }}
+                        />
+                      </div>
+
+                      <div className="xl:pb-1">
+                        <Button
+                          variant="primary"
+                          onClick={uploadDeliverables}
+                          disabled={deliveryLoading}
+                        >
+                          {deliveryLoading ? (
+                            <>
+                              <Loader2 className="animate-spin" size={16} />
+                              Generating...
+                            </>
+                          ) : (
+                            <>
+                              <FileText size={16} />
+                              Generate Delivery PDF
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {deliveryPdfUrl && (
+                      <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-4 py-3 text-sm text-[#f1cc61]">
+                        Delivery ready:
+                        <a
+                          href={deliveryPdfUrl}
+                          target="_blank"
+                          className="ml-2 font-semibold underline underline-offset-4"
+                        >
+                          Open PDF
+                        </a>
+                      </div>
                     )}
-                  </Button>
-                </div>
+                  </>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-[#eeba2b]/20 bg-[#eeba2b]/5 p-4 text-sm text-neutral-300">
+                    Printable Wall Art delivery is intentionally paused until its new Canva PDF template is ready.
+                    Once you create that template, we will wire the 5 download buttons and the final upload flow here.
+                  </div>
+                )}
               </div>
-
-              {deliveryPdfUrl && (
-                <div className="mt-5 rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-4 py-3 text-sm text-[#f1cc61]">
-                  Delivery ready:
-                  <a
-                    href={deliveryPdfUrl}
-                    target="_blank"
-                    className="ml-2 font-semibold underline underline-offset-4"
-                  >
-                    Open PDF
-                  </a>
-                </div>
-              )}
             </Card>
 
             <Card

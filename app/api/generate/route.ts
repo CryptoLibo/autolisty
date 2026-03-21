@@ -9,6 +9,37 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 })
 
+type ProductConfig = {
+  product_name?: string
+  title_rules?: {
+    word_rules?: {
+      min_words?: number
+      max_words?: number
+    }
+    allow_variations?: string[]
+  }
+  normalization_rules?: {
+    primary_product_term?: string
+    alternate_product_terms?: string[]
+    title_suffix?: string
+    comma_after_product_term?: boolean
+    keyword_fallback_phrases?: string[]
+  }
+  description_rules?: {
+    template_file?: string
+  }
+  tag_rules?: {
+    max_tags?: number
+    max_characters?: number
+  }
+  image_rules?: {
+    alt_text?: {
+      min_characters?: number
+      max_characters?: number
+    }
+  }
+}
+
 function cleanText(value: unknown) {
   return String(value || "").replace(/\s+/g, " ").trim()
 }
@@ -85,27 +116,64 @@ function dedupeWordRoots(words: string[]) {
   return result
 }
 
-function normalizeTitle(rawTitle: unknown, minWords = 13, maxWords = 15) {
+function getTitleSuffix(productConfig: ProductConfig) {
+  return cleanText(productConfig.normalization_rules?.title_suffix) || "(Digital Download)"
+}
+
+function getProductTerms(productConfig: ProductConfig) {
+  const preferred =
+    cleanText(productConfig.normalization_rules?.primary_product_term) ||
+    cleanText(productConfig.title_rules?.allow_variations?.[0]) ||
+    cleanText(productConfig.product_name)
+
+  const alternates = [
+    ...(productConfig.normalization_rules?.alternate_product_terms || []),
+    ...(productConfig.title_rules?.allow_variations || []),
+    cleanText(productConfig.product_name),
+  ]
+    .map((item) => cleanText(item))
+    .filter(Boolean)
+
+  const allTerms = uniquePhrases([preferred, ...alternates])
+
+  return {
+    preferred,
+    all: allTerms,
+  }
+}
+
+function normalizeTitle(
+  rawTitle: unknown,
+  productConfig: ProductConfig,
+  minWords = 13,
+  maxWords = 15
+) {
   let title = cleanText(rawTitle).replace(/\s+,/g, ",")
 
   if (!title) return ""
 
+  const suffix = getTitleSuffix(productConfig)
+  const productTerms = getProductTerms(productConfig)
+
   title = titleCase(title)
 
-  if (!/\(Digital Download\)$/i.test(title)) {
-    title = title.replace(/\s*\(?Digital Download\)?$/i, "").trim()
-    title += " (Digital Download)"
+  const suffixPattern = new RegExp(`${suffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i")
+
+  if (!suffixPattern.test(title)) {
+    title = title.replace(/\s*\([^)]*\)\s*$/i, "").trim()
+    title += ` ${suffix}`
   }
 
-  const hasSamsungVariant = /Samsung Frame TV Art/i.test(title)
-  const hasFrameVariant = /Frame TV Art/i.test(title)
+  const hasProductTerm = productTerms.all.some((term) => {
+    const pattern = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
+    return pattern.test(title)
+  })
 
-  if (!hasSamsungVariant && !hasFrameVariant) {
-    title = `${title.replace(/\s*\(Digital Download\)$/i, "").trim()} Frame TV Art, (Digital Download)`.trim()
+  if (!hasProductTerm && productTerms.preferred) {
+    title = `${title.replace(suffixPattern, "").trim()} ${productTerms.preferred} ${suffix}`.trim()
   }
 
-  const digitalSuffix = "(Digital Download)"
-  const withoutSuffix = title.replace(/\s*\(Digital Download\)$/i, "").trim()
+  const withoutSuffix = title.replace(suffixPattern, "").trim()
 
   let prefix = withoutSuffix
   if (prefix.includes(",")) {
@@ -113,30 +181,37 @@ function normalizeTitle(rawTitle: unknown, minWords = 13, maxWords = 15) {
     const before = prefix.slice(0, firstComma).trim()
     const after = prefix.slice(firstComma + 1).replace(/,/g, "").trim()
     prefix = `${before}, ${after}`.trim()
-  } else if (/Frame TV Art/i.test(prefix)) {
-    prefix = prefix.replace(
-      /(Samsung Frame TV Art|Frame TV Art)/i,
-      (match) => `${match},`
-    )
+  } else if (productConfig.normalization_rules?.comma_after_product_term) {
+    for (const term of productTerms.all) {
+      const pattern = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
+      if (pattern.test(prefix)) {
+        prefix = prefix.replace(pattern, (match) => `${match},`)
+        break
+      }
+    }
   }
 
   prefix = prefix.replace(/,+/g, ",").replace(/\s+,/g, ",").replace(/,\s*,/g, ",")
   prefix = prefix.replace(/,\s*$/, "").trim()
 
   let words = dedupeWordRoots(prefix.split(/\s+/).filter(Boolean))
+  const suffixWords = suffix.replace(/[()]/g, "").split(/\s+/).filter(Boolean).length
 
-  if (words.length > maxWords - 2) {
-    words = words.slice(0, maxWords - 2)
+  if (words.length > maxWords - suffixWords) {
+    words = words.slice(0, maxWords - suffixWords)
   }
 
-  let normalized = `${words.join(" ")} ${digitalSuffix}`.replace(/\s+/g, " ").trim()
+  let normalized = `${words.join(" ")} ${suffix}`.replace(/\s+/g, " ").trim()
 
   const commaCount = (normalized.match(/,/g) || []).length
-  if (commaCount === 0) {
-    normalized = normalized.replace(
-      /(Samsung Frame TV Art|Frame TV Art)/i,
-      (match) => `${match},`
-    )
+  if (commaCount === 0 && productConfig.normalization_rules?.comma_after_product_term) {
+    for (const term of productTerms.all) {
+      const pattern = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
+      if (pattern.test(normalized)) {
+        normalized = normalized.replace(pattern, (match) => `${match},`)
+        break
+      }
+    }
   } else if (commaCount > 1) {
     let usedComma = false
     normalized = normalized.replace(/,/g, () => {
@@ -146,7 +221,7 @@ function normalizeTitle(rawTitle: unknown, minWords = 13, maxWords = 15) {
     })
   }
 
-  normalized = normalized.replace(/\s+\(Digital Download\)$/i, " (Digital Download)")
+  normalized = normalized.replace(/\s+/g, " ").trim()
   normalized = normalized.replace(/\s+/g, " ").trim()
 
   const finalWords = normalized
@@ -156,11 +231,11 @@ function normalizeTitle(rawTitle: unknown, minWords = 13, maxWords = 15) {
 
   if (finalWords.length > maxWords) {
     const parts = normalized
-      .replace(/\s*\(Digital Download\)$/i, "")
+      .replace(suffixPattern, "")
       .trim()
       .split(/\s+/)
-    const allowed = Math.max(minWords, maxWords - 2)
-    normalized = `${parts.slice(0, allowed).join(" ")} (Digital Download)`.replace(/\s+/g, " ").trim()
+    const allowed = Math.max(minWords, maxWords - suffixWords)
+    normalized = `${parts.slice(0, allowed).join(" ")} ${suffix}`.replace(/\s+/g, " ").trim()
   }
 
   return normalized
@@ -208,7 +283,11 @@ function uniquePhrases(values: string[]) {
   return result
 }
 
-function normalizeKeywords5(list: unknown, analysis: Record<string, unknown>) {
+function normalizeKeywords5(
+  list: unknown,
+  analysis: Record<string, unknown>,
+  productConfig: ProductConfig
+) {
   const requested = Array.isArray(list) ? list : []
   const searchPhrases = Array.isArray(analysis.search_phrases)
     ? analysis.search_phrases.map((item) => cleanText(item))
@@ -220,7 +299,7 @@ function normalizeKeywords5(list: unknown, analysis: Record<string, unknown>) {
     cleanText(analysis.primary_subject) && `${cleanText(analysis.primary_subject)} artwork`,
     cleanText(analysis.style) && `${cleanText(analysis.style)} wall art`,
     cleanText(analysis.decor_context) && `${cleanText(analysis.decor_context)} decor`,
-    "digital frame tv art",
+    ...(productConfig.normalization_rules?.keyword_fallback_phrases || []),
   ].filter(Boolean) as string[]
 
   return uniquePhrases(
@@ -245,21 +324,25 @@ function fillTemplate(template: string, keywords5: string[]) {
 
 function buildTitleFromComponents(
   components: Record<string, unknown>,
-  productConfig: Record<string, any>
+  productConfig: ProductConfig
 ) {
+  const suffix = getTitleSuffix(productConfig)
+  const productTerm =
+    cleanText(components.product_term) ||
+    getProductTerms(productConfig).preferred ||
+    cleanText(productConfig.product_name)
+
   const parts = [
     cleanText(components.style),
     cleanText(components.primary_subject),
     cleanText(components.secondary_subject),
-    cleanText(components.product_term) ||
-      productConfig?.title_rules?.allow_variations?.[0] ||
-      productConfig?.product_name ||
-      "Frame TV Art",
+    productTerm,
   ].filter(Boolean)
 
   const decorContext = cleanText(components.decor_context)
 
-  return `${parts.join(" ")}, ${decorContext} (Digital Download)`.replace(/\s+/g, " ").trim()
+  const prefix = decorContext ? `${parts.join(" ")}, ${decorContext}` : parts.join(" ")
+  return `${prefix} ${suffix}`.replace(/\s+/g, " ").trim()
 }
 
 export async function POST(req: Request) {
@@ -269,7 +352,7 @@ export async function POST(req: Request) {
     const { productType, designUrl, mockups = [], midjourneyPrompt } = body
 
     const configPath = path.join(process.cwd(), "product_configs", `${productType}.json`)
-    const productConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"))
+    const productConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")) as ProductConfig
 
     const templatePath = path.join(
       process.cwd(),
@@ -415,17 +498,13 @@ Return JSON in this exact shape:
     const titleBase =
       cleanText(parsed.title) || buildTitleFromComponents(parsed.title_components || {}, productConfig)
 
-    const title = normalizeTitle(
-      titleBase,
-      productConfig?.title_rules?.word_rules?.min_words ?? 13,
-      productConfig?.title_rules?.word_rules?.max_words ?? 15
-    )
+    const title = normalizeTitle(titleBase, productConfig, productConfig?.title_rules?.word_rules?.min_words ?? 13, productConfig?.title_rules?.word_rules?.max_words ?? 15)
     const tags = normalizeTags(
       parsed.tags_13,
       productConfig?.tag_rules?.max_tags ?? 13,
       productConfig?.tag_rules?.max_characters ?? 20
     )
-    const keywords5 = normalizeKeywords5(parsed.description_keywords_5, analysis)
+    const keywords5 = normalizeKeywords5(parsed.description_keywords_5, analysis, productConfig)
     const description = fillTemplate(descriptionTemplate, keywords5)
 
     const parsedMedia = Array.isArray(parsed.media) ? parsed.media : []
@@ -439,7 +518,11 @@ Return JSON in this exact shape:
       return {
         id: img.id,
         position: img.position,
-        alt_text: clampAltText(found?.alt_text || ""),
+        alt_text: clampAltText(
+          found?.alt_text || "",
+          productConfig?.image_rules?.alt_text?.min_characters ?? 200,
+          productConfig?.image_rules?.alt_text?.max_characters ?? 250
+        ),
       }
     })
 

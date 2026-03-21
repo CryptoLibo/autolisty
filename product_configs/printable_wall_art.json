@@ -1,18 +1,19 @@
 {
-  "product_name": "Frame TV Art",
+  "product_name": "Printable Wall Art",
   "product_type": "digital",
 
   "title_rules": {
     "capitalization": "title_case",
 
     "mandatory_terms": [
-      "Frame TV Art",
-      "(Digital Download)"
+      "Printable Wall Art",
+      "(Instant Download)"
     ],
 
     "allow_variations": [
-      "Frame TV Art",
-      "Samsung Frame TV Art"
+      "Printable Wall Art",
+      "Printable Art",
+      "Wall Art Print"
     ],
 
     "structure": [
@@ -22,12 +23,12 @@
       "PRODUCT",
       ",",
       "DECOR_CONTEXT",
-      "(Digital Download)"
+      "(Instant Download)"
     ],
 
     "word_rules": {
-      "min_words": 13,
-      "max_words": 15,
+      "min_words": 10,
+      "max_words": 14,
       "avoid_word_repetition": true
     },
 
@@ -40,16 +41,18 @@
   },
 
   "normalization_rules": {
-    "primary_product_term": "Frame TV Art",
+    "primary_product_term": "Printable Wall Art",
     "alternate_product_terms": [
-      "Samsung Frame TV Art"
+      "Printable Art",
+      "Wall Art Print",
+      "Digital Wall Art"
     ],
-    "title_suffix": "(Digital Download)",
+    "title_suffix": "(Instant Download)",
     "comma_after_product_term": true,
     "keyword_fallback_phrases": [
-      "digital frame tv art",
-      "samsung frame tv art",
-      "tv art digital download"
+      "printable wall art",
+      "digital wall art",
+      "instant download wall art"
     ]
   },
 
@@ -96,16 +99,16 @@
   },
 
   "description_rules": {
-    "template_file": "frame_tv_description.txt",
+    "template_file": "printable_wall_art.txt",
 
     "keyword_slots": 5,
 
     "roles": {
       "KEYWORD_1": "main_search_phrase",
-      "KEYWORD_2": "artwork_phrase",
+      "KEYWORD_2": "subject_or_artwork_phrase",
       "KEYWORD_3": "style_phrase",
       "KEYWORD_4": "decor_intent",
-      "KEYWORD_5": "digital_art_phrase"
+      "KEYWORD_5": "printable_or_digital_art_phrase"
     },
 
     "keyword_rules": {
@@ -122,14 +125,14 @@
     "analysis": "visual_per_image",
 
     "alt_text": {
-      "min_characters": 200,
-      "max_characters": 250,
+      "min_characters": 170,
+      "max_characters": 230,
 
       "structure": [
         "visual_description",
         "art_style",
         "product_keyword",
-        "optional_decor_context"
+        "optional_room_context"
       ],
 
       "keyword_integration": "natural_and_selective",
