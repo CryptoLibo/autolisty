@@ -60,23 +60,23 @@ const DELIVERY_LAYOUTS: Record<
     templateFile: "print_art_delivery.pdf",
     links: [
       {
-        rect: [42, 331, 195, 373],
+        rect: [34, 328, 214, 381],
         url: (listingId) => `https://download.autolisty.com/printable/2-3/${listingId}`,
       },
       {
-        rect: [361, 331, 515, 373],
+        rect: [364, 328, 555, 381],
         url: (listingId) => `https://download.autolisty.com/printable/3-4/${listingId}`,
       },
       {
-        rect: [201, 242, 358, 285],
+        rect: [196, 236, 411, 291],
         url: (listingId) => `https://download.autolisty.com/printable/4-5/${listingId}`,
       },
       {
-        rect: [41, 109, 194, 150],
+        rect: [33, 89, 214, 142],
         url: (listingId) => `https://download.autolisty.com/printable/11-14/${listingId}`,
       },
       {
-        rect: [361, 109, 515, 150],
+        rect: [360, 89, 553, 142],
         url: (listingId) => `https://download.autolisty.com/printable/iso/${listingId}`,
       },
     ],
