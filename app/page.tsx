@@ -1073,6 +1073,16 @@ export default function Page() {
     }
   }
 
+  async function logout() {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+      });
+    } finally {
+      window.location.href = "/login";
+    }
+  }
+
   async function disconnectEtsy() {
     setEtsyLoading(true);
     try {
@@ -1133,9 +1143,14 @@ export default function Page() {
               title="Product & Inputs"
               accent
               right={
-                <Button variant="ghost" onClick={resetAll} disabled={loading || uploading}>
-                  Reset
-                </Button>
+                <div className="flex items-center gap-3">
+                  <Button variant="ghost" onClick={resetAll} disabled={loading || uploading}>
+                    Reset
+                  </Button>
+                  <Button variant="secondary" onClick={() => void logout()}>
+                    Logout
+                  </Button>
+                </div>
               }
             >
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,360px)]">
