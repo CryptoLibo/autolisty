@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
@@ -42,13 +41,10 @@ export default function LoginPage() {
         <div className="w-full space-y-6">
           <div className="flex justify-center">
             <div className="rounded-3xl border border-[#eeba2b]/20 bg-neutral-950/80 p-4 shadow-[0_0_0_1px_rgba(238,186,43,0.06),0_18px_50px_rgba(0,0,0,0.28)]">
-              <Image
+              <img
                 src="/logo-final.png"
                 alt="LB Crea Studio"
-                width={110}
-                height={110}
                 className="h-auto w-[88px] sm:w-[110px]"
-                priority
               />
             </div>
           </div>
