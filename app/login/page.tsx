@@ -44,7 +44,7 @@ export default function LoginPage() {
               <img
                 src="/logo-final.png"
                 alt="LB Crea Studio"
-                className="h-auto w-[140px] sm:w-[180px]"
+                className="h-auto w-[170px] sm:w-[220px]"
               />
             </div>
           </div>
