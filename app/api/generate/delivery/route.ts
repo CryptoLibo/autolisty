@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   const pdfBytes = await generateDeliveryPdf(productType, listingId)
 
   const upload = await uploadDeliveryPdf({
-    fileBuffer: pdfBytes,
+    fileBuffer: Buffer.from(pdfBytes),
     filename: `${listingId}.pdf`
   })
 
