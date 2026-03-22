@@ -6,8 +6,7 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     proxyClientMaxBodySize: "50mb",
-    middlewareClientMaxBodySize: "50mb",
-  } as any,
+  },
 };
 
 export default nextConfig;
