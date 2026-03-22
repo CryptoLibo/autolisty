@@ -24,7 +24,8 @@ export async function proxy(req: NextRequest) {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon.ico") ||
     pathname.startsWith("/robots.txt") ||
-    pathname.startsWith("/sitemap.xml")
+    pathname.startsWith("/sitemap.xml") ||
+    /\.(png|jpg|jpeg|webp|svg|gif|ico|css|js|map|txt)$/i.test(pathname)
   ) {
     return NextResponse.next()
   }
