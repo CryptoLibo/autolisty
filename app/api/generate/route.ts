@@ -43,8 +43,52 @@ type ProductConfig = {
   }
 }
 
+type ResolvedProductConfig = ProductConfig & {
+  product_name: string
+  description_rules: {
+    template_file: string
+  }
+  tag_rules: {
+    max_tags: number
+    max_characters: number
+  }
+  image_rules: {
+    alt_text: {
+      min_characters: number
+      max_characters: number
+    }
+  }
+}
+
 function cleanText(value: unknown) {
   return String(value || "").replace(/\s+/g, " ").trim()
+}
+
+function resolveProductConfig(productConfig: ProductConfig): ResolvedProductConfig {
+  const productName = cleanText(productConfig.product_name) || "Digital Product"
+  const templateFile = cleanText(productConfig.description_rules?.template_file)
+
+  if (!templateFile) {
+    throw new Error(`Product config for "${productName}" is missing description_rules.template_file`)
+  }
+
+  return {
+    ...productConfig,
+    product_name: productName,
+    description_rules: {
+      template_file: templateFile,
+    },
+    tag_rules: {
+      max_tags: productConfig.tag_rules?.max_tags ?? 13,
+      max_characters: productConfig.tag_rules?.max_characters ?? 20,
+    },
+    image_rules: {
+      alt_text: {
+        min_characters: productConfig.image_rules?.alt_text?.min_characters ?? 200,
+        max_characters: productConfig.image_rules?.alt_text?.max_characters ?? 250,
+      },
+    },
+  }
 }
 
 function normalizeWord(value: string) {
@@ -729,7 +773,8 @@ export async function POST(req: Request) {
     const { productType, designUrl, mockups = [], midjourneyPrompt, listingId } = body
 
     const configPath = path.join(process.cwd(), "product_configs", `${productType}.json`)
-    const productConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")) as ProductConfig
+    const rawProductConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")) as ProductConfig
+    const productConfig = resolveProductConfig(rawProductConfig)
 
     const templatePath = path.join(
       process.cwd(),
@@ -889,8 +934,8 @@ Return JSON in this exact shape:
     )
     const tags = normalizeTags(
       parsed.tags_13,
-      productConfig?.tag_rules?.max_tags ?? 13,
-      productConfig?.tag_rules?.max_characters ?? 20
+      productConfig.tag_rules.max_tags,
+      productConfig.tag_rules.max_characters
     )
     const keywords5 = normalizeKeywords5(parsed.description_keywords_5, analysis, productConfig, title)
     const description = appendListingId(
@@ -905,8 +950,8 @@ Return JSON in this exact shape:
         (entry: any) => entry.position === img.position
       )
       const found = foundById || foundByPosition
-      const minAlt = productConfig?.image_rules?.alt_text?.min_characters ?? 200
-      const maxAlt = productConfig?.image_rules?.alt_text?.max_characters ?? 250
+      const minAlt = productConfig.image_rules.alt_text.min_characters
+      const maxAlt = productConfig.image_rules.alt_text.max_characters
 
       return {
         id: img.id,
