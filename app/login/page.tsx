@@ -40,11 +40,11 @@ export default function LoginPage() {
       <div className="mx-auto flex min-h-screen max-w-md items-center px-6 py-12">
         <div className="w-full space-y-6">
           <div className="flex justify-center">
-            <div className="rounded-3xl border border-[#eeba2b]/20 bg-neutral-950/80 p-4 shadow-[0_0_0_1px_rgba(238,186,43,0.06),0_18px_50px_rgba(0,0,0,0.28)]">
+            <div className="flex w-full justify-center rounded-3xl border border-[#eeba2b]/20 bg-neutral-950/80 p-6 shadow-[0_0_0_1px_rgba(238,186,43,0.06),0_18px_50px_rgba(0,0,0,0.28)]">
               <img
                 src="/logo-final.png"
                 alt="LB Crea Studio"
-                className="h-auto w-[88px] sm:w-[110px]"
+                className="h-auto w-[140px] sm:w-[180px]"
               />
             </div>
           </div>
