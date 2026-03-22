@@ -60,15 +60,15 @@ const DELIVERY_LAYOUTS: Record<
     templateFile: "print_art_delivery.pdf",
     links: [
       {
-        rect: [42, 360, 196, 402],
+        rect: [42, 368, 196, 410],
         url: (listingId) => `https://download.autolisty.com/printable/2-3/${listingId}`,
       },
       {
-        rect: [362, 360, 516, 402],
+        rect: [362, 368, 516, 410],
         url: (listingId) => `https://download.autolisty.com/printable/3-4/${listingId}`,
       },
       {
-        rect: [160, 266, 389, 310],
+        rect: [160, 275, 389, 319],
         url: (listingId) => `https://download.autolisty.com/printable/4-5/${listingId}`,
       },
       {
@@ -76,7 +76,7 @@ const DELIVERY_LAYOUTS: Record<
         url: (listingId) => `https://download.autolisty.com/printable/11-14/${listingId}`,
       },
       {
-        rect: [371, 151, 528, 194],
+        rect: [365, 151, 522, 194],
         url: (listingId) => `https://download.autolisty.com/printable/iso/${listingId}`,
       },
     ],
