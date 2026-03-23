@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { SiteFooter } from "@/app/_components/SiteFooter";
 import { generateListingId } from "@/lib/utils/generateListingId";
 import {
   DeliveryField,
@@ -17,7 +18,6 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import Image from "next/image";
-import Link from "next/link";
 import {
   Copy,
   Image as ImageIcon,
@@ -1073,16 +1073,6 @@ export default function Page() {
     }
   }
 
-  async function logout() {
-    try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-      });
-    } finally {
-      window.location.href = "/login";
-    }
-  }
-
   async function disconnectEtsy() {
     setEtsyLoading(true);
     try {
@@ -1125,8 +1115,8 @@ export default function Page() {
             priority
           />
           <p className="max-w-2xl text-sm leading-relaxed text-neutral-400">
-            AI workflow for preparing optimized Etsy listings, organizing mockups,
-            and managing digital delivery assets in one place.
+            Autolisty brings together artwork prep, listing copy, mockups, social
+            assets, and delivery files in one organized creative workflow.
           </p>
 
           {listingId ? (
@@ -1146,9 +1136,6 @@ export default function Page() {
                 <div className="flex items-center gap-3">
                   <Button variant="ghost" onClick={resetAll} disabled={loading || uploading}>
                     Reset
-                  </Button>
-                  <Button variant="secondary" onClick={() => void logout()}>
-                    Logout
                   </Button>
                 </div>
               }
@@ -1815,19 +1802,7 @@ export default function Page() {
           </div>
         </div>
 
-        <div className="mt-12 border-t border-white/6 pt-6 text-center text-xs text-neutral-600">
-          <div className="flex flex-wrap items-center justify-center gap-4 text-neutral-500">
-            <Link href="/privacy-policy" className="transition hover:text-neutral-300">
-              Privacy Policy
-            </Link>
-            <Link href="/terms-of-use" className="transition hover:text-neutral-300">
-              Terms of Use
-            </Link>
-          </div>
-          <div className="mt-3">
-          Copyright 2026 Autolisty
-        </div>
-        </div>
+        <SiteFooter />
       </div>
     </main>
   );

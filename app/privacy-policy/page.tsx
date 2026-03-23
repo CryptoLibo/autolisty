@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { SiteFooter } from "@/app/_components/SiteFooter";
 
@@ -12,7 +13,7 @@ function Section({
   children,
 }: {
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section className="rounded-3xl border border-neutral-800 bg-neutral-950/70 p-6">
@@ -38,83 +39,90 @@ export default function PrivacyPolicyPage() {
             Privacy Policy
           </h1>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-neutral-400">
-            This Privacy Policy explains how Autolisty collects, uses, and protects
-            information when you use this application.
+            This Privacy Policy describes how Autolisty handles information in
+            connection with this website, the application, and the services made
+            available through it.
           </p>
         </div>
 
         <div className="space-y-5">
-          <Section title="Information We Collect">
+          <Section title="Information Collected">
             <p>
-              Autolisty may process information you provide directly while using the
-              app, including uploaded files, prompts, listing data, generated text,
-              and account connection details for third-party services you choose to
-              authorize.
+              Autolisty may process information you provide directly, including
+              uploaded files, prompts, product content, generated text, form
+              submissions, and optional third-party account connection data that
+              you choose to authorize.
             </p>
             <p>
-              The app may also process technical information required to operate the
-              service, such as request metadata, authentication state, and temporary
-              session data.
+              The service may also collect limited technical information reasonably
+              required to operate and protect the website and app, such as request
+              metadata, browser information, service logs, and temporary processing
+              data.
             </p>
           </Section>
 
           <Section title="How Information Is Used">
             <p>
-              Information is used to operate the app, generate listing content,
-              prepare delivery assets, upload files to connected storage, and
-              support integrations you explicitly enable, such as marketplace or
-              social publishing workflows.
+              Information may be used to operate the service, respond to inquiries,
+              generate content, organize assets, prepare delivery materials,
+              support enabled integrations, improve workflow reliability, and
+              maintain the integrity and security of the application.
             </p>
           </Section>
 
-          <Section title="File Storage">
+          <Section title="Storage and Service Providers">
             <p>
-              Files uploaded through the app may be stored in connected cloud
-              storage services configured by the app owner. Storage, retention, and
-              deletion practices may depend on that external storage provider and on
-              how the app owner manages uploaded content.
+              Files and related workflow materials may be stored or processed
+              through trusted third-party infrastructure and connected platforms
+              that support the operation of Autolisty, including hosting, cloud
+              storage, AI, marketplace, publishing, and email services.
             </p>
-          </Section>
-
-          <Section title="Third-Party Services">
             <p>
-              Autolisty may interact with third-party providers such as OpenAI,
-              Etsy, Pinterest, Cloudflare, and similar infrastructure or API
-              services. Information sent to those services is subject to their own
-              policies and terms.
+              When information is transmitted to third-party services, it is also
+              subject to those providers&apos; own terms, policies, and security
+              practices.
             </p>
           </Section>
 
           <Section title="Data Retention">
             <p>
-              Data may be retained only as long as needed to operate the workflow,
-              store files in connected cloud storage, comply with legal obligations,
-              or maintain service integrity. Specific retention may vary depending
-              on the configured storage and integrations.
+              Information is retained only for as long as reasonably necessary to
+              operate the service, maintain continuity of workflow, satisfy legal
+              obligations, resolve disputes, or protect the application and its
+              infrastructure.
             </p>
           </Section>
 
           <Section title="Security">
             <p>
-              Reasonable technical measures may be used to protect information, but
-              no method of storage or transmission is guaranteed to be completely
-              secure.
+              Autolisty uses reasonable technical and organizational measures to
+              help protect information against unauthorized access, misuse, loss,
+              or disclosure. However, no method of storage or transmission can be
+              guaranteed to be completely secure.
             </p>
           </Section>
 
           <Section title="Your Choices">
             <p>
-              You may stop using the app at any time and may request removal of
-              connected session access by disconnecting third-party accounts where
-              supported. Files stored in configured cloud storage may also be
-              removed by the app owner.
+              You may choose not to submit information through the website or app.
+              If you use connected third-party services, you may revoke those
+              connections where supported. Questions about submitted information may
+              be made through the contact form available on this website.
+            </p>
+          </Section>
+
+          <Section title="Policy Updates">
+            <p>
+              This Privacy Policy may be updated from time to time to reflect
+              operational, legal, or product changes. The most current version
+              published on this website will apply.
             </p>
           </Section>
 
           <Section title="Contact">
             <p>
-              For questions about this Privacy Policy, please contact the app owner
-              through the business contact details associated with Autolisty.
+              For privacy-related questions, support requests, or business
+              inquiries, please use the contact form available on this website.
             </p>
           </Section>
         </div>
