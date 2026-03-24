@@ -46,6 +46,10 @@ export async function getSelfShops(token: EtsyTokenPayload) {
     return data.shops
   }
 
+  if (data && typeof data === "object" && "shop_id" in data) {
+    return [data]
+  }
+
   return []
 }
 
