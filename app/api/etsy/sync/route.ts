@@ -48,6 +48,12 @@ async function fetchAsset(url: string) {
   };
 }
 
+function wrapStepError(step: string, error: unknown) {
+  const message =
+    error instanceof Error ? error.message : "Unknown Etsy integration error.";
+  return new Error(`${step}: ${message}`);
+}
+
 export async function POST(req: Request) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(ETSY_AUTH_COOKIE)?.value;
@@ -86,6 +92,15 @@ export async function POST(req: Request) {
       );
     }
 
+    if (!/^\d+$/.test(draftListingId)) {
+      return NextResponse.json(
+        {
+          error: "The Etsy draft listing ID must be the numeric Etsy listing id.",
+        },
+        { status: 400 }
+      );
+    }
+
     const parsed = JSON.parse(raw) as EtsyTokenPayload;
     const token = await ensureFreshToken(parsed);
 
@@ -102,7 +117,17 @@ export async function POST(req: Request) {
     const shop = await getPrimaryShop(token);
     const shopId = Number(shop.shop_id);
 
-    const listing = await getShopListing(token, shopId, draftListingId);
+    let listing: any;
+
+    try {
+      listing = await getShopListing(token, shopId, draftListingId);
+    } catch (error) {
+      throw wrapStepError(
+        `Unable to find draft listing ${draftListingId} in Etsy shop ${shopId}`,
+        error
+      );
+    }
+
     const listingState = String(listing?.state || "");
 
     if (!["draft", "edit", "inactive"].includes(listingState)) {
@@ -114,52 +139,87 @@ export async function POST(req: Request) {
       );
     }
 
-    await updateShopListingText({
-      token,
-      shopId,
-      listingId: draftListingId,
-      title,
-      description,
-      tags,
-    });
+    try {
+      await updateShopListingText({
+        token,
+        shopId,
+        listingId: draftListingId,
+        title,
+        description,
+        tags,
+      });
+    } catch (error) {
+      throw wrapStepError("Failed while updating Etsy listing text", error);
+    }
 
-    const existingImages = await listListingImages(token, shopId, draftListingId);
+    let existingImages = [];
+    try {
+      existingImages = await listListingImages(token, shopId, draftListingId);
+    } catch (error) {
+      throw wrapStepError("Failed while reading existing Etsy listing images", error);
+    }
+
     for (const image of existingImages) {
       if (image.listing_image_id) {
-        await deleteListingImage(token, shopId, draftListingId, image.listing_image_id);
+        try {
+          await deleteListingImage(token, shopId, draftListingId, image.listing_image_id);
+        } catch (error) {
+          throw wrapStepError("Failed while deleting an existing Etsy listing image", error);
+        }
       }
     }
 
     for (const mockup of mockups) {
-      const asset = await fetchAsset(mockup.url);
-      await uploadListingImage({
-        token,
-        shopId,
-        listingId: draftListingId,
-        fileBuffer: asset.fileBuffer,
-        contentType: asset.contentType,
-        filename: getFilenameFromUrl(mockup.url, `mockup-${mockup.rank}.jpg`),
-        rank: mockup.rank,
-        altText: mockup.altText,
-      });
-    }
-
-    const existingFiles = await listListingFiles(token, shopId, draftListingId);
-    for (const file of existingFiles) {
-      if (file.listing_file_id) {
-        await deleteListingFile(token, shopId, draftListingId, file.listing_file_id);
+      try {
+        const asset = await fetchAsset(mockup.url);
+        await uploadListingImage({
+          token,
+          shopId,
+          listingId: draftListingId,
+          fileBuffer: asset.fileBuffer,
+          contentType: asset.contentType,
+          filename: getFilenameFromUrl(mockup.url, `mockup-${mockup.rank}.jpg`),
+          rank: mockup.rank,
+          altText: mockup.altText,
+        });
+      } catch (error) {
+        throw wrapStepError(
+          `Failed while uploading Etsy mockup image at position ${mockup.rank}`,
+          error
+        );
       }
     }
 
-    const deliveryPdf = await fetchAsset(deliveryPdfUrl);
-    await uploadListingFile({
-      token,
-      shopId,
-      listingId: draftListingId,
-      fileBuffer: deliveryPdf.fileBuffer,
-      contentType: deliveryPdf.contentType,
-      filename: deliveryPdfFilename,
-    });
+    let existingFiles = [];
+    try {
+      existingFiles = await listListingFiles(token, shopId, draftListingId);
+    } catch (error) {
+      throw wrapStepError("Failed while reading existing Etsy digital files", error);
+    }
+
+    for (const file of existingFiles) {
+      if (file.listing_file_id) {
+        try {
+          await deleteListingFile(token, shopId, draftListingId, file.listing_file_id);
+        } catch (error) {
+          throw wrapStepError("Failed while deleting an existing Etsy digital file", error);
+        }
+      }
+    }
+
+    try {
+      const deliveryPdf = await fetchAsset(deliveryPdfUrl);
+      await uploadListingFile({
+        token,
+        shopId,
+        listingId: draftListingId,
+        fileBuffer: deliveryPdf.fileBuffer,
+        contentType: deliveryPdf.contentType,
+        filename: deliveryPdfFilename,
+      });
+    } catch (error) {
+      throw wrapStepError("Failed while uploading the Etsy digital file", error);
+    }
 
     return NextResponse.json({
       ok: true,
