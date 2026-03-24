@@ -33,7 +33,20 @@ export async function getSelfShops(token: EtsyTokenPayload) {
   }
 
   const data = await response.json()
-  return Array.isArray(data.results) ? data.results : []
+
+  if (Array.isArray(data)) {
+    return data
+  }
+
+  if (Array.isArray(data?.results)) {
+    return data.results
+  }
+
+  if (Array.isArray(data?.shops)) {
+    return data.shops
+  }
+
+  return []
 }
 
 export async function ensureFreshToken(token: EtsyTokenPayload) {
