@@ -1426,6 +1426,25 @@ export default function Page() {
               accent
               right={
                 <div className="flex items-center gap-3">
+                  <input
+                    ref={folderInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    {...({ webkitdirectory: "", directory: "" } as any)}
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      void importListingFolder(files);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={() => folderInputRef.current?.click()}
+                    disabled={loading || uploading}
+                  >
+                    Import folder
+                  </Button>
                   <Button variant="ghost" onClick={resetAll} disabled={loading || uploading}>
                     Reset
                   </Button>
@@ -1513,25 +1532,6 @@ export default function Page() {
               accent
               right={
                 <div className="flex items-center gap-3">
-                  <input
-                    ref={folderInputRef}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    {...({ webkitdirectory: "", directory: "" } as any)}
-                    onChange={(e) => {
-                      const files = Array.from(e.target.files || []);
-                      void importListingFolder(files);
-                      e.currentTarget.value = "";
-                    }}
-                  />
-                  <Button
-                    variant="secondary"
-                    onClick={() => folderInputRef.current?.click()}
-                    disabled={loading || uploading}
-                  >
-                    Import folder
-                  </Button>
                   <Button
                     variant="secondary"
                     onClick={clearListingMedia}
