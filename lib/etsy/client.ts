@@ -49,6 +49,31 @@ export async function getSelfShops(token: EtsyTokenPayload) {
   return []
 }
 
+export async function getSelfShopsDebug(token: EtsyTokenPayload) {
+  const numericUserId = Number(token.user_id)
+
+  if (!Number.isInteger(numericUserId) || numericUserId <= 0) {
+    throw new Error("Etsy token is missing a valid numeric user id.")
+  }
+
+  const response = await etsyFetch(`/application/users/${numericUserId}/shops`, token)
+  const rawText = await response.text()
+
+  let parsed: unknown = null
+  try {
+    parsed = rawText ? JSON.parse(rawText) : null
+  } catch {
+    parsed = null
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    rawText,
+    parsed,
+  }
+}
+
 export async function ensureFreshToken(token: EtsyTokenPayload) {
   const expiresSoon = token.expires_at - Date.now() < 60_000
   if (!expiresSoon) return token

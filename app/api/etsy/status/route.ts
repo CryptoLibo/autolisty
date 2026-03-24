@@ -1,7 +1,7 @@
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { ETSY_AUTH_COOKIE, EtsyTokenPayload } from "@/lib/etsy/auth"
-import { ensureFreshToken, getSelfShops } from "@/lib/etsy/client"
+import { ensureFreshToken, getSelfShops, getSelfShopsDebug } from "@/lib/etsy/client"
 
 export const runtime = "nodejs"
 
@@ -40,6 +40,32 @@ export async function GET() {
       shopsError = shopError?.message || "Unable to fetch Etsy shops"
     }
 
+    let shopsDebug: {
+      status?: number
+      keys?: string[]
+      preview?: string
+    } | null = null
+
+    if (!shops.length) {
+      try {
+        const debug = await getSelfShopsDebug(token)
+        const parsedObject =
+          debug.parsed && typeof debug.parsed === "object" && !Array.isArray(debug.parsed)
+            ? (debug.parsed as Record<string, unknown>)
+            : null
+
+        shopsDebug = {
+          status: debug.status,
+          keys: parsedObject ? Object.keys(parsedObject).slice(0, 10) : [],
+          preview: debug.rawText.slice(0, 400),
+        }
+      } catch (debugError: any) {
+        shopsDebug = {
+          preview: debugError?.message || "Unable to inspect Etsy shop response",
+        }
+      }
+    }
+
     return NextResponse.json({
       connected: true,
       userId: token.user_id,
@@ -47,6 +73,7 @@ export async function GET() {
       expiresAt: token.expires_at,
       shops,
       shopsError,
+      shopsDebug,
     })
   } catch (error: any) {
     cookieStore.delete(ETSY_AUTH_COOKIE)
