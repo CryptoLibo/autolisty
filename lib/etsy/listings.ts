@@ -13,7 +13,10 @@ type EtsyListingFile = {
 };
 
 function toBlobPart(buffer: Buffer) {
-  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  const arrayBuffer = new ArrayBuffer(buffer.byteLength);
+  const view = new Uint8Array(arrayBuffer);
+  view.set(buffer);
+  return arrayBuffer;
 }
 
 function buildUrlEncodedBody(fields: Record<string, string>, tags: string[], useArraySyntax: boolean) {
