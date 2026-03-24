@@ -19,7 +19,13 @@ export async function etsyFetch(
 }
 
 export async function getSelfShops(token: EtsyTokenPayload) {
-  const response = await etsyFetch("/application/users/__SELF__/shops", token)
+  const numericUserId = Number(token.user_id)
+
+  if (!Number.isInteger(numericUserId) || numericUserId <= 0) {
+    throw new Error("Etsy token is missing a valid numeric user id.")
+  }
+
+  const response = await etsyFetch(`/application/users/${numericUserId}/shops`, token)
 
   if (!response.ok) {
     const message = await response.text()
