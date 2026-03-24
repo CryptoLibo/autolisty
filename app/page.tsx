@@ -1005,7 +1005,7 @@ export default function Page() {
       );
 
       if (!productValidation.ok) {
-        setError(productValidation.message);
+        setError(productValidation.message || "The imported folder does not match the selected product.");
         return;
       }
 
