@@ -54,6 +54,11 @@ function wrapStepError(step: string, error: unknown) {
   return new Error(`${step}: ${message}`);
 }
 
+function isMissingEtsySubresource(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return /resource not found/i.test(error.message);
+}
+
 export async function POST(req: Request) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(ETSY_AUTH_COOKIE)?.value;
@@ -156,7 +161,9 @@ export async function POST(req: Request) {
     try {
       existingImages = await listListingImages(token, shopId, draftListingId);
     } catch (error) {
-      throw wrapStepError("Failed while reading existing Etsy listing images", error);
+      if (!isMissingEtsySubresource(error)) {
+        throw wrapStepError("Failed while reading existing Etsy listing images", error);
+      }
     }
 
     for (const image of existingImages) {
@@ -194,7 +201,9 @@ export async function POST(req: Request) {
     try {
       existingFiles = await listListingFiles(token, shopId, draftListingId);
     } catch (error) {
-      throw wrapStepError("Failed while reading existing Etsy digital files", error);
+      if (!isMissingEtsySubresource(error)) {
+        throw wrapStepError("Failed while reading existing Etsy digital files", error);
+      }
     }
 
     for (const file of existingFiles) {
