@@ -12,6 +12,10 @@ type EtsyListingFile = {
   filename?: string;
 };
 
+function toBlobPart(buffer: Buffer) {
+  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+}
+
 function buildUrlEncodedBody(fields: Record<string, string>, tags: string[], useArraySyntax: boolean) {
   const body = new URLSearchParams();
 
@@ -167,7 +171,7 @@ export async function uploadListingImage({
 }) {
   async function send(includeAltText: boolean) {
     const form = new FormData();
-    form.append("image", new Blob([fileBuffer], { type: contentType }), filename);
+    form.append("image", new Blob([toBlobPart(fileBuffer)], { type: contentType }), filename);
     form.append("rank", String(rank));
 
     if (includeAltText && altText) {
@@ -250,7 +254,7 @@ export async function uploadListingFile({
   contentType: string;
 }) {
   const form = new FormData();
-  form.append("file", new Blob([fileBuffer], { type: contentType }), filename);
+  form.append("file", new Blob([toBlobPart(fileBuffer)], { type: contentType }), filename);
   form.append("name", filename);
 
   const response = await etsyFetch(
