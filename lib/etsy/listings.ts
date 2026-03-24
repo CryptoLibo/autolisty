@@ -121,7 +121,7 @@ export async function listListingImages(
   listingId: string
 ) {
   const response = await etsyFetch(
-    `/application/shops/${shopId}/listings/${listingId}/images`,
+    `/application/shop/${shopId}/listings/${listingId}/images`,
     token
   );
 
@@ -140,7 +140,7 @@ export async function deleteListingImage(
   imageId: number
 ) {
   const response = await etsyFetch(
-    `/application/shops/${shopId}/listings/${listingId}/images/${imageId}`,
+    `/application/shop/${shopId}/listings/${listingId}/images/${imageId}`,
     token,
     {
       method: "DELETE",
@@ -181,7 +181,7 @@ export async function uploadListingImage({
     }
 
     return await etsyFetch(
-      `/application/shops/${shopId}/listings/${listingId}/images`,
+      `/application/shop/${shopId}/listings/${listingId}/images`,
       token,
       {
         method: "POST",
@@ -209,7 +209,7 @@ export async function listListingFiles(
   listingId: string
 ) {
   const response = await etsyFetch(
-    `/application/shops/${shopId}/listings/${listingId}/files`,
+    `/application/shop/${shopId}/listings/${listingId}/files`,
     token
   );
 
@@ -228,7 +228,7 @@ export async function deleteListingFile(
   fileId: number
 ) {
   const response = await etsyFetch(
-    `/application/shops/${shopId}/listings/${listingId}/files/${fileId}`,
+    `/application/shop/${shopId}/listings/${listingId}/files/${fileId}`,
     token,
     {
       method: "DELETE",
@@ -260,7 +260,7 @@ export async function uploadListingFile({
   form.append("name", filename);
 
   const response = await etsyFetch(
-    `/application/shops/${shopId}/listings/${listingId}/files`,
+    `/application/shop/${shopId}/listings/${listingId}/files`,
     token,
     {
       method: "POST",
