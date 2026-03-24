@@ -37,6 +37,13 @@ type MediaItem = {
   altText?: string;
 };
 
+type ListingVideoItem = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  r2Url?: string;
+};
+
 type PinterestItem = {
   id: string;
   file: File;
@@ -89,6 +96,15 @@ type PinterestAuthStatus = {
     name: string;
     privacy?: string;
   }>;
+  error?: string;
+};
+
+type EtsySyncResponse = {
+  ok?: boolean;
+  shopId?: number;
+  listingId?: string;
+  uploadedImages?: number;
+  uploadedFiles?: number;
   error?: string;
 };
 
@@ -465,6 +481,7 @@ function OutputBlock({
 }
 
 export default function Page() {
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [productType, setProductType] = useState<ProductType>("frame_tv_art");
   const [listingId, setListingId] = useState<string | null>(null);
   const listingIdRef = useRef<string | null>(null);
@@ -476,6 +493,7 @@ export default function Page() {
   const [midjourneyPrompt, setMidjourneyPrompt] = useState("");
 
   const [mockups, setMockups] = useState<MediaItem[]>([]);
+  const [listingVideo, setListingVideo] = useState<ListingVideoItem | null>(null);
   const [pinterestImages, setPinterestImages] = useState<PinterestItem[]>([]);
   const [pinterestLink, setPinterestLink] = useState("");
   const [pinterestLoading, setPinterestLoading] = useState(false);
@@ -494,7 +512,9 @@ export default function Page() {
   const [uploading, setUploading] = useState(false);
   const [etsyAuth, setEtsyAuth] = useState<EtsyAuthStatus | null>(null);
   const [etsyLoading, setEtsyLoading] = useState(true);
+  const [etsySyncing, setEtsySyncing] = useState(false);
   const [etsyMessage, setEtsyMessage] = useState<string | null>(null);
+  const [etsyDraftListingId, setEtsyDraftListingId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SeoResult | null>(null);
 
@@ -664,7 +684,12 @@ export default function Page() {
     }
   }
 
-  async function addMockups(files: File[]) {
+  async function addMockups(
+    files: File[],
+    options?: {
+      replace?: boolean;
+    }
+  ) {
     if (files.length === 0) return;
 
     setError(null);
@@ -672,7 +697,7 @@ export default function Page() {
 
     try {
       const items: MediaItem[] = [];
-      const startIndex = mockups.length;
+      const startIndex = options?.replace ? 0 : mockups.length;
 
       for (let i = 0; i < files.length; i++) {
         const f = files[i];
@@ -696,9 +721,41 @@ export default function Page() {
         });
       }
 
-      setMockups((prev) => [...prev, ...items]);
+      if (options?.replace) {
+        for (const mockup of mockups) URL.revokeObjectURL(mockup.previewUrl);
+        setMockups(items);
+      } else {
+        setMockups((prev) => [...prev, ...items]);
+      }
     } catch (e: any) {
       setError(e?.message || "Failed to upload mockups");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function setListingVideoFile(file: File | null) {
+    if (!file || !file.type.startsWith("video/")) return;
+
+    setError(null);
+    setUploading(true);
+
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "mp4";
+      const upload = await uploadToR2(file, `video.${ext}`);
+      const nextVideo: ListingVideoItem = {
+        id: uid(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        r2Url: upload.url,
+      };
+
+      setListingVideo((prev) => {
+        if (prev) URL.revokeObjectURL(prev.previewUrl);
+        return nextVideo;
+      });
+    } catch (e: any) {
+      setError(e?.message || "Failed to upload listing video");
     } finally {
       setUploading(false);
     }
@@ -716,14 +773,31 @@ export default function Page() {
     setMockups([]);
   }
 
-  async function addPinterestImages(files: File[]) {
+  function clearListingVideo() {
+    setListingVideo((prev) => {
+      if (prev) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+  }
+
+  function clearListingMedia() {
+    clearMockups();
+    clearListingVideo();
+  }
+
+  async function addPinterestImages(
+    files: File[],
+    options?: {
+      replace?: boolean;
+    }
+  ) {
     if (files.length === 0) return;
 
     setError(null);
     setUploading(true);
 
     try {
-      const startIndex = pinterestImages.length;
+      const startIndex = options?.replace ? 0 : pinterestImages.length;
       const items: PinterestItem[] = [];
 
       for (let i = 0; i < files.length; i++) {
@@ -741,7 +815,12 @@ export default function Page() {
         });
       }
 
-      setPinterestImages((prev) => [...prev, ...items]);
+      if (options?.replace) {
+        for (const item of pinterestImages) URL.revokeObjectURL(item.previewUrl);
+        setPinterestImages(items);
+      } else {
+        setPinterestImages((prev) => [...prev, ...items]);
+      }
     } catch (e: any) {
       setError(e?.message || "Failed to upload Pinterest images");
     } finally {
@@ -756,7 +835,7 @@ export default function Page() {
 
   function resetAll() {
     clearDesign();
-    clearMockups();
+    clearListingMedia();
     clearPinterestImages();
     setMidjourneyPrompt("");
     setPinterestLink("");
@@ -782,6 +861,160 @@ export default function Page() {
     if (oldIndex === -1 || newIndex === -1) return;
 
     setMockups((items) => arrayMove(items, oldIndex, newIndex));
+  }
+
+  function normalizeFolderPath(value: string) {
+    return value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\\/g, "/")
+      .toLowerCase();
+  }
+
+  function getFolderAwareName(file: File) {
+    const relativePath = String((file as File & { webkitRelativePath?: string }).webkitRelativePath || "");
+    return {
+      relativePath,
+      normalizedPath: normalizeFolderPath(relativePath || file.name),
+      normalizedName: normalizeFolderPath(file.name),
+    };
+  }
+
+  function sortNumericFileNames(files: File[]) {
+    return [...files].sort((a, b) => {
+      const aMatch = a.name.match(/^(\d+)/);
+      const bMatch = b.name.match(/^(\d+)/);
+      const aNum = aMatch ? Number(aMatch[1]) : Number.MAX_SAFE_INTEGER;
+      const bNum = bMatch ? Number(bMatch[1]) : Number.MAX_SAFE_INTEGER;
+      if (aNum !== bNum) return aNum - bNum;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  function classifyPrintableDeliverableField(file: File): DeliveryField | null {
+    const { normalizedName } = getFolderAwareName(file);
+
+    if (/(^|[^0-9])2[-_x ]?3([^0-9]|$)/.test(normalizedName)) {
+      return activeDeliveryFields.find((field) => field.id === "ratio_2_3") || null;
+    }
+    if (/(^|[^0-9])3[-_x ]?4([^0-9]|$)/.test(normalizedName)) {
+      return activeDeliveryFields.find((field) => field.id === "ratio_3_4") || null;
+    }
+    if (/(^|[^0-9])4[-_x ]?5([^0-9]|$)/.test(normalizedName)) {
+      return activeDeliveryFields.find((field) => field.id === "ratio_4_5") || null;
+    }
+    if (/11[-_x ]?14/.test(normalizedName)) {
+      return activeDeliveryFields.find((field) => field.id === "ratio_11_14") || null;
+    }
+    if (/iso/.test(normalizedName)) {
+      return activeDeliveryFields.find((field) => field.id === "ratio_iso") || null;
+    }
+
+    return null;
+  }
+
+  async function importListingFolder(files: File[]) {
+    if (files.length === 0) return;
+
+    setError(null);
+    setUploading(true);
+
+    try {
+      const acceptedFiles = files.filter((file) => {
+        const info = getFolderAwareName(file);
+        if (info.normalizedName.includes("upscayl")) return false;
+        if (file.type === "application/pdf") return false;
+        return true;
+      });
+
+      const designCandidate = acceptedFiles.find((file) => {
+        const info = getFolderAwareName(file);
+        return file.type.startsWith("image/") && info.normalizedName.includes("midjourney");
+      });
+
+      const pinterestCandidates = sortNumericFileNames(
+        acceptedFiles.filter((file) => {
+          const info = getFolderAwareName(file);
+          return (
+            file.type.startsWith("image/") &&
+            (info.normalizedPath.includes("/pines/") ||
+              info.normalizedPath.includes("/pins/"))
+          );
+        })
+      );
+
+      const deliverableCandidates = acceptedFiles.filter((file) => {
+        const info = getFolderAwareName(file);
+        return file.type.startsWith("image/") && info.normalizedPath.includes("/disenos finales/");
+      });
+
+      const rootVideoCandidate =
+        acceptedFiles.find((file) => {
+          const info = getFolderAwareName(file);
+          return (
+            file.type.startsWith("video/") &&
+            !info.normalizedPath.includes("/pines/") &&
+            !info.normalizedPath.includes("/pins/") &&
+            !info.normalizedPath.includes("/disenos finales/")
+          );
+        }) || null;
+
+      const mockupCandidates = sortNumericFileNames(
+        acceptedFiles.filter((file) => {
+          const info = getFolderAwareName(file);
+          if (!file.type.startsWith("image/")) return false;
+          if (designCandidate && file === designCandidate) return false;
+          if (info.normalizedPath.includes("/pines/") || info.normalizedPath.includes("/pins/")) return false;
+          if (info.normalizedPath.includes("/disenos finales/")) return false;
+          return /^\d+\.(png|jpe?g|webp)$/i.test(file.name);
+        })
+      );
+
+      if (designCandidate) {
+        clearDesign();
+        await setDesign([designCandidate]);
+      }
+
+      if (mockupCandidates.length > 0) {
+        await addMockups(mockupCandidates, { replace: true });
+      }
+
+      if (rootVideoCandidate) {
+        clearListingVideo();
+        await setListingVideoFile(rootVideoCandidate);
+      }
+
+      if (pinterestCandidates.length > 0) {
+        await addPinterestImages(pinterestCandidates, { replace: true });
+      }
+
+      if (deliverableCandidates.length > 0) {
+        const nextDeliveryFiles: Record<string, File | null> = {};
+
+        if (productType === "frame_tv_art") {
+          const firstImage = deliverableCandidates[0];
+          const designField = activeDeliveryFields.find((field) => field.id === "design");
+          if (designField && firstImage) {
+            nextDeliveryFiles[designField.id] = firstImage;
+          }
+        } else {
+          for (const file of deliverableCandidates) {
+            const field = classifyPrintableDeliverableField(file);
+            if (field) {
+              nextDeliveryFiles[field.id] = file;
+            }
+          }
+        }
+
+        if (Object.keys(nextDeliveryFiles).length > 0) {
+          setDeliveryFiles((prev) => ({ ...prev, ...nextDeliveryFiles }));
+        }
+      }
+    } catch (e: any) {
+      setError(e?.message || "Failed to import listing folder");
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function generateSeo() {
@@ -1103,6 +1336,65 @@ export default function Page() {
     }
   }
 
+  async function syncEtsyDraft() {
+    if (!result) {
+      setEtsyMessage("Generate SEO before syncing Etsy.");
+      return;
+    }
+
+    if (!deliveryPdfUrl) {
+      setEtsyMessage("Generate the delivery PDF before syncing Etsy.");
+      return;
+    }
+
+    const draftListingId = etsyDraftListingId.trim();
+    if (!draftListingId) {
+      setEtsyMessage("Enter the Etsy draft listing ID.");
+      return;
+    }
+
+    setEtsySyncing(true);
+    setEtsyMessage(null);
+
+    try {
+      const response = await fetch("/api/etsy/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          draftListingId,
+          title: result.title,
+          description: result.description_final,
+          tags: result.tags_13,
+          mockups: mockups
+            .filter((item): item is MediaItem & { r2Url: string } => !!item.r2Url)
+            .map((item, index) => ({
+              url: item.r2Url,
+              altText: item.altText,
+              rank: index + 1,
+            })),
+          deliveryPdfUrl,
+          deliveryPdfFilename: `${listingId || "delivery"}.pdf`,
+        }),
+      });
+
+      const data = (await response.json()) as EtsySyncResponse;
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to sync Etsy draft.");
+      }
+
+      setEtsyMessage(
+        `Etsy draft ${data.listingId || draftListingId} updated successfully.`
+      );
+    } catch (syncError: any) {
+      setEtsyMessage(syncError?.message || "Failed to sync Etsy draft.");
+    } finally {
+      setEtsySyncing(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#0b0f14] text-neutral-100">
       <div className="mx-auto max-w-7xl px-5 py-5 sm:px-6 lg:px-8">
@@ -1217,21 +1509,45 @@ export default function Page() {
             </Card>
 
             <Card
-              title="Listing mockups"
+              title="Listing media"
               accent
               right={
-                <Button
-                  variant="secondary"
-                  onClick={clearMockups}
-                  disabled={mockups.length === 0 || loading || uploading}
-                >
-                  Clear mockups
-                </Button>
+                <div className="flex items-center gap-3">
+                  <input
+                    ref={folderInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    {...({ webkitdirectory: "", directory: "" } as any)}
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      void importListingFolder(files);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={() => folderInputRef.current?.click()}
+                    disabled={loading || uploading}
+                  >
+                    Import folder
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={clearListingMedia}
+                    disabled={
+                      (mockups.length === 0 && !listingVideo) || loading || uploading
+                    }
+                  >
+                    Clear media
+                  </Button>
+                </div>
               }
             >
+              <div className="space-y-6">
               <Dropzone
                 title="Mockup images"
-                subtitle="Upload and reorder your listing mockups. This section uses the full available width for easier visual review."
+                subtitle="Upload and reorder your listing mockups. You can also import a full listing folder and the app will classify images, Pinterest assets, deliverables, and an optional video automatically."
                 accept="image/png,image/jpeg,image/webp"
                 multiple
                 onPick={addMockups}
@@ -1267,6 +1583,47 @@ export default function Page() {
                   )
                 }
               />
+
+              <FilePicker
+                label="Listing video (optional)"
+                accept="video/mp4,video/quicktime,video/x-msvideo,video/3gpp,video/mpeg"
+                selectedName={listingVideo?.file.name || null}
+                onChange={(file) => {
+                  void setListingVideoFile(file);
+                }}
+                icon={<FileText size={18} />}
+              />
+
+              {listingVideo ? (
+                <div className="overflow-hidden rounded-3xl border border-neutral-800 bg-neutral-950/80">
+                  <div className="flex items-center justify-between border-b border-white/6 px-4 py-3">
+                    <div>
+                      <div className="text-sm font-medium text-neutral-100">
+                        Listing video
+                      </div>
+                      <div className="text-xs text-neutral-500">
+                        Stored with the listing media in R2. This does not affect alt
+                        text generation.
+                      </div>
+                    </div>
+                    <Button variant="secondary" onClick={clearListingVideo}>
+                      <X size={16} />
+                      Remove
+                    </Button>
+                  </div>
+                  <div className="space-y-3 p-4">
+                    <video
+                      src={listingVideo.previewUrl}
+                      controls
+                      className="max-h-[440px] w-full rounded-2xl border border-neutral-800 bg-black"
+                    />
+                    <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-300">
+                      {listingVideo.file.name}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              </div>
             </Card>
 
             <Card title="Deliverables">
@@ -1603,8 +1960,8 @@ export default function Page() {
             >
               <div className="space-y-4 text-sm text-neutral-400">
                 <p>
-                  Connect your Etsy account to validate OAuth access and confirm
-                  the app can read your shop before we implement draft syncing.
+                  Connect your Etsy account and sync a prepared listing into an
+                  existing Etsy draft while keeping your template settings in Etsy.
                 </p>
 
                 {etsyMessage ? (
@@ -1648,6 +2005,47 @@ export default function Page() {
                         Authentication succeeded, but no shops were returned yet.
                       </div>
                     )}
+
+                    <div className="space-y-2 pt-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                        Draft listing ID
+                      </div>
+                      <input
+                        value={etsyDraftListingId}
+                        onChange={(e) => setEtsyDraftListingId(e.target.value)}
+                        placeholder="Enter the Etsy draft listing ID"
+                        className="w-full rounded-2xl border border-neutral-800 bg-neutral-950/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                      />
+                      <div className="text-xs text-neutral-500">
+                        Sync sends title, tags, description, mockup images with alt
+                        text, and the final delivery PDF to this draft.
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-1">
+                      <Button
+                        variant="primary"
+                        onClick={syncEtsyDraft}
+                        disabled={
+                          etsySyncing ||
+                          !result ||
+                          !deliveryPdfUrl ||
+                          !etsyDraftListingId.trim()
+                        }
+                      >
+                        {etsySyncing ? (
+                          <>
+                            <Loader2 className="animate-spin" size={16} />
+                            Syncing...
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={16} />
+                            Sync Draft
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm text-neutral-300">
