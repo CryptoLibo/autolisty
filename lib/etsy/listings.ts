@@ -58,10 +58,9 @@ export async function getShopListing(
   shopId: number,
   listingId: string
 ) {
-  const response = await etsyFetch(
-    `/application/shops/${shopId}/listings/${listingId}`,
-    token
-  );
+  void shopId;
+
+  const response = await etsyFetch(`/application/listings/${listingId}`, token);
 
   if (!response.ok) {
     throw new Error(await parseEtsyError(response, "Failed to fetch Etsy listing."));
