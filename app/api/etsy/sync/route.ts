@@ -22,6 +22,14 @@ type SyncMockup = {
   rank: number;
 };
 
+type EtsyExistingImage = {
+  listing_image_id?: number;
+};
+
+type EtsyExistingFile = {
+  listing_file_id?: number;
+};
+
 function getFilenameFromUrl(url: string, fallback: string) {
   try {
     const parsed = new URL(url);
@@ -157,7 +165,7 @@ export async function POST(req: Request) {
       throw wrapStepError("Failed while updating Etsy listing text", error);
     }
 
-    let existingImages = [];
+    let existingImages: EtsyExistingImage[] = [];
     try {
       existingImages = await listListingImages(token, shopId, draftListingId);
     } catch (error) {
@@ -197,7 +205,7 @@ export async function POST(req: Request) {
       }
     }
 
-    let existingFiles = [];
+    let existingFiles: EtsyExistingFile[] = [];
     try {
       existingFiles = await listListingFiles(token, shopId, draftListingId);
     } catch (error) {
