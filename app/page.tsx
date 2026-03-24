@@ -913,11 +913,62 @@ export default function Page() {
     return null;
   }
 
+  function validateImportedFolderProduct(
+    deliverableCandidates: File[],
+    currentProductType: ProductType
+  ) {
+    if (deliverableCandidates.length === 0) {
+      return {
+        ok: true,
+      };
+    }
+
+    const printableMatches = deliverableCandidates.filter((file) =>
+      classifyPrintableDeliverableField(file)
+    );
+
+    const looksLikePrintable =
+      printableMatches.length >= 3 ||
+      printableMatches.length === deliverableCandidates.length;
+
+    const looksLikeFrameTv =
+      deliverableCandidates.length === 1 && printableMatches.length === 0;
+
+    if (currentProductType === "frame_tv_art" && looksLikePrintable) {
+      return {
+        ok: false,
+        message:
+          "The selected product is Frame TV Art, but the imported final files look like Printable Wall Art ratios. Switch the product type and try again.",
+      };
+    }
+
+    if (currentProductType === "printable_wall_art" && looksLikeFrameTv) {
+      return {
+        ok: false,
+        message:
+          "The selected product is Printable Wall Art, but the imported final files look like a single Frame TV Art deliverable. Switch the product type and try again.",
+      };
+    }
+
+    if (
+      currentProductType === "printable_wall_art" &&
+      deliverableCandidates.length > 0 &&
+      printableMatches.length === 0
+    ) {
+      return {
+        ok: false,
+        message:
+          "The imported final files do not match the expected Printable Wall Art ratio naming. Use names such as 2x3, 3x4, 4x5, 11x14, and ISO.",
+      };
+    }
+
+    return {
+      ok: true,
+    };
+  }
+
   async function importListingFolder(files: File[]) {
     if (files.length === 0) return;
-
-    setError(null);
-    setUploading(true);
 
     try {
       const acceptedFiles = files.filter((file) => {
@@ -947,6 +998,19 @@ export default function Page() {
         const info = getFolderAwareName(file);
         return file.type.startsWith("image/") && info.normalizedPath.includes("/disenos finales/");
       });
+
+      const productValidation = validateImportedFolderProduct(
+        deliverableCandidates,
+        productType
+      );
+
+      if (!productValidation.ok) {
+        setError(productValidation.message);
+        return;
+      }
+
+      setError(null);
+      setUploading(true);
 
       const rootVideoCandidate =
         acceptedFiles.find((file) => {
