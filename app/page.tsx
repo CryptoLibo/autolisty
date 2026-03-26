@@ -509,6 +509,9 @@ export default function Page() {
   const [selectedPinterestBoardId, setSelectedPinterestBoardId] = useState("");
 
   const [deliveryFiles, setDeliveryFiles] = useState<Record<string, File | null>>({});
+  const [deliveryUploadedFields, setDeliveryUploadedFields] = useState<
+    Record<string, boolean>
+  >({});
 
   const [deliveryPdfUrl, setDeliveryPdfUrl] = useState<string | null>(null);
   const [deliveryLoading, setDeliveryLoading] = useState(false);
@@ -851,6 +854,7 @@ export default function Page() {
     setPinterestLink("");
     setSelectedPinterestBoardId("");
     setDeliveryFiles({});
+    setDeliveryUploadedFields({});
     setDeliveryPdfUrl(null);
     setError(null);
     setUploadMessage(null);
@@ -1298,6 +1302,12 @@ export default function Page() {
 
       if (Object.keys(nextDeliveryFiles).length > 0) {
         setDeliveryFiles((prev) => ({ ...prev, ...nextDeliveryFiles }));
+        setDeliveryUploadedFields((prev) => ({
+          ...prev,
+          ...Object.fromEntries(
+            Object.keys(nextDeliveryFiles).map((fieldId) => [fieldId, true])
+          ),
+        }));
       }
 
       if (pinterestCandidates.length > 0) {
@@ -1393,6 +1403,7 @@ export default function Page() {
 
     setDeliveryLoading(true);
     setError(null);
+    setUploadMessage(null);
     setDeliveryPdfUrl(null);
 
     const id = ensureListingId();
@@ -1411,21 +1422,33 @@ export default function Page() {
         };
       });
 
-      for (const f of files) {
-        const formData = new FormData();
-        formData.append("file", f.file);
-        formData.append("listingId", id);
-        formData.append("filename", f.name);
+      const uploadedNow: string[] = [];
 
-        const uploadRes = await fetch("/api/upload/deliverable", {
-          method: "POST",
-          body: formData,
-        });
+      for (const [index, f] of files.entries()) {
+        const field = activeDeliveryFields[index];
+        if (!field) continue;
 
-        if (!uploadRes.ok) {
-          const txt = await uploadRes.text();
-          throw new Error(txt || "Failed to upload deliverables");
+        if (deliveryUploadedFields[field.id]) {
+          continue;
         }
+
+        await retryAsync(
+          async () => {
+            await uploadDeliverableToR2(f.file, f.name);
+          },
+          {
+            label: `Failed to upload deliverable ${field.label}`,
+          }
+        );
+
+        uploadedNow.push(field.id);
+      }
+
+      if (uploadedNow.length > 0) {
+        setDeliveryUploadedFields((prev) => ({
+          ...prev,
+          ...Object.fromEntries(uploadedNow.map((fieldId) => [fieldId, true])),
+        }));
       }
 
       const res = await fetch("/api/generate/delivery", {
@@ -1508,6 +1531,7 @@ export default function Page() {
   }
 
   function setDeliveryFile(fieldId: string, file: File | null) {
+    setUploadMessage(null);
     setDeliveryFiles((prev) => {
       if (!file) {
         const next = { ...prev };
@@ -1518,6 +1542,19 @@ export default function Page() {
       return {
         ...prev,
         [fieldId]: file,
+      };
+    });
+
+    setDeliveryUploadedFields((prev) => {
+      if (!file) {
+        const next = { ...prev };
+        delete next[fieldId];
+        return next;
+      }
+
+      return {
+        ...prev,
+        [fieldId]: false,
       };
     });
   }
