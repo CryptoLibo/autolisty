@@ -1006,16 +1006,23 @@ export default function Page() {
       };
     }
 
-    const printableMatches = deliverableCandidates.filter((file) =>
+    const deliverableImages = deliverableCandidates.filter((file) =>
+      file.type.startsWith("image/")
+    );
+    const deliverablePdfs = deliverableCandidates.filter(
+      (file) => file.type === "application/pdf"
+    );
+
+    const printableMatches = deliverableImages.filter((file) =>
       classifyPrintableDeliverableField(file)
     );
 
     const looksLikePrintable =
       printableMatches.length >= 3 ||
-      printableMatches.length === deliverableCandidates.length;
+      printableMatches.length === deliverableImages.length && deliverableImages.length > 0;
 
     const looksLikeFrameTv =
-      deliverableCandidates.length === 1 && printableMatches.length === 0;
+      deliverableImages.length === 1 && printableMatches.length === 0;
 
     if (currentProductType === "frame_tv_art" && looksLikePrintable) {
       return {
@@ -1035,7 +1042,7 @@ export default function Page() {
 
     if (
       currentProductType === "printable_wall_art" &&
-      deliverableCandidates.length > 0 &&
+      deliverableImages.length > 0 &&
       printableMatches.length === 0
     ) {
       return {
@@ -1045,11 +1052,22 @@ export default function Page() {
       };
     }
 
-    if (currentProductType === "frame_tv_art" && deliverableCandidates.length > 1) {
+    if (
+      currentProductType === "frame_tv_art" &&
+      (deliverableImages.length !== 1 || deliverablePdfs.length > 1)
+    ) {
       return {
         ok: false,
         message:
-          "Frame TV Art imports should include a single final deliverable image inside Diseños Finales.",
+          "Frame TV Art imports should include one final design image and optionally one instructions PDF inside Diseños Finales.",
+      };
+    }
+
+    if (currentProductType === "printable_wall_art" && deliverablePdfs.length > 0) {
+      return {
+        ok: false,
+        message:
+          "Printable Wall Art imports should only include image ratio files inside Diseños Finales.",
       };
     }
 
@@ -1079,7 +1097,12 @@ export default function Page() {
       const acceptedFiles = files.filter((file) => {
         const info = getFolderAwareName(file);
         if (info.normalizedName.includes("upscayl")) return false;
-        if (file.type === "application/pdf") return false;
+        if (
+          file.type === "application/pdf" &&
+          !pathHasFolderSegment(info.normalizedPath, "disenos finales")
+        ) {
+          return false;
+        }
         return true;
       });
 
@@ -1101,7 +1124,7 @@ export default function Page() {
       const deliverableCandidates = acceptedFiles.filter((file) => {
         const info = getFolderAwareName(file);
         return (
-          file.type.startsWith("image/") &&
+          (file.type.startsWith("image/") || file.type === "application/pdf") &&
           pathHasFolderSegment(info.normalizedPath, "disenos finales")
         );
       });
@@ -1216,9 +1239,31 @@ export default function Page() {
       const nextDeliveryFiles: Record<string, File | null> = {};
 
       if (deliverableCandidates.length > 0) {
-        const orderedDeliverables =
+        const orderedDeliverables: Array<{
+          file: File;
+          field: DeliveryField;
+        }> =
           productType === "frame_tv_art"
-            ? deliverableCandidates.slice(0, 1)
+            ? [
+                ...deliverableCandidates
+                  .filter((file) => file.type.startsWith("image/"))
+                  .slice(0, 1)
+                  .map((file) => ({
+                    file,
+                    field:
+                      activeDeliveryFields.find((candidate) => candidate.id === "design")!,
+                  })),
+                ...deliverableCandidates
+                  .filter((file) => file.type === "application/pdf")
+                  .slice(0, 1)
+                  .map((file) => ({
+                    file,
+                    field:
+                      activeDeliveryFields.find(
+                        (candidate) => candidate.id === "instructions"
+                      )!,
+                  })),
+              ].filter((item) => !!item.field)
             : deliverableCandidates
                 .map((file) => {
                   const field = classifyPrintableDeliverableField(file);
@@ -1236,16 +1281,13 @@ export default function Page() {
                   (a, b) =>
                     activeDeliveryFields.findIndex((field) => field.id === a.field.id) -
                     activeDeliveryFields.findIndex((field) => field.id === b.field.id)
-                )
-                .map((item) => item.file);
+                );
 
-        for (const deliverable of orderedDeliverables) {
-          const field =
-            productType === "frame_tv_art"
-              ? activeDeliveryFields.find((candidate) => candidate.id === "design") || null
-              : classifyPrintableDeliverableField(deliverable);
+        for (const item of orderedDeliverables) {
+          const deliverable = item.file;
+          const field = item.field;
 
-          if (!field) continue;
+          if (!field || !deliverable) continue;
 
           await retryAsync(
             async () => {
