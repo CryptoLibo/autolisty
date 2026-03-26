@@ -421,7 +421,7 @@ function SortableMockupCard({
     <div
       ref={setNodeRef}
       style={style}
-      className="group relative overflow-hidden rounded-3xl border border-neutral-800 bg-neutral-950/80"
+      className="group relative overflow-hidden rounded-3xl border border-neutral-800 bg-neutral-950/80 [transform:translateZ(0)]"
     >
       <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-full border border-[#eeba2b]/20 bg-neutral-950/90 px-3 py-1 text-xs font-semibold text-neutral-100">
         Pos {index + 1}
@@ -437,11 +437,16 @@ function SortableMockupCard({
       </button>
 
       <div
-        className="aspect-square w-full cursor-grab active:cursor-grabbing"
+        className="aspect-square w-full cursor-grab bg-neutral-950 [contain:paint] [transform:translateZ(0)] active:cursor-grabbing"
         {...attributes}
         {...listeners}
       >
-        <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
+        <img
+          src={item.previewUrl}
+          alt=""
+          draggable={false}
+          className="h-full w-full object-cover bg-neutral-950 [backface-visibility:hidden] [transform:translateZ(0)]"
+        />
       </div>
 
       <div className="space-y-3 p-4">
@@ -510,6 +515,7 @@ export default function Page() {
 
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [etsyAuth, setEtsyAuth] = useState<EtsyAuthStatus | null>(null);
   const [etsyLoading, setEtsyLoading] = useState(true);
   const [etsySyncing, setEtsySyncing] = useState(false);
@@ -659,6 +665,7 @@ export default function Page() {
     if (!f.type.startsWith("image/")) return;
 
     setError(null);
+    setUploadMessage(null);
     setUploading(true);
 
     try {
@@ -693,6 +700,7 @@ export default function Page() {
     if (files.length === 0) return;
 
     setError(null);
+    setUploadMessage(null);
     setUploading(true);
 
     try {
@@ -738,6 +746,7 @@ export default function Page() {
     if (!file || !file.type.startsWith("video/")) return;
 
     setError(null);
+    setUploadMessage(null);
     setUploading(true);
 
     try {
@@ -794,6 +803,7 @@ export default function Page() {
     if (files.length === 0) return;
 
     setError(null);
+    setUploadMessage(null);
     setUploading(true);
 
     try {
@@ -843,6 +853,7 @@ export default function Page() {
     setDeliveryFiles({});
     setDeliveryPdfUrl(null);
     setError(null);
+    setUploadMessage(null);
     setResult(null);
   }
 
@@ -871,6 +882,19 @@ export default function Page() {
       .toLowerCase();
   }
 
+  function pathHasFolderSegment(path: string, ...segments: string[]) {
+    const normalized = normalizeFolderPath(path).replace(/^\/+|\/+$/g, "");
+
+    return segments.some((segment) => {
+      const cleaned = normalizeFolderPath(segment).replace(/^\/+|\/+$/g, "");
+      return (
+        normalized === cleaned ||
+        normalized.startsWith(`${cleaned}/`) ||
+        normalized.includes(`/${cleaned}/`)
+      );
+    });
+  }
+
   function getFolderAwareName(file: File) {
     const relativePath = String((file as File & { webkitRelativePath?: string }).webkitRelativePath || "");
     return {
@@ -889,6 +913,59 @@ export default function Page() {
       if (aNum !== bNum) return aNum - bNum;
       return a.name.localeCompare(b.name);
     });
+  }
+
+  function sleep(ms: number) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  async function retryAsync<T>(
+    task: () => Promise<T>,
+    options: {
+      attempts?: number;
+      label: string;
+    }
+  ) {
+    const attempts = options.attempts ?? 3;
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        return await task();
+      } catch (error) {
+        lastError = error;
+        if (attempt < attempts) {
+          await sleep(450 * attempt);
+        }
+      }
+    }
+
+    throw new Error(
+      lastError instanceof Error
+        ? `${options.label}: ${lastError.message}`
+        : `${options.label}: Upload failed`
+    );
+  }
+
+  async function uploadDeliverableToR2(file: File, filename: string) {
+    const id = ensureListingId();
+
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("listingId", id);
+    fd.append("filename", filename);
+
+    const res = await fetch("/api/upload/deliverable", {
+      method: "POST",
+      body: fd,
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || "Deliverable upload failed");
+    }
+
+    return (await res.json()) as { key: string; url: string };
   }
 
   function classifyPrintableDeliverableField(file: File): DeliveryField | null {
@@ -962,6 +1039,26 @@ export default function Page() {
       };
     }
 
+    if (currentProductType === "frame_tv_art" && deliverableCandidates.length > 1) {
+      return {
+        ok: false,
+        message:
+          "Frame TV Art imports should include a single final deliverable image inside Diseños Finales.",
+      };
+    }
+
+    if (
+      currentProductType === "printable_wall_art" &&
+      printableMatches.length > 0 &&
+      printableMatches.length < activeDeliveryFields.length
+    ) {
+      return {
+        ok: false,
+        message:
+          "The Printable Wall Art folder is missing one or more ratio files. Include 2x3, 3x4, 4x5, 11x14, and ISO before importing.",
+      };
+    }
+
     return {
       ok: true,
     };
@@ -971,6 +1068,8 @@ export default function Page() {
     if (files.length === 0) return;
 
     try {
+      setUploadMessage(null);
+
       const acceptedFiles = files.filter((file) => {
         const info = getFolderAwareName(file);
         if (info.normalizedName.includes("upscayl")) return false;
@@ -988,15 +1087,17 @@ export default function Page() {
           const info = getFolderAwareName(file);
           return (
             file.type.startsWith("image/") &&
-            (info.normalizedPath.includes("/pines/") ||
-              info.normalizedPath.includes("/pins/"))
+            pathHasFolderSegment(info.normalizedPath, "pines", "pins")
           );
         })
       );
 
       const deliverableCandidates = acceptedFiles.filter((file) => {
         const info = getFolderAwareName(file);
-        return file.type.startsWith("image/") && info.normalizedPath.includes("/disenos finales/");
+        return (
+          file.type.startsWith("image/") &&
+          pathHasFolderSegment(info.normalizedPath, "disenos finales")
+        );
       });
 
       const productValidation = validateImportedFolderProduct(
@@ -1005,6 +1106,7 @@ export default function Page() {
       );
 
       if (!productValidation.ok) {
+        setUploadMessage(null);
         setError(productValidation.message || "The imported folder does not match the selected product.");
         return;
       }
@@ -1017,9 +1119,8 @@ export default function Page() {
           const info = getFolderAwareName(file);
           return (
             file.type.startsWith("video/") &&
-            !info.normalizedPath.includes("/pines/") &&
-            !info.normalizedPath.includes("/pins/") &&
-            !info.normalizedPath.includes("/disenos finales/")
+            !pathHasFolderSegment(info.normalizedPath, "pines", "pins") &&
+            !pathHasFolderSegment(info.normalizedPath, "disenos finales")
           );
         }) || null;
 
@@ -1028,51 +1129,194 @@ export default function Page() {
           const info = getFolderAwareName(file);
           if (!file.type.startsWith("image/")) return false;
           if (designCandidate && file === designCandidate) return false;
-          if (info.normalizedPath.includes("/pines/") || info.normalizedPath.includes("/pins/")) return false;
-          if (info.normalizedPath.includes("/disenos finales/")) return false;
+          if (pathHasFolderSegment(info.normalizedPath, "pines", "pins")) return false;
+          if (pathHasFolderSegment(info.normalizedPath, "disenos finales")) return false;
           return /^\d+\.(png|jpe?g|webp)$/i.test(file.name);
         })
       );
 
-      if (designCandidate) {
-        clearDesign();
-        await setDesign([designCandidate]);
+      const nextDesign = designCandidate
+        ? await retryAsync(
+            async () => {
+              const ext =
+                designCandidate.name.split(".").pop()?.toLowerCase() ||
+                (designCandidate.type === "image/png"
+                  ? "png"
+                  : designCandidate.type === "image/webp"
+                    ? "webp"
+                    : "jpg");
+
+              const upload = await uploadToR2(designCandidate, `design.${ext}`);
+              return {
+                file: designCandidate,
+                previewUrl: URL.createObjectURL(designCandidate),
+                r2Url: upload.url,
+              };
+            },
+            {
+              label: "Failed to upload the main design image",
+            }
+          )
+        : null;
+
+      const nextMockups: MediaItem[] = [];
+      for (let index = 0; index < mockupCandidates.length; index++) {
+        const file = mockupCandidates[index];
+        const uploadedMockup = await retryAsync(
+          async () => {
+            const ext =
+              file.name.split(".").pop()?.toLowerCase() ||
+              (file.type === "image/png"
+                ? "png"
+                : file.type === "image/webp"
+                  ? "webp"
+                  : "jpg");
+            const upload = await uploadToR2(file, `mockup-${index + 1}.${ext}`);
+
+            return {
+              id: uid(),
+              file,
+              previewUrl: URL.createObjectURL(file),
+              r2Url: upload.url,
+            };
+          },
+          {
+            label: `Failed to upload mockup ${index + 1}`,
+          }
+        );
+
+        nextMockups.push(uploadedMockup);
+      }
+
+      const nextVideo = rootVideoCandidate
+        ? await retryAsync(
+            async () => {
+              const ext = rootVideoCandidate.name.split(".").pop()?.toLowerCase() || "mp4";
+              const upload = await uploadToR2(rootVideoCandidate, `video.${ext}`);
+
+              return {
+                id: uid(),
+                file: rootVideoCandidate,
+                previewUrl: URL.createObjectURL(rootVideoCandidate),
+                r2Url: upload.url,
+              };
+            },
+            {
+              label: "Failed to upload the listing video",
+            }
+          )
+        : null;
+
+      const nextDeliveryFiles: Record<string, File | null> = {};
+
+      if (deliverableCandidates.length > 0) {
+        const orderedDeliverables =
+          productType === "frame_tv_art"
+            ? deliverableCandidates.slice(0, 1)
+            : deliverableCandidates
+                .map((file) => {
+                  const field = classifyPrintableDeliverableField(file);
+                  return field ? { file, field } : null;
+                })
+                .filter(
+                  (
+                    item
+                  ): item is {
+                    file: File;
+                    field: DeliveryField;
+                  } => !!item
+                )
+                .sort(
+                  (a, b) =>
+                    activeDeliveryFields.findIndex((field) => field.id === a.field.id) -
+                    activeDeliveryFields.findIndex((field) => field.id === b.field.id)
+                )
+                .map((item) => item.file);
+
+        for (const deliverable of orderedDeliverables) {
+          const field =
+            productType === "frame_tv_art"
+              ? activeDeliveryFields.find((candidate) => candidate.id === "design") || null
+              : classifyPrintableDeliverableField(deliverable);
+
+          if (!field) continue;
+
+          await retryAsync(
+            async () => {
+              await uploadDeliverableToR2(deliverable, getDeliveryFilename(field, deliverable));
+            },
+            {
+              label: `Failed to upload deliverable ${field.label}`,
+            }
+          );
+
+          nextDeliveryFiles[field.id] = deliverable;
+        }
+      }
+
+      const nextPinterestItems: PinterestItem[] = [];
+      for (let index = 0; index < pinterestCandidates.length; index++) {
+        const file = pinterestCandidates[index];
+        const uploadedPin = await retryAsync(
+          async () => {
+            const ext = getFileExtension(file, "jpg");
+            const upload = await uploadPinterestToR2(file, `pin-${index + 1}.${ext}`);
+
+            return {
+              id: uid(),
+              file,
+              previewUrl: URL.createObjectURL(file),
+              r2Url: upload.url,
+            };
+          },
+          {
+            label: `Failed to upload Pinterest image ${index + 1}`,
+          }
+        );
+
+        nextPinterestItems.push(uploadedPin);
+      }
+
+      if (designCandidate && nextDesign) {
+        if (designPreview) URL.revokeObjectURL(designPreview);
+        setDesignFile(nextDesign.file);
+        setDesignPreview(nextDesign.previewUrl);
+        setDesignR2Url(nextDesign.r2Url);
       }
 
       if (mockupCandidates.length > 0) {
-        await addMockups(mockupCandidates, { replace: true });
+        for (const mockup of mockups) URL.revokeObjectURL(mockup.previewUrl);
+        setMockups(nextMockups);
       }
 
-      if (rootVideoCandidate) {
-        clearListingVideo();
-        await setListingVideoFile(rootVideoCandidate);
+      if (rootVideoCandidate && nextVideo) {
+        setListingVideo((prev) => {
+          if (prev) URL.revokeObjectURL(prev.previewUrl);
+          return nextVideo;
+        });
+      }
+
+      if (Object.keys(nextDeliveryFiles).length > 0) {
+        setDeliveryFiles((prev) => ({ ...prev, ...nextDeliveryFiles }));
       }
 
       if (pinterestCandidates.length > 0) {
-        await addPinterestImages(pinterestCandidates, { replace: true });
+        for (const item of pinterestImages) URL.revokeObjectURL(item.previewUrl);
+        setPinterestImages(nextPinterestItems);
       }
 
-      if (deliverableCandidates.length > 0) {
-        const nextDeliveryFiles: Record<string, File | null> = {};
+      const importedGroups = [
+        designCandidate ? "design" : null,
+        mockupCandidates.length > 0 ? `${mockupCandidates.length} mockups` : null,
+        rootVideoCandidate ? "video" : null,
+        Object.keys(nextDeliveryFiles).length > 0
+          ? `${Object.keys(nextDeliveryFiles).length} deliverables`
+          : null,
+        pinterestCandidates.length > 0 ? `${pinterestCandidates.length} Pinterest images` : null,
+      ].filter(Boolean);
 
-        if (productType === "frame_tv_art") {
-          const firstImage = deliverableCandidates[0];
-          const designField = activeDeliveryFields.find((field) => field.id === "design");
-          if (designField && firstImage) {
-            nextDeliveryFiles[designField.id] = firstImage;
-          }
-        } else {
-          for (const file of deliverableCandidates) {
-            const field = classifyPrintableDeliverableField(file);
-            if (field) {
-              nextDeliveryFiles[field.id] = file;
-            }
-          }
-        }
-
-        if (Object.keys(nextDeliveryFiles).length > 0) {
-          setDeliveryFiles((prev) => ({ ...prev, ...nextDeliveryFiles }));
-        }
+      if (importedGroups.length > 0) {
+        setUploadMessage(`Folder import completed successfully: ${importedGroups.join(", ")} uploaded to R2.`);
       }
     } catch (e: any) {
       setError(e?.message || "Failed to import listing folder");
@@ -1985,7 +2229,13 @@ export default function Page() {
 
             {uploading ? (
               <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-4 text-sm text-[#f1cc61]">
-                Uploading images to R2...
+                Uploading listing assets to R2...
+              </div>
+            ) : null}
+
+            {uploadMessage ? (
+              <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">
+                {uploadMessage}
               </div>
             ) : null}
 
