@@ -421,7 +421,7 @@ function SortableMockupCard({
     <div
       ref={setNodeRef}
       style={style}
-      className="group relative overflow-hidden rounded-3xl border border-neutral-800 bg-neutral-950/80 [transform:translateZ(0)]"
+      className="group relative overflow-hidden rounded-3xl border border-neutral-800 bg-neutral-950/80"
     >
       <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-full border border-[#eeba2b]/20 bg-neutral-950/90 px-3 py-1 text-xs font-semibold text-neutral-100">
         Pos {index + 1}
@@ -437,7 +437,7 @@ function SortableMockupCard({
       </button>
 
       <div
-        className="aspect-square w-full cursor-grab bg-neutral-950 [contain:paint] [transform:translateZ(0)] active:cursor-grabbing"
+        className="aspect-square w-full cursor-grab bg-neutral-950 active:cursor-grabbing"
         {...attributes}
         {...listeners}
       >
@@ -445,7 +445,9 @@ function SortableMockupCard({
           src={item.previewUrl}
           alt=""
           draggable={false}
-          className="h-full w-full object-cover bg-neutral-950 [backface-visibility:hidden] [transform:translateZ(0)]"
+          className="h-full w-full object-cover bg-neutral-950"
+          loading="eager"
+          decoding="sync"
         />
       </div>
 
