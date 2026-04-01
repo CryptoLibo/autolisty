@@ -2688,7 +2688,6 @@ export default function Page() {
                   </OutputBlock>
                 </div>
               )}
-              </div>
             </div>
             ) : activeSection === "batch" ? (
               <div className="space-y-6">
