@@ -27,6 +27,9 @@ import {
   X,
   FileText,
   CheckCircle2,
+  Layers3,
+  LayoutDashboard,
+  Swatches,
 } from "lucide-react";
 
 type MediaItem = {
@@ -107,6 +110,8 @@ type EtsySyncResponse = {
   uploadedFiles?: number;
   error?: string;
 };
+
+type AppSection = "single" | "batch" | "mockups";
 
 function uid() {
   return crypto.randomUUID();
@@ -487,8 +492,60 @@ function OutputBlock({
   );
 }
 
+function SidebarNavItem({
+  title,
+  subtitle,
+  active,
+  onClick,
+  icon,
+}: {
+  title: string;
+  subtitle: string;
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "w-full rounded-2xl border px-4 py-4 text-left transition-all",
+        active
+          ? "border-[#eeba2b]/30 bg-[#eeba2b]/10 shadow-[0_12px_30px_rgba(238,186,43,0.08)]"
+          : "border-neutral-800 bg-neutral-950/70 hover:border-[#eeba2b]/20 hover:bg-neutral-900/80"
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border",
+            active
+              ? "border-[#eeba2b]/25 bg-[#eeba2b]/15 text-[#f1cc61]"
+              : "border-neutral-800 bg-neutral-900 text-neutral-300"
+          )}
+        >
+          {icon}
+        </div>
+        <div className="min-w-0 space-y-1">
+          <div
+            className={cn(
+              "text-sm font-semibold",
+              active ? "text-neutral-100" : "text-neutral-200"
+            )}
+          >
+            {title}
+          </div>
+          <div className="text-xs leading-relaxed text-neutral-500">{subtitle}</div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 export default function Page() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const [activeSection, setActiveSection] = useState<AppSection>("single");
   const [productType, setProductType] = useState<ProductType>("frame_tv_art");
   const [listingId, setListingId] = useState<string | null>(null);
   const listingIdRef = useRef<string | null>(null);
@@ -1808,8 +1865,48 @@ export default function Page() {
           ) : null}
         </div>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
-          <div className="space-y-6">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+          <aside className="space-y-4 xl:sticky xl:top-5 xl:self-start">
+            <div className="overflow-hidden rounded-3xl border border-[#eeba2b]/20 bg-neutral-950/70 p-4 shadow-[0_0_0_1px_rgba(238,186,43,0.06),0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur">
+              <div className="mb-4 space-y-1 px-1">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
+                  Workspace
+                </div>
+                <div className="text-sm leading-relaxed text-neutral-400">
+                  Switch between the current listing workflow and the next production tools we are designing for batch creation.
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <SidebarNavItem
+                  title="Listing"
+                  subtitle="The current high-touch workflow for one listing at a time."
+                  active={activeSection === "single"}
+                  onClick={() => setActiveSection("single")}
+                  icon={<LayoutDashboard size={18} />}
+                />
+                <SidebarNavItem
+                  title="Scale"
+                  subtitle="Upcoming production view for running many listings in parallel."
+                  active={activeSection === "batch"}
+                  onClick={() => setActiveSection("batch")}
+                  icon={<Layers3 size={18} />}
+                />
+                <SidebarNavItem
+                  title="Mockups"
+                  subtitle="Upcoming visual tool for building listing-ready mockup sets automatically."
+                  active={activeSection === "mockups"}
+                  onClick={() => setActiveSection("mockups")}
+                  icon={<Swatches size={18} />}
+                />
+              </div>
+            </div>
+          </aside>
+
+          <div>
+            {activeSection === "single" ? (
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
+                <div className="space-y-6">
             <Card
               title="Product & Inputs"
               accent
@@ -2320,14 +2417,14 @@ export default function Page() {
               </div>
             ) : null}
 
-            {error ? (
-              <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
-                {error}
+                {error ? (
+                  <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+                    {error}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
 
-          <div className="space-y-6">
+              <div className="space-y-6">
             <Card
               title="Etsy Connection"
               accent
@@ -2591,7 +2688,131 @@ export default function Page() {
                   </OutputBlock>
                 </div>
               )}
-            </Card>
+              </div>
+            </div>
+            ) : activeSection === "batch" ? (
+              <div className="space-y-6">
+                <Card title="Scale" accent>
+                  <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                    <div className="space-y-4">
+                      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
+                        <div className="text-sm font-medium text-neutral-100">
+                          Multi-listing production workspace
+                        </div>
+                        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-400">
+                          This section will turn one imported batch folder into many independent listing jobs, each with its own media, SEO, PDF, Etsy, and Pinterest status.
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-5">
+                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                            Batch import
+                          </div>
+                          <div className="mt-2 text-sm leading-relaxed text-neutral-300">
+                            Import one master folder containing many listing folders, then validate product consistency before any upload begins.
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-5">
+                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                            Controlled stages
+                          </div>
+                          <div className="mt-2 text-sm leading-relaxed text-neutral-300">
+                            Run upload, SEO, PDF, Etsy, and Pinterest in explicit stages with progress per listing instead of one giant blind process.
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-5">
+                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                            Review first
+                          </div>
+                          <div className="mt-2 text-sm leading-relaxed text-neutral-300">
+                            Each listing will keep its own detail view so we can inspect outputs before sending them to Etsy or Pinterest.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-5">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#f1cc61]">
+                        Planned layout
+                      </div>
+                      <div className="mt-3 space-y-3 text-sm text-neutral-200">
+                        <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                          1. Batch toolbar with product type, import folder, run stage, and reset.
+                        </div>
+                        <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                          2. Job list showing folder name, preview, progress, and errors.
+                        </div>
+                        <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                          3. Detail panel for one listing at a time when deeper review is needed.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <Card title="Mockups" accent>
+                  <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                    <div className="space-y-4">
+                      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
+                        <div className="text-sm font-medium text-neutral-100">
+                          Dedicated mockup selection workspace
+                        </div>
+                        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-400">
+                          This section will let you upload a reusable mockup pool, classify assets visually as MID, CLOSE, and WIDE, and generate ready-to-use sets for each listing.
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-5">
+                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                            Attribute pools
+                          </div>
+                          <div className="mt-2 text-sm leading-relaxed text-neutral-300">
+                            Separate upload areas for MID, CLOSE, and WIDE so the app can build balanced sets automatically.
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-5">
+                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                            Fixed images
+                          </div>
+                          <div className="mt-2 text-sm leading-relaxed text-neutral-300">
+                            Keep universal listing images locked in the positions you use across every product.
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-5">
+                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                            Output preview
+                          </div>
+                          <div className="mt-2 text-sm leading-relaxed text-neutral-300">
+                            Preview how each listing will receive a 6-image selection before anything is exported or uploaded.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-5">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#f1cc61]">
+                        Planned selection rules
+                      </div>
+                      <div className="mt-3 space-y-3 text-sm text-neutral-200">
+                        <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                          1. Randomly choose 2 MID, 2 CLOSE, and 2 WIDE images per listing.
+                        </div>
+                        <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                          2. Apply fixed images in their locked positions without changing the visual rules.
+                        </div>
+                        <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                          3. Export numbered selections ready for Photoshop and the listing workflow.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            )}
           </div>
         </div>
 
