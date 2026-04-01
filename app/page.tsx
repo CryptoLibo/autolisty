@@ -30,6 +30,7 @@ import {
   Layers3,
   LayoutDashboard,
   Library,
+  Menu,
 } from "lucide-react";
 
 type MediaItem = {
@@ -546,6 +547,7 @@ function SidebarNavItem({
 export default function Page() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [activeSection, setActiveSection] = useState<AppSection>("single");
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [productType, setProductType] = useState<ProductType>("frame_tv_art");
   const [listingId, setListingId] = useState<string | null>(null);
   const listingIdRef = useRef<string | null>(null);
@@ -1843,6 +1845,94 @@ export default function Page() {
 
   return (
     <main className="min-h-screen bg-[#0b0f14] text-neutral-100">
+      <button
+        type="button"
+        onClick={() => setWorkspaceOpen(true)}
+        className="fixed left-5 top-5 z-40 inline-flex items-center gap-3 rounded-2xl border border-[#eeba2b]/20 bg-neutral-950/85 px-4 py-3 text-left shadow-[0_18px_40px_rgba(0,0,0,0.35)] backdrop-blur transition hover:border-[#eeba2b]/35 hover:bg-neutral-900/90"
+      >
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 text-[#f1cc61]">
+          <Menu size={18} />
+        </div>
+        <div className="hidden sm:block">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#f1cc61]">
+            Workspace
+          </div>
+          <div className="text-sm font-medium text-neutral-100">
+            {activeSection === "single"
+              ? "Listing"
+              : activeSection === "batch"
+                ? "Scale"
+                : "Mockups"}
+          </div>
+        </div>
+      </button>
+
+      {workspaceOpen ? (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            aria-label="Close workspace panel"
+            className="absolute inset-0 bg-black/55 backdrop-blur-[2px]"
+            onClick={() => setWorkspaceOpen(false)}
+          />
+
+          <div className="absolute inset-y-0 left-0 w-full max-w-[340px] border-r border-[#eeba2b]/15 bg-[#0b0f14]/96 p-5 shadow-[0_28px_80px_rgba(0,0,0,0.55)] backdrop-blur">
+            <div className="flex h-full flex-col">
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
+                    Workspace
+                  </div>
+                  <div className="mt-1 text-sm leading-relaxed text-neutral-400">
+                    Move through the app without shrinking the production workspace.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWorkspaceOpen(false)}
+                  className="rounded-2xl border border-neutral-800 bg-neutral-950 p-2 text-neutral-300 transition hover:bg-neutral-900"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-3 overflow-y-auto pr-1">
+                <SidebarNavItem
+                  title="Listing"
+                  subtitle="The current high-touch workflow for one listing at a time."
+                  active={activeSection === "single"}
+                  onClick={() => {
+                    setActiveSection("single");
+                    setWorkspaceOpen(false);
+                  }}
+                  icon={<LayoutDashboard size={18} />}
+                />
+                <SidebarNavItem
+                  title="Scale"
+                  subtitle="Upcoming production view for running many listings in parallel."
+                  active={activeSection === "batch"}
+                  onClick={() => {
+                    setActiveSection("batch");
+                    setWorkspaceOpen(false);
+                  }}
+                  icon={<Layers3 size={18} />}
+                />
+                <SidebarNavItem
+                  title="Mockups"
+                  subtitle="Upcoming visual tool for building listing-ready mockup sets automatically."
+                  active={activeSection === "mockups"}
+                  onClick={() => {
+                    setActiveSection("mockups");
+                    setWorkspaceOpen(false);
+                  }}
+                  icon={<Library size={18} />}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mx-auto max-w-7xl px-5 py-5 sm:px-6 lg:px-8">
         <div className="flex flex-col items-center gap-3 pb-8 pt-2 text-center">
           <Image
@@ -1865,48 +1955,10 @@ export default function Page() {
           ) : null}
         </div>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
-          <aside className="space-y-4 xl:sticky xl:top-5 xl:self-start">
-            <div className="overflow-hidden rounded-3xl border border-[#eeba2b]/20 bg-neutral-950/70 p-4 shadow-[0_0_0_1px_rgba(238,186,43,0.06),0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur">
-              <div className="mb-4 space-y-1 px-1">
-                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
-                  Workspace
-                </div>
-                <div className="text-sm leading-relaxed text-neutral-400">
-                  Switch between the current listing workflow and the next production tools we are designing for batch creation.
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <SidebarNavItem
-                  title="Listing"
-                  subtitle="The current high-touch workflow for one listing at a time."
-                  active={activeSection === "single"}
-                  onClick={() => setActiveSection("single")}
-                  icon={<LayoutDashboard size={18} />}
-                />
-                <SidebarNavItem
-                  title="Scale"
-                  subtitle="Upcoming production view for running many listings in parallel."
-                  active={activeSection === "batch"}
-                  onClick={() => setActiveSection("batch")}
-                  icon={<Layers3 size={18} />}
-                />
-                <SidebarNavItem
-                  title="Mockups"
-                  subtitle="Upcoming visual tool for building listing-ready mockup sets automatically."
-                  active={activeSection === "mockups"}
-                  onClick={() => setActiveSection("mockups")}
-                  icon={<Library size={18} />}
-                />
-              </div>
-            </div>
-          </aside>
-
-          <div>
-            {activeSection === "single" ? (
-              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
-                <div className="space-y-6">
+        <div>
+          {activeSection === "single" ? (
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
+              <div className="space-y-6">
             <Card
               title="Product & Inputs"
               accent
@@ -2815,7 +2867,6 @@ export default function Page() {
               </div>
             )}
           </div>
-        </div>
 
         <SiteFooter />
       </div>
