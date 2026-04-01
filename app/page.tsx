@@ -29,7 +29,7 @@ import {
   CheckCircle2,
   Layers3,
   LayoutDashboard,
-  Swatches,
+  Library,
 } from "lucide-react";
 
 type MediaItem = {
@@ -1897,7 +1897,7 @@ export default function Page() {
                   subtitle="Upcoming visual tool for building listing-ready mockup sets automatically."
                   active={activeSection === "mockups"}
                   onClick={() => setActiveSection("mockups")}
-                  icon={<Swatches size={18} />}
+                  icon={<Library size={18} />}
                 />
               </div>
             </div>
