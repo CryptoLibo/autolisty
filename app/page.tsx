@@ -128,6 +128,8 @@ type ScaleJobStatus =
   | "seo_complete"
   | "generating_pdf"
   | "pdf_complete"
+  | "syncing_etsy"
+  | "etsy_complete"
   | "failed";
 
 type ScaleUploadedMockup = {
@@ -158,6 +160,8 @@ type ScaleJob = {
   mockupsUploaded?: ScaleUploadedMockup[];
   seoResult?: SeoResult | null;
   deliveryPdfUrl?: string | null;
+  etsyDraftListingId: string;
+  etsyResult?: EtsySyncResponse | null;
 };
 
 function uid() {
@@ -248,6 +252,8 @@ function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
         mockupsUploaded: [],
         seoResult: null,
         deliveryPdfUrl: null,
+        etsyDraftListingId: "",
+        etsyResult: null,
       };
     });
 }
@@ -716,6 +722,7 @@ export default function Page() {
   const [scaleUploading, setScaleUploading] = useState(false);
   const [scaleSeoLoading, setScaleSeoLoading] = useState(false);
   const [scalePdfLoading, setScalePdfLoading] = useState(false);
+  const [scaleEtsyLoading, setScaleEtsyLoading] = useState(false);
   const [scaleMessage, setScaleMessage] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -1203,6 +1210,13 @@ export default function Page() {
     }));
   }
 
+  function setScaleJobDraftListingId(jobId: string, value: string) {
+    updateScaleJob(jobId, (job) => ({
+      ...job,
+      etsyDraftListingId: value,
+    }));
+  }
+
   function updateScaleJob(
     jobId: string,
     updater: (job: ScaleJob) => ScaleJob
@@ -1675,6 +1689,105 @@ export default function Page() {
         : `PDF finished. ${completedCount} listing jobs complete.`
     );
     setScalePdfLoading(false);
+  }
+
+  async function syncEtsyForScaleJob(job: ScaleJob) {
+    if (!job.seoResult || !job.deliveryPdfUrl) {
+      throw new Error("Generate SEO and PDF for this listing before syncing Etsy.");
+    }
+
+    if (!job.etsyDraftListingId.trim()) {
+      throw new Error("Enter the Etsy draft listing ID for this listing first.");
+    }
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      status: "syncing_etsy",
+      stepLabel: "Syncing Etsy",
+      errorMessage: null,
+    }));
+
+    const res = await fetch("/api/etsy/sync", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        draftListingId: job.etsyDraftListingId.trim(),
+        title: job.seoResult.title,
+        description: job.seoResult.description_final,
+        tags: job.seoResult.tags_13,
+        mockups: (job.mockupsUploaded || []).map((item) => ({
+          url: item.url,
+          altText: item.altText,
+          rank: item.position,
+        })),
+        deliveryPdfUrl: job.deliveryPdfUrl,
+        deliveryPdfFilename: `${job.listingId || "listing"}.pdf`,
+      }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || "Failed to sync Etsy draft.");
+    }
+
+    const data: EtsySyncResponse = await res.json();
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      status: "etsy_complete",
+      stepLabel: "Etsy synced",
+      errorMessage: null,
+      etsyResult: data,
+    }));
+  }
+
+  async function syncScaleEtsyJobs() {
+    if (!etsyAuth?.connected) {
+      setScaleMessage("Connect Etsy before syncing Scale jobs.");
+      return;
+    }
+
+    const eligible = scaleJobs.filter(
+      (job) =>
+        (job.status === "pdf_complete" || job.status === "failed") &&
+        !!job.seoResult &&
+        !!job.deliveryPdfUrl &&
+        !!job.etsyDraftListingId.trim()
+    );
+
+    if (eligible.length === 0) {
+      setScaleMessage("No Scale jobs are ready to sync to Etsy yet.");
+      return;
+    }
+
+    setScaleEtsyLoading(true);
+    setScaleMessage(`Syncing ${eligible.length} listing jobs to Etsy...`);
+    let completedCount = 0;
+    let failedCount = 0;
+
+    await runWithConcurrency(eligible, 2, async (job) => {
+      try {
+        await syncEtsyForScaleJob(job);
+        completedCount += 1;
+      } catch (error: any) {
+        failedCount += 1;
+        updateScaleJob(job.id, (current) => ({
+          ...current,
+          status: "failed",
+          stepLabel: "Etsy failed",
+          errorMessage: error?.message || "Etsy sync failed",
+        }));
+      }
+    });
+
+    setScaleMessage(
+      failedCount > 0
+        ? `Etsy sync finished. ${completedCount} complete, ${failedCount} failed.`
+        : `Etsy sync finished. ${completedCount} listing jobs complete.`
+    );
+    setScaleEtsyLoading(false);
   }
 
   function resetAll() {
@@ -3544,6 +3657,7 @@ export default function Page() {
                           scaleUploading ||
                           scaleSeoLoading ||
                           scalePdfLoading ||
+                          scaleEtsyLoading ||
                           scaleJobs.every(
                             (job) =>
                               !(job.status === "uploaded" || job.status === "failed") ||
@@ -3573,6 +3687,7 @@ export default function Page() {
                           scaleUploading ||
                           scaleSeoLoading ||
                           scalePdfLoading ||
+                          scaleEtsyLoading ||
                           scaleJobs.every(
                             (job) =>
                               !(job.status === "seo_complete" || job.status === "failed") ||
@@ -3593,6 +3708,37 @@ export default function Page() {
                           </>
                         )}
                       </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => void syncScaleEtsyJobs()}
+                        disabled={
+                          scaleImporting ||
+                          scaleUploading ||
+                          scaleSeoLoading ||
+                          scalePdfLoading ||
+                          scaleEtsyLoading ||
+                          !etsyAuth?.connected ||
+                          scaleJobs.every(
+                            (job) =>
+                              !(job.status === "pdf_complete" || job.status === "failed") ||
+                              !job.seoResult ||
+                              !job.deliveryPdfUrl ||
+                              !job.etsyDraftListingId.trim()
+                          )
+                        }
+                      >
+                        {scaleEtsyLoading ? (
+                          <>
+                            <Loader2 className="animate-spin" size={16} />
+                            Syncing Etsy...
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={16} />
+                            Sync Etsy
+                          </>
+                        )}
+                      </Button>
                       <input
                         ref={scaleInputRef}
                         type="file"
@@ -3609,7 +3755,11 @@ export default function Page() {
                         variant="secondary"
                         onClick={() => scaleInputRef.current?.click()}
                         disabled={
-                          scaleImporting || scaleUploading || scaleSeoLoading || scalePdfLoading
+                          scaleImporting ||
+                          scaleUploading ||
+                          scaleSeoLoading ||
+                          scalePdfLoading ||
+                          scaleEtsyLoading
                         }
                       >
                         {scaleImporting ? (
@@ -3632,6 +3782,7 @@ export default function Page() {
                           scaleUploading ||
                           scaleSeoLoading ||
                           scalePdfLoading ||
+                          scaleEtsyLoading ||
                           scaleJobs.length === 0
                         }
                       >
@@ -3738,12 +3889,15 @@ export default function Page() {
                                   <div
                                     className={cn(
                                       "inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
-                                      job.status === "pdf_complete"
+                                      job.status === "etsy_complete"
                                         ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                                        : job.status === "generating_pdf" ||
+                                      : job.status === "generating_pdf" ||
                                             job.status === "generating_seo" ||
+                                            job.status === "syncing_etsy" ||
                                             job.status === "uploading"
                                           ? "border-[#eeba2b]/30 bg-[#eeba2b]/10 text-[#f1cc61]"
+                                          : job.status === "pdf_complete"
+                                            ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-200"
                                           : job.status === "seo_complete"
                                             ? "border-violet-500/30 bg-violet-500/10 text-violet-200"
                                           : job.status === "uploaded"
@@ -3753,10 +3907,14 @@ export default function Page() {
                                             : "border-red-500/30 bg-red-500/10 text-red-200"
                                     )}
                                   >
-                                    {job.status === "pdf_complete"
+                                    {job.status === "etsy_complete"
                                       ? "Complete"
+                                      : job.status === "syncing_etsy"
+                                        ? "Syncing Etsy"
                                       : job.status === "generating_pdf"
                                         ? "Generating PDF"
+                                      : job.status === "pdf_complete"
+                                        ? "PDF ready"
                                       : job.status === "generating_seo"
                                         ? "Generating SEO"
                                         : job.status === "seo_complete"
@@ -3791,7 +3949,32 @@ export default function Page() {
                                     onChange={(e) => setScaleJobPrompt(job.id, e.target.value)}
                                     placeholder="Paste the Midjourney prompt for this listing"
                                     rows={3}
-                                    disabled={scaleUploading || scaleSeoLoading}
+                                    disabled={
+                                      scaleUploading ||
+                                      scaleSeoLoading ||
+                                      scalePdfLoading ||
+                                      scaleEtsyLoading
+                                    }
+                                    className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                                  />
+                                </div>
+
+                                <div className="mt-4 space-y-2">
+                                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                                    Etsy draft listing ID
+                                  </div>
+                                  <input
+                                    value={job.etsyDraftListingId}
+                                    onChange={(e) =>
+                                      setScaleJobDraftListingId(job.id, e.target.value)
+                                    }
+                                    placeholder="Enter the Etsy draft listing ID"
+                                    disabled={
+                                      scaleUploading ||
+                                      scaleSeoLoading ||
+                                      scalePdfLoading ||
+                                      scaleEtsyLoading
+                                    }
                                     className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
                                   />
                                 </div>
@@ -3803,6 +3986,10 @@ export default function Page() {
                                 ) : job.issues.length > 0 ? (
                                   <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
                                     {job.issues.join(" • ")}
+                                  </div>
+                                ) : job.etsyResult?.ok ? (
+                                  <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-200">
+                                    Etsy draft synced successfully for this listing.
                                   </div>
                                 ) : job.deliveryPdfUrl ? (
                                   <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-200">
