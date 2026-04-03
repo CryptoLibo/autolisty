@@ -126,6 +126,8 @@ type ScaleJobStatus =
   | "uploaded"
   | "generating_seo"
   | "seo_complete"
+  | "generating_pdf"
+  | "pdf_complete"
   | "failed";
 
 type ScaleUploadedMockup = {
@@ -155,6 +157,7 @@ type ScaleJob = {
   designUrl?: string;
   mockupsUploaded?: ScaleUploadedMockup[];
   seoResult?: SeoResult | null;
+  deliveryPdfUrl?: string | null;
 };
 
 function uid() {
@@ -244,6 +247,7 @@ function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
         designUrl: undefined,
         mockupsUploaded: [],
         seoResult: null,
+        deliveryPdfUrl: null,
       };
     });
 }
@@ -711,6 +715,7 @@ export default function Page() {
   const [scaleImporting, setScaleImporting] = useState(false);
   const [scaleUploading, setScaleUploading] = useState(false);
   const [scaleSeoLoading, setScaleSeoLoading] = useState(false);
+  const [scalePdfLoading, setScalePdfLoading] = useState(false);
   const [scaleMessage, setScaleMessage] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -1591,6 +1596,85 @@ export default function Page() {
         : `SEO finished. ${completedCount} listing jobs complete.`
     );
     setScaleSeoLoading(false);
+  }
+
+  async function generatePdfForScaleJob(job: ScaleJob) {
+    if (!job.listingId) {
+      throw new Error("Upload this listing before generating the final PDF.");
+    }
+
+    if (!job.seoResult) {
+      throw new Error("Generate SEO for this listing before creating the PDF.");
+    }
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      status: "generating_pdf",
+      stepLabel: "Generating PDF",
+      errorMessage: null,
+    }));
+
+    const res = await fetch("/api/generate/delivery", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ listingId: job.listingId, productType }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || "Failed to generate delivery PDF");
+    }
+
+    const data = await res.json();
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      status: "pdf_complete",
+      stepLabel: "PDF complete",
+      errorMessage: null,
+      deliveryPdfUrl: data.url,
+    }));
+  }
+
+  async function generateScalePdfJobs() {
+    const eligible = scaleJobs.filter(
+      (job) =>
+        (job.status === "seo_complete" || job.status === "failed") &&
+        !!job.listingId &&
+        !!job.seoResult
+    );
+
+    if (eligible.length === 0) {
+      setScaleMessage("No Scale jobs are ready to generate the final PDF yet.");
+      return;
+    }
+
+    setScalePdfLoading(true);
+    setScaleMessage(`Generating final PDFs for ${eligible.length} listing jobs...`);
+    let completedCount = 0;
+    let failedCount = 0;
+
+    await runWithConcurrency(eligible, 3, async (job) => {
+      try {
+        await generatePdfForScaleJob(job);
+        completedCount += 1;
+      } catch (error: any) {
+        failedCount += 1;
+        updateScaleJob(job.id, (current) => ({
+          ...current,
+          status: "failed",
+          stepLabel: "PDF failed",
+          errorMessage: error?.message || "PDF generation failed",
+        }));
+      }
+    });
+
+    setScaleMessage(
+      failedCount > 0
+        ? `PDF finished. ${completedCount} complete, ${failedCount} failed.`
+        : `PDF finished. ${completedCount} listing jobs complete.`
+    );
+    setScalePdfLoading(false);
   }
 
   function resetAll() {
@@ -3459,6 +3543,7 @@ export default function Page() {
                           scaleImporting ||
                           scaleUploading ||
                           scaleSeoLoading ||
+                          scalePdfLoading ||
                           scaleJobs.every(
                             (job) =>
                               !(job.status === "uploaded" || job.status === "failed") ||
@@ -3480,6 +3565,34 @@ export default function Page() {
                           </>
                         )}
                       </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => void generateScalePdfJobs()}
+                        disabled={
+                          scaleImporting ||
+                          scaleUploading ||
+                          scaleSeoLoading ||
+                          scalePdfLoading ||
+                          scaleJobs.every(
+                            (job) =>
+                              !(job.status === "seo_complete" || job.status === "failed") ||
+                              !job.listingId ||
+                              !job.seoResult
+                          )
+                        }
+                      >
+                        {scalePdfLoading ? (
+                          <>
+                            <Loader2 className="animate-spin" size={16} />
+                            Generating PDF...
+                          </>
+                        ) : (
+                          <>
+                            <FileText size={16} />
+                            Generate PDF
+                          </>
+                        )}
+                      </Button>
                       <input
                         ref={scaleInputRef}
                         type="file"
@@ -3495,7 +3608,9 @@ export default function Page() {
                       <Button
                         variant="secondary"
                         onClick={() => scaleInputRef.current?.click()}
-                        disabled={scaleImporting || scaleUploading || scaleSeoLoading}
+                        disabled={
+                          scaleImporting || scaleUploading || scaleSeoLoading || scalePdfLoading
+                        }
                       >
                         {scaleImporting ? (
                           <>
@@ -3516,6 +3631,7 @@ export default function Page() {
                           scaleImporting ||
                           scaleUploading ||
                           scaleSeoLoading ||
+                          scalePdfLoading ||
                           scaleJobs.length === 0
                         }
                       >
@@ -3622,10 +3738,14 @@ export default function Page() {
                                   <div
                                     className={cn(
                                       "inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
-                                      job.status === "seo_complete"
+                                      job.status === "pdf_complete"
                                         ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                                        : job.status === "generating_seo" || job.status === "uploading"
+                                        : job.status === "generating_pdf" ||
+                                            job.status === "generating_seo" ||
+                                            job.status === "uploading"
                                           ? "border-[#eeba2b]/30 bg-[#eeba2b]/10 text-[#f1cc61]"
+                                          : job.status === "seo_complete"
+                                            ? "border-violet-500/30 bg-violet-500/10 text-violet-200"
                                           : job.status === "uploaded"
                                             ? "border-teal-500/30 bg-teal-500/10 text-teal-200"
                                           : job.status === "ready"
@@ -3633,12 +3753,16 @@ export default function Page() {
                                             : "border-red-500/30 bg-red-500/10 text-red-200"
                                     )}
                                   >
-                                    {job.status === "seo_complete"
+                                    {job.status === "pdf_complete"
                                       ? "Complete"
+                                      : job.status === "generating_pdf"
+                                        ? "Generating PDF"
                                       : job.status === "generating_seo"
                                         ? "Generating SEO"
+                                        : job.status === "seo_complete"
+                                          ? "SEO ready"
                                         : job.status === "uploading"
-                                        ? "Uploading"
+                                          ? "Uploading"
                                         : job.status === "uploaded"
                                           ? "Uploaded"
                                         : job.status === "ready"
@@ -3679,6 +3803,10 @@ export default function Page() {
                                 ) : job.issues.length > 0 ? (
                                   <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
                                     {job.issues.join(" • ")}
+                                  </div>
+                                ) : job.deliveryPdfUrl ? (
+                                  <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-200">
+                                    Final PDF ready for this listing.
                                   </div>
                                 ) : job.seoResult ? (
                                   <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-200">
