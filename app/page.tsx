@@ -130,6 +130,8 @@ type ScaleJobStatus =
   | "pdf_complete"
   | "syncing_etsy"
   | "etsy_complete"
+  | "generating_pinterest"
+  | "pinterest_complete"
   | "failed";
 
 type ScaleUploadedMockup = {
@@ -137,6 +139,17 @@ type ScaleUploadedMockup = {
   position: number;
   url: string;
   altText?: string;
+};
+
+type ScalePinterestPin = {
+  id: string;
+  position: number;
+  url: string;
+  title?: string;
+  description?: string;
+  publishedPinId?: string;
+  publishUrl?: string | null;
+  publishError?: string | null;
 };
 
 type ScaleJob = {
@@ -162,6 +175,8 @@ type ScaleJob = {
   deliveryPdfUrl?: string | null;
   etsyDraftListingId: string;
   etsyResult?: EtsySyncResponse | null;
+  pinterestLink: string;
+  pinterestPins?: ScalePinterestPin[];
 };
 
 function uid() {
@@ -254,6 +269,8 @@ function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
         deliveryPdfUrl: null,
         etsyDraftListingId: "",
         etsyResult: null,
+        pinterestLink: "",
+        pinterestPins: [],
       };
     });
 }
@@ -723,6 +740,7 @@ export default function Page() {
   const [scaleSeoLoading, setScaleSeoLoading] = useState(false);
   const [scalePdfLoading, setScalePdfLoading] = useState(false);
   const [scaleEtsyLoading, setScaleEtsyLoading] = useState(false);
+  const [scalePinterestLoading, setScalePinterestLoading] = useState(false);
   const [scaleMessage, setScaleMessage] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -1217,6 +1235,13 @@ export default function Page() {
     }));
   }
 
+  function setScaleJobPinterestLink(jobId: string, value: string) {
+    updateScaleJob(jobId, (job) => ({
+      ...job,
+      pinterestLink: value,
+    }));
+  }
+
   function updateScaleJob(
     jobId: string,
     updater: (job: ScaleJob) => ScaleJob
@@ -1395,6 +1420,7 @@ export default function Page() {
     );
 
     const uploadedMockups: ScaleUploadedMockup[] = [];
+    const uploadedPins: ScalePinterestPin[] = [];
 
     for (let index = 0; index < mockupCandidates.length; index++) {
       const file = mockupCandidates[index];
@@ -1449,14 +1475,20 @@ export default function Page() {
       const file = pinterestCandidates[index];
       const ext = getFileExtension(file, "jpg");
 
-      await retryAsync(
+      const upload = await retryAsync(
         async () => {
-          await uploadPinterestForListing(file, `pin-${index + 1}.${ext}`, listingJobId);
+          return uploadPinterestForListing(file, `pin-${index + 1}.${ext}`, listingJobId);
         },
         {
           label: `${job.folderName}: failed to upload Pinterest image ${index + 1}`,
         }
       );
+
+      uploadedPins.push({
+        id: uid(),
+        position: index + 1,
+        url: upload.url,
+      });
     }
 
     updateScaleJob(job.id, (current) => ({
@@ -1467,6 +1499,7 @@ export default function Page() {
       errorMessage: null,
       designUrl: uploadedDesign.url,
       mockupsUploaded: uploadedMockups,
+      pinterestPins: uploadedPins,
     }));
   }
 
@@ -1788,6 +1821,107 @@ export default function Page() {
         : `Etsy sync finished. ${completedCount} listing jobs complete.`
     );
     setScaleEtsyLoading(false);
+  }
+
+  async function generatePinterestForScaleJob(job: ScaleJob) {
+    if (!job.seoResult || !job.pinterestPins?.length) {
+      throw new Error("Upload and generate SEO before creating Pinterest copy.");
+    }
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      status: "generating_pinterest",
+      stepLabel: "Generating Pinterest",
+      errorMessage: null,
+    }));
+
+    const res = await fetch("/api/generate/pinterest", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        productType,
+        listingTitle: job.seoResult.title,
+        listingDescription: job.seoResult.description_final,
+        listingKeywords: job.seoResult.description_keywords_5,
+        destinationLink: job.pinterestLink,
+        pins: job.pinterestPins.map((item) => ({
+          id: item.id,
+          url: item.url,
+        })),
+      }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || "Failed to generate Pinterest copy");
+    }
+
+    const data: {
+      pins?: Array<{
+        id: string;
+        title: string;
+        description: string;
+      }>;
+    } = await res.json();
+
+    const pinMap = new Map((data.pins || []).map((item) => [item.id, item]));
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      status: "pinterest_complete",
+      stepLabel: "Pinterest ready",
+      errorMessage: null,
+      pinterestPins: (current.pinterestPins || []).map((item) => ({
+        ...item,
+        title: pinMap.get(item.id)?.title || item.title,
+        description: pinMap.get(item.id)?.description || item.description,
+      })),
+    }));
+  }
+
+  async function generateScalePinterestJobs() {
+    const eligible = scaleJobs.filter(
+      (job) =>
+        (job.status === "etsy_complete" ||
+          job.status === "pdf_complete" ||
+          job.status === "failed") &&
+        !!job.seoResult &&
+        !!job.pinterestPins?.length
+    );
+
+    if (eligible.length === 0) {
+      setScaleMessage("No Scale jobs are ready for Pinterest generation yet.");
+      return;
+    }
+
+    setScalePinterestLoading(true);
+    setScaleMessage(`Generating Pinterest copy for ${eligible.length} listing jobs...`);
+    let completedCount = 0;
+    let failedCount = 0;
+
+    await runWithConcurrency(eligible, 3, async (job) => {
+      try {
+        await generatePinterestForScaleJob(job);
+        completedCount += 1;
+      } catch (error: any) {
+        failedCount += 1;
+        updateScaleJob(job.id, (current) => ({
+          ...current,
+          status: "failed",
+          stepLabel: "Pinterest failed",
+          errorMessage: error?.message || "Pinterest generation failed",
+        }));
+      }
+    });
+
+    setScaleMessage(
+      failedCount > 0
+        ? `Pinterest finished. ${completedCount} complete, ${failedCount} failed.`
+        : `Pinterest finished. ${completedCount} listing jobs complete.`
+    );
+    setScalePinterestLoading(false);
   }
 
   function resetAll() {
@@ -3717,6 +3851,7 @@ export default function Page() {
                           scaleSeoLoading ||
                           scalePdfLoading ||
                           scaleEtsyLoading ||
+                          scalePinterestLoading ||
                           !etsyAuth?.connected ||
                           scaleJobs.every(
                             (job) =>
@@ -3736,6 +3871,40 @@ export default function Page() {
                           <>
                             <Upload size={16} />
                             Sync Etsy
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => void generateScalePinterestJobs()}
+                        disabled={
+                          scaleImporting ||
+                          scaleUploading ||
+                          scaleSeoLoading ||
+                          scalePdfLoading ||
+                          scaleEtsyLoading ||
+                          scalePinterestLoading ||
+                          scaleJobs.every(
+                            (job) =>
+                              !(
+                                job.status === "etsy_complete" ||
+                                job.status === "pdf_complete" ||
+                                job.status === "failed"
+                              ) ||
+                              !job.seoResult ||
+                              !job.pinterestPins?.length
+                          )
+                        }
+                      >
+                        {scalePinterestLoading ? (
+                          <>
+                            <Loader2 className="animate-spin" size={16} />
+                            Generating Pins...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={16} />
+                            Generate Pinterest
                           </>
                         )}
                       </Button>
@@ -3759,7 +3928,8 @@ export default function Page() {
                           scaleUploading ||
                           scaleSeoLoading ||
                           scalePdfLoading ||
-                          scaleEtsyLoading
+                          scaleEtsyLoading ||
+                          scalePinterestLoading
                         }
                       >
                         {scaleImporting ? (
@@ -3783,6 +3953,7 @@ export default function Page() {
                           scaleSeoLoading ||
                           scalePdfLoading ||
                           scaleEtsyLoading ||
+                          scalePinterestLoading ||
                           scaleJobs.length === 0
                         }
                       >
@@ -3889,13 +4060,16 @@ export default function Page() {
                                   <div
                                     className={cn(
                                       "inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
-                                      job.status === "etsy_complete"
+                                      job.status === "pinterest_complete"
                                         ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
                                       : job.status === "generating_pdf" ||
                                             job.status === "generating_seo" ||
+                                            job.status === "generating_pinterest" ||
                                             job.status === "syncing_etsy" ||
                                             job.status === "uploading"
                                           ? "border-[#eeba2b]/30 bg-[#eeba2b]/10 text-[#f1cc61]"
+                                          : job.status === "etsy_complete"
+                                            ? "border-lime-500/30 bg-lime-500/10 text-lime-200"
                                           : job.status === "pdf_complete"
                                             ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-200"
                                           : job.status === "seo_complete"
@@ -3907,8 +4081,12 @@ export default function Page() {
                                             : "border-red-500/30 bg-red-500/10 text-red-200"
                                     )}
                                   >
-                                    {job.status === "etsy_complete"
+                                    {job.status === "pinterest_complete"
                                       ? "Complete"
+                                      : job.status === "generating_pinterest"
+                                        ? "Generating Pinterest"
+                                      : job.status === "etsy_complete"
+                                        ? "Etsy ready"
                                       : job.status === "syncing_etsy"
                                         ? "Syncing Etsy"
                                       : job.status === "generating_pdf"
@@ -3978,6 +4156,26 @@ export default function Page() {
                                     className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
                                   />
                                 </div>
+                                <div className="mt-4 space-y-2">
+                                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                                    Pinterest destination link
+                                  </div>
+                                  <input
+                                    value={job.pinterestLink}
+                                    onChange={(e) =>
+                                      setScaleJobPinterestLink(job.id, e.target.value)
+                                    }
+                                    placeholder="Paste the Etsy product link when available"
+                                    disabled={
+                                      scaleUploading ||
+                                      scaleSeoLoading ||
+                                      scalePdfLoading ||
+                                      scaleEtsyLoading ||
+                                      scalePinterestLoading
+                                    }
+                                    className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                                  />
+                                </div>
 
                                 {job.errorMessage ? (
                                   <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
@@ -3986,6 +4184,10 @@ export default function Page() {
                                 ) : job.issues.length > 0 ? (
                                   <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
                                     {job.issues.join(" • ")}
+                                  </div>
+                                ) : job.pinterestPins?.some((pin) => pin.title && pin.description) ? (
+                                  <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-200">
+                                    Pinterest copy ready for this listing.
                                   </div>
                                 ) : job.etsyResult?.ok ? (
                                   <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-200">
