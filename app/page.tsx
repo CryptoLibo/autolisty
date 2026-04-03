@@ -119,12 +119,18 @@ type ScaleImportedFile = {
   relativePath: string;
 };
 
-type ScaleJobStatus = "ready" | "needs_attention";
+type ScaleJobStatus =
+  | "ready"
+  | "needs_attention"
+  | "uploading"
+  | "uploaded"
+  | "failed";
 
 type ScaleJob = {
   id: string;
   folderName: string;
   files: ScaleImportedFile[];
+  listingId?: string;
   counts: {
     design: number;
     mockups: number;
@@ -134,6 +140,8 @@ type ScaleJob = {
   };
   issues: string[];
   status: ScaleJobStatus;
+  stepLabel?: string;
+  errorMessage?: string | null;
 };
 
 function uid() {
@@ -217,6 +225,8 @@ function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
         },
         issues,
         status: issues.length === 0 ? "ready" : "needs_attention",
+        stepLabel: issues.length === 0 ? "Ready" : "Needs attention",
+        errorMessage: null,
       };
     });
 }
@@ -682,6 +692,7 @@ export default function Page() {
   const [deliveryLoading, setDeliveryLoading] = useState(false);
   const [scaleJobs, setScaleJobs] = useState<ScaleJob[]>([]);
   const [scaleImporting, setScaleImporting] = useState(false);
+  const [scaleUploading, setScaleUploading] = useState(false);
   const [scaleMessage, setScaleMessage] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -788,46 +799,69 @@ export default function Page() {
     return id;
   }
 
-  async function uploadToR2(file: File, filename: string) {
-    const id = ensureListingId();
-
+  async function uploadFileToEndpoint(
+    file: File,
+    filename: string,
+    listingId: string,
+    endpoint: "/api/upload/mockup" | "/api/upload/pinterest" | "/api/upload/deliverable",
+    fallbackMessage: string
+  ) {
     const fd = new FormData();
     fd.append("file", file);
-    fd.append("listingId", id);
+    fd.append("listingId", listingId);
     fd.append("filename", filename);
 
-    const res = await fetch("/api/upload/mockup", {
+    const res = await fetch(endpoint, {
       method: "POST",
       body: fd,
     });
 
     if (!res.ok) {
       const txt = await res.text();
-      throw new Error(txt || "Upload failed");
+      throw new Error(txt || fallbackMessage);
     }
 
     return (await res.json()) as { key: string; url: string };
   }
 
+  async function uploadToR2(file: File, filename: string) {
+    const id = ensureListingId();
+    return uploadFileToEndpoint(file, filename, id, "/api/upload/mockup", "Upload failed");
+  }
+
+  async function uploadMockupForListing(file: File, filename: string, listingId: string) {
+    return uploadFileToEndpoint(
+      file,
+      filename,
+      listingId,
+      "/api/upload/mockup",
+      "Upload failed"
+    );
+  }
+
   async function uploadPinterestToR2(file: File, filename: string) {
     const id = ensureListingId();
+    return uploadFileToEndpoint(
+      file,
+      filename,
+      id,
+      "/api/upload/pinterest",
+      "Pinterest upload failed"
+    );
+  }
 
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("listingId", id);
-    fd.append("filename", filename);
-
-    const res = await fetch("/api/upload/pinterest", {
-      method: "POST",
-      body: fd,
-    });
-
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(txt || "Pinterest upload failed");
-    }
-
-    return (await res.json()) as { key: string; url: string };
+  async function uploadPinterestForListing(
+    file: File,
+    filename: string,
+    listingId: string
+  ) {
+    return uploadFileToEndpoint(
+      file,
+      filename,
+      listingId,
+      "/api/upload/pinterest",
+      "Pinterest upload failed"
+    );
   }
 
   async function setDesign(files: File[]) {
@@ -1139,6 +1173,288 @@ export default function Page() {
     setScaleMessage(null);
   }
 
+  function updateScaleJob(
+    jobId: string,
+    updater: (job: ScaleJob) => ScaleJob
+  ) {
+    setScaleJobs((prev) => prev.map((job) => (job.id === jobId ? updater(job) : job)));
+  }
+
+  function parseScaleJobFiles(job: ScaleJob) {
+    const acceptedFiles = job.files
+      .map((item) => item.file)
+      .filter((file) => {
+        const info = getFolderAwareName(file);
+        if (info.normalizedName.includes("upscayl")) return false;
+        if (
+          file.type === "application/pdf" &&
+          !pathHasFolderSegment(info.normalizedPath, "disenos finales")
+        ) {
+          return false;
+        }
+        return true;
+      });
+
+    const designCandidate = acceptedFiles.find((file) => {
+      const info = getFolderAwareName(file);
+      return file.type.startsWith("image/") && info.normalizedName.includes("midjourney");
+    });
+
+    const pinterestCandidates = sortNumericFileNames(
+      acceptedFiles.filter((file) => {
+        const info = getFolderAwareName(file);
+        return (
+          file.type.startsWith("image/") &&
+          pathHasFolderSegment(info.normalizedPath, "pines", "pins")
+        );
+      })
+    );
+
+    const deliverableCandidates = acceptedFiles.filter((file) => {
+      const info = getFolderAwareName(file);
+      return (
+        (file.type.startsWith("image/") || file.type === "application/pdf") &&
+        pathHasFolderSegment(info.normalizedPath, "disenos finales")
+      );
+    });
+
+    const rootVideoCandidate =
+      acceptedFiles.find((file) => {
+        const info = getFolderAwareName(file);
+        return (
+          file.type.startsWith("video/") &&
+          !pathHasFolderSegment(info.normalizedPath, "pines", "pins") &&
+          !pathHasFolderSegment(info.normalizedPath, "disenos finales")
+        );
+      }) || null;
+
+    const mockupCandidates = sortNumericFileNames(
+      acceptedFiles.filter((file) => {
+        const info = getFolderAwareName(file);
+        if (!file.type.startsWith("image/")) return false;
+        if (designCandidate && file === designCandidate) return false;
+        if (pathHasFolderSegment(info.normalizedPath, "pines", "pins")) return false;
+        if (pathHasFolderSegment(info.normalizedPath, "disenos finales")) return false;
+        if (info.normalizedName.includes("upscayl")) return false;
+        return true;
+      })
+    );
+
+    return {
+      designCandidate,
+      pinterestCandidates,
+      deliverableCandidates,
+      rootVideoCandidate,
+      mockupCandidates,
+    };
+  }
+
+  function buildScaleDeliverables(job: ScaleJob) {
+    const { deliverableCandidates } = parseScaleJobFiles(job);
+    const scaleProduct = getProductOption(productType);
+    const scaleFields = scaleProduct.delivery.fields;
+
+    return productType === "frame_tv_art"
+      ? [
+          ...deliverableCandidates
+            .filter((file) => file.type.startsWith("image/"))
+            .map((file) => ({
+              file,
+              field: scaleFields.find((candidate) => candidate.id === "design")!,
+            })),
+          ...deliverableCandidates
+            .filter((file) => file.type === "application/pdf")
+            .map((file) => ({
+              file,
+              field: scaleFields.find((candidate) => candidate.id === "instructions")!,
+            })),
+        ]
+      : deliverableCandidates
+          .map((file) => {
+            const field = classifyPrintableDeliverableField(file);
+            return field ? { file, field } : null;
+          })
+          .filter((item): item is { file: File; field: DeliveryField } => !!item)
+          .sort(
+            (a, b) =>
+              scaleFields.findIndex((field) => field.id === a.field.id) -
+              scaleFields.findIndex((field) => field.id === b.field.id)
+          );
+  }
+
+  async function runWithConcurrency<T>(
+    items: T[],
+    limit: number,
+    worker: (item: T) => Promise<void>
+  ) {
+    const queue = [...items];
+    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (queue.length > 0) {
+        const next = queue.shift();
+        if (!next) return;
+        await worker(next);
+      }
+    });
+
+    await Promise.all(runners);
+  }
+
+  async function uploadScaleJob(job: ScaleJob) {
+    const listingJobId = job.listingId || generateListingId();
+    const {
+      designCandidate,
+      pinterestCandidates,
+      rootVideoCandidate,
+      mockupCandidates,
+    } = parseScaleJobFiles(job);
+    const deliverables = buildScaleDeliverables(job);
+
+    const productValidation = validateImportedFolderProduct(
+      deliverables.map((item) => item.file),
+      productType
+    );
+
+    if (!productValidation.ok) {
+      throw new Error(
+        productValidation.message ||
+          "The imported folder does not match the selected product."
+      );
+    }
+
+    if (!designCandidate) {
+      throw new Error("Missing Midjourney design");
+    }
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      listingId: listingJobId,
+      status: "uploading",
+      stepLabel: "Uploading",
+      errorMessage: null,
+    }));
+
+    const designExt =
+      designCandidate.name.split(".").pop()?.toLowerCase() ||
+      (designCandidate.type === "image/png"
+        ? "png"
+        : designCandidate.type === "image/webp"
+          ? "webp"
+          : "jpg");
+
+    await retryAsync(
+      async () => {
+        await uploadMockupForListing(designCandidate, `design.${designExt}`, listingJobId);
+      },
+      {
+        label: `${job.folderName}: failed to upload design`,
+      }
+    );
+
+    for (let index = 0; index < mockupCandidates.length; index++) {
+      const file = mockupCandidates[index];
+      const ext =
+        file.name.split(".").pop()?.toLowerCase() ||
+        (file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg");
+
+      await retryAsync(
+        async () => {
+          await uploadMockupForListing(file, `mockup-${index + 1}.${ext}`, listingJobId);
+        },
+        {
+          label: `${job.folderName}: failed to upload mockup ${index + 1}`,
+        }
+      );
+    }
+
+    if (rootVideoCandidate) {
+      const ext = rootVideoCandidate.name.split(".").pop()?.toLowerCase() || "mp4";
+      await retryAsync(
+        async () => {
+          await uploadMockupForListing(rootVideoCandidate, `video.${ext}`, listingJobId);
+        },
+        {
+          label: `${job.folderName}: failed to upload video`,
+        }
+      );
+    }
+
+    for (const item of deliverables) {
+      await retryAsync(
+        async () => {
+          await uploadDeliverableForListing(
+            item.file,
+            getDeliveryFilename(item.field, item.file),
+            listingJobId
+          );
+        },
+        {
+          label: `${job.folderName}: failed to upload deliverable ${item.field.label}`,
+        }
+      );
+    }
+
+    for (let index = 0; index < pinterestCandidates.length; index++) {
+      const file = pinterestCandidates[index];
+      const ext = getFileExtension(file, "jpg");
+
+      await retryAsync(
+        async () => {
+          await uploadPinterestForListing(file, `pin-${index + 1}.${ext}`, listingJobId);
+        },
+        {
+          label: `${job.folderName}: failed to upload Pinterest image ${index + 1}`,
+        }
+      );
+    }
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      listingId: listingJobId,
+      status: "uploaded",
+      stepLabel: "Upload complete",
+      errorMessage: null,
+    }));
+  }
+
+  async function uploadScaleJobs() {
+    const eligible = scaleJobs.filter(
+      (job) => job.status === "ready" || job.status === "failed"
+    );
+
+    if (eligible.length === 0) {
+      setScaleMessage("No Scale jobs are ready to upload.");
+      return;
+    }
+
+    setScaleUploading(true);
+    setScaleMessage(`Uploading ${eligible.length} listing jobs to R2...`);
+    let completedCount = 0;
+    let failedCount = 0;
+
+    await runWithConcurrency(eligible, 3, async (job) => {
+      try {
+        await uploadScaleJob(job);
+        completedCount += 1;
+      } catch (error: any) {
+        failedCount += 1;
+        updateScaleJob(job.id, (current) => ({
+          ...current,
+          listingId: current.listingId || job.listingId,
+          status: "failed",
+          stepLabel: "Upload failed",
+          errorMessage: error?.message || "Scale upload failed",
+        }));
+      }
+    });
+
+    setScaleMessage(
+      failedCount > 0
+        ? `Upload finished. ${completedCount} complete, ${failedCount} failed.`
+        : `Upload finished. ${completedCount} listing jobs complete.`
+    );
+    setScaleUploading(false);
+  }
+
   function resetAll() {
     clearDesign();
     clearListingMedia();
@@ -1246,23 +1562,27 @@ export default function Page() {
 
   async function uploadDeliverableToR2(file: File, filename: string) {
     const id = ensureListingId();
+    return uploadFileToEndpoint(
+      file,
+      filename,
+      id,
+      "/api/upload/deliverable",
+      "Deliverable upload failed"
+    );
+  }
 
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("listingId", id);
-    fd.append("filename", filename);
-
-    const res = await fetch("/api/upload/deliverable", {
-      method: "POST",
-      body: fd,
-    });
-
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(txt || "Deliverable upload failed");
-    }
-
-    return (await res.json()) as { key: string; url: string };
+  async function uploadDeliverableForListing(
+    file: File,
+    filename: string,
+    listingId: string
+  ) {
+    return uploadFileToEndpoint(
+      file,
+      filename,
+      listingId,
+      "/api/upload/deliverable",
+      "Deliverable upload failed"
+    );
   }
 
   function classifyPrintableDeliverableField(file: File): DeliveryField | null {
@@ -2970,6 +3290,29 @@ export default function Page() {
                   accent
                   right={
                     <div className="flex items-center gap-3">
+                      <Button
+                        variant="primary"
+                        onClick={() => void uploadScaleJobs()}
+                        disabled={
+                          scaleImporting ||
+                          scaleUploading ||
+                          scaleJobs.every(
+                            (job) => job.status !== "ready" && job.status !== "failed"
+                          )
+                        }
+                      >
+                        {scaleUploading ? (
+                          <>
+                            <Loader2 className="animate-spin" size={16} />
+                            Uploading...
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={16} />
+                            Upload
+                          </>
+                        )}
+                      </Button>
                       <input
                         ref={scaleInputRef}
                         type="file"
@@ -2985,7 +3328,7 @@ export default function Page() {
                       <Button
                         variant="secondary"
                         onClick={() => scaleInputRef.current?.click()}
-                        disabled={scaleImporting}
+                        disabled={scaleImporting || scaleUploading}
                       >
                         {scaleImporting ? (
                           <>
@@ -3002,7 +3345,7 @@ export default function Page() {
                       <Button
                         variant="ghost"
                         onClick={resetScale}
-                        disabled={scaleImporting || scaleJobs.length === 0}
+                        disabled={scaleImporting || scaleUploading || scaleJobs.length === 0}
                       >
                         Reset
                       </Button>
@@ -3107,16 +3450,41 @@ export default function Page() {
                                   <div
                                     className={cn(
                                       "inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
-                                      job.status === "ready"
+                                      job.status === "uploaded"
                                         ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                                        : "border-red-500/30 bg-red-500/10 text-red-200"
+                                        : job.status === "uploading"
+                                          ? "border-[#eeba2b]/30 bg-[#eeba2b]/10 text-[#f1cc61]"
+                                          : job.status === "ready"
+                                            ? "border-sky-500/30 bg-sky-500/10 text-sky-200"
+                                            : "border-red-500/30 bg-red-500/10 text-red-200"
                                     )}
                                   >
-                                    {job.status === "ready" ? "Ready" : "Needs attention"}
+                                    {job.status === "uploaded"
+                                      ? "Complete"
+                                      : job.status === "uploading"
+                                        ? "Uploading"
+                                        : job.status === "ready"
+                                          ? "Ready"
+                                          : "Needs attention"}
                                   </div>
                                 </div>
 
-                                {job.issues.length > 0 ? (
+                                <div className="mt-3 text-xs text-neutral-500">
+                                  {job.stepLabel}
+                                  {job.listingId ? (
+                                    <>
+                                      {" "}
+                                      <span className="text-neutral-400">•</span>{" "}
+                                      Listing ID: <span className="text-neutral-300">{job.listingId}</span>
+                                    </>
+                                  ) : null}
+                                </div>
+
+                                {job.errorMessage ? (
+                                  <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
+                                    {job.errorMessage}
+                                  </div>
+                                ) : job.issues.length > 0 ? (
                                   <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
                                     {job.issues.join(" • ")}
                                   </div>
