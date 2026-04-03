@@ -132,6 +132,8 @@ type ScaleJobStatus =
   | "etsy_complete"
   | "generating_pinterest"
   | "pinterest_complete"
+  | "publishing_pinterest"
+  | "published"
   | "failed";
 
 type ScaleUploadedMockup = {
@@ -741,6 +743,7 @@ export default function Page() {
   const [scalePdfLoading, setScalePdfLoading] = useState(false);
   const [scaleEtsyLoading, setScaleEtsyLoading] = useState(false);
   const [scalePinterestLoading, setScalePinterestLoading] = useState(false);
+  const [scalePinterestPublishing, setScalePinterestPublishing] = useState(false);
   const [scaleMessage, setScaleMessage] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -1922,6 +1925,134 @@ export default function Page() {
         : `Pinterest finished. ${completedCount} listing jobs complete.`
     );
     setScalePinterestLoading(false);
+  }
+
+  async function publishPinterestForScaleJob(job: ScaleJob) {
+    if (!pinterestAuth?.connected) {
+      throw new Error("Connect Pinterest before publishing Scale jobs.");
+    }
+
+    if (!selectedPinterestBoardId) {
+      throw new Error("Select a Pinterest board before publishing Scale jobs.");
+    }
+
+    const readyPins = (job.pinterestPins || []).filter(
+      (pin) => pin.url && pin.title && pin.description
+    );
+
+    if (readyPins.length === 0) {
+      throw new Error("Generate Pinterest copy for this listing before publishing.");
+    }
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      status: "publishing_pinterest",
+      stepLabel: "Publishing Pinterest",
+      errorMessage: null,
+    }));
+
+    const res = await fetch("/api/pinterest/publish", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        boardId: selectedPinterestBoardId,
+        destinationLink: job.pinterestLink,
+        pins: readyPins.map((pin) => ({
+          id: pin.id,
+          title: pin.title,
+          description: pin.description,
+          imageUrl: pin.url,
+          altText: undefined,
+        })),
+      }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || "Failed to publish Pinterest pins");
+    }
+
+    const data: {
+      results?: Array<{
+        id: string;
+        ok: boolean;
+        pinId?: string;
+        url?: string | null;
+        error?: string;
+      }>;
+    } = await res.json();
+
+    const resultMap = new Map((data.results || []).map((item) => [item.id, item]));
+    const hasFailure = (data.results || []).some((item) => !item.ok);
+
+    if (hasFailure) {
+      throw new Error("One or more Pinterest pins failed to publish.");
+    }
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      status: "published",
+      stepLabel: "Pinterest published",
+      errorMessage: null,
+      pinterestPins: (current.pinterestPins || []).map((pin) => ({
+        ...pin,
+        publishedPinId: resultMap.get(pin.id)?.pinId || pin.publishedPinId,
+        publishUrl: resultMap.get(pin.id)?.url ?? pin.publishUrl ?? null,
+        publishError: resultMap.get(pin.id)?.error || null,
+      })),
+    }));
+  }
+
+  async function publishScalePinterestJobs() {
+    if (!pinterestAuth?.connected) {
+      setScaleMessage("Connect Pinterest before publishing Scale jobs.");
+      return;
+    }
+
+    if (!selectedPinterestBoardId) {
+      setScaleMessage("Select a Pinterest board before publishing Scale jobs.");
+      return;
+    }
+
+    const eligible = scaleJobs.filter(
+      (job) =>
+        (job.status === "pinterest_complete" || job.status === "failed") &&
+        !!job.pinterestPins?.some((pin) => pin.title && pin.description)
+    );
+
+    if (eligible.length === 0) {
+      setScaleMessage("No Scale jobs are ready to publish on Pinterest yet.");
+      return;
+    }
+
+    setScalePinterestPublishing(true);
+    setScaleMessage(`Publishing Pinterest pins for ${eligible.length} listing jobs...`);
+    let completedCount = 0;
+    let failedCount = 0;
+
+    await runWithConcurrency(eligible, 2, async (job) => {
+      try {
+        await publishPinterestForScaleJob(job);
+        completedCount += 1;
+      } catch (error: any) {
+        failedCount += 1;
+        updateScaleJob(job.id, (current) => ({
+          ...current,
+          status: "failed",
+          stepLabel: "Pinterest publish failed",
+          errorMessage: error?.message || "Pinterest publish failed",
+        }));
+      }
+    });
+
+    setScaleMessage(
+      failedCount > 0
+        ? `Pinterest publish finished. ${completedCount} complete, ${failedCount} failed.`
+        : `Pinterest publish finished. ${completedCount} listing jobs complete.`
+    );
+    setScalePinterestPublishing(false);
   }
 
   function resetAll() {
@@ -3884,6 +4015,7 @@ export default function Page() {
                           scalePdfLoading ||
                           scaleEtsyLoading ||
                           scalePinterestLoading ||
+                          scalePinterestPublishing ||
                           scaleJobs.every(
                             (job) =>
                               !(
@@ -3908,6 +4040,40 @@ export default function Page() {
                           </>
                         )}
                       </Button>
+                      <Button
+                        variant="primary"
+                        onClick={() => void publishScalePinterestJobs()}
+                        disabled={
+                          scaleImporting ||
+                          scaleUploading ||
+                          scaleSeoLoading ||
+                          scalePdfLoading ||
+                          scaleEtsyLoading ||
+                          scalePinterestLoading ||
+                          scalePinterestPublishing ||
+                          !pinterestAuth?.connected ||
+                          !selectedPinterestBoardId ||
+                          scaleJobs.every(
+                            (job) =>
+                              !(job.status === "pinterest_complete" || job.status === "failed") ||
+                              !job.pinterestPins?.some(
+                                (pin) => pin.title && pin.description
+                              )
+                          )
+                        }
+                      >
+                        {scalePinterestPublishing ? (
+                          <>
+                            <Loader2 className="animate-spin" size={16} />
+                            Publishing...
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={16} />
+                            Publish Pinterest
+                          </>
+                        )}
+                      </Button>
                       <input
                         ref={scaleInputRef}
                         type="file"
@@ -3929,7 +4095,8 @@ export default function Page() {
                           scaleSeoLoading ||
                           scalePdfLoading ||
                           scaleEtsyLoading ||
-                          scalePinterestLoading
+                          scalePinterestLoading ||
+                          scalePinterestPublishing
                         }
                       >
                         {scaleImporting ? (
@@ -3954,6 +4121,7 @@ export default function Page() {
                           scalePdfLoading ||
                           scaleEtsyLoading ||
                           scalePinterestLoading ||
+                          scalePinterestPublishing ||
                           scaleJobs.length === 0
                         }
                       >
@@ -4060,14 +4228,17 @@ export default function Page() {
                                   <div
                                     className={cn(
                                       "inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
-                                      job.status === "pinterest_complete"
+                                      job.status === "published"
                                         ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
                                       : job.status === "generating_pdf" ||
                                             job.status === "generating_seo" ||
                                             job.status === "generating_pinterest" ||
+                                            job.status === "publishing_pinterest" ||
                                             job.status === "syncing_etsy" ||
                                             job.status === "uploading"
                                           ? "border-[#eeba2b]/30 bg-[#eeba2b]/10 text-[#f1cc61]"
+                                          : job.status === "pinterest_complete"
+                                            ? "border-pink-500/30 bg-pink-500/10 text-pink-200"
                                           : job.status === "etsy_complete"
                                             ? "border-lime-500/30 bg-lime-500/10 text-lime-200"
                                           : job.status === "pdf_complete"
@@ -4081,8 +4252,12 @@ export default function Page() {
                                             : "border-red-500/30 bg-red-500/10 text-red-200"
                                     )}
                                   >
-                                    {job.status === "pinterest_complete"
+                                    {job.status === "published"
                                       ? "Complete"
+                                      : job.status === "publishing_pinterest"
+                                        ? "Publishing Pinterest"
+                                      : job.status === "pinterest_complete"
+                                        ? "Pinterest ready"
                                       : job.status === "generating_pinterest"
                                         ? "Generating Pinterest"
                                       : job.status === "etsy_complete"
@@ -4131,7 +4306,9 @@ export default function Page() {
                                       scaleUploading ||
                                       scaleSeoLoading ||
                                       scalePdfLoading ||
-                                      scaleEtsyLoading
+                                      scaleEtsyLoading ||
+                                      scalePinterestLoading ||
+                                      scalePinterestPublishing
                                     }
                                     className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
                                   />
@@ -4151,7 +4328,9 @@ export default function Page() {
                                       scaleUploading ||
                                       scaleSeoLoading ||
                                       scalePdfLoading ||
-                                      scaleEtsyLoading
+                                      scaleEtsyLoading ||
+                                      scalePinterestLoading ||
+                                      scalePinterestPublishing
                                     }
                                     className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
                                   />
@@ -4171,7 +4350,8 @@ export default function Page() {
                                       scaleSeoLoading ||
                                       scalePdfLoading ||
                                       scaleEtsyLoading ||
-                                      scalePinterestLoading
+                                      scalePinterestLoading ||
+                                      scalePinterestPublishing
                                     }
                                     className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
                                   />
