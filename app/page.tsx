@@ -372,7 +372,7 @@ function Card({
           : "border-neutral-800 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
       )}
     >
-      <div className="flex items-center justify-between border-b border-white/6 px-6 py-5">
+      <div className="flex flex-col gap-4 border-b border-white/6 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="h-2.5 w-2.5 rounded-full bg-[#eeba2b]" />
           <h2 className="text-sm font-semibold text-neutral-100">{title}</h2>
@@ -3889,7 +3889,7 @@ export default function Page() {
                   title="Scale"
                   accent
                   right={
-                    <div className="flex items-center gap-3">
+                    <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-3 xl:flex xl:flex-wrap xl:justify-end">
                       <Button
                         variant="primary"
                         onClick={() => void uploadScaleJobs()}
