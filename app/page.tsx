@@ -124,13 +124,23 @@ type ScaleJobStatus =
   | "needs_attention"
   | "uploading"
   | "uploaded"
+  | "generating_seo"
+  | "seo_complete"
   | "failed";
+
+type ScaleUploadedMockup = {
+  id: string;
+  position: number;
+  url: string;
+  altText?: string;
+};
 
 type ScaleJob = {
   id: string;
   folderName: string;
   files: ScaleImportedFile[];
   listingId?: string;
+  midjourneyPrompt: string;
   counts: {
     design: number;
     mockups: number;
@@ -142,6 +152,9 @@ type ScaleJob = {
   status: ScaleJobStatus;
   stepLabel?: string;
   errorMessage?: string | null;
+  designUrl?: string;
+  mockupsUploaded?: ScaleUploadedMockup[];
+  seoResult?: SeoResult | null;
 };
 
 function uid() {
@@ -227,6 +240,10 @@ function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
         status: issues.length === 0 ? "ready" : "needs_attention",
         stepLabel: issues.length === 0 ? "Ready" : "Needs attention",
         errorMessage: null,
+        midjourneyPrompt: "",
+        designUrl: undefined,
+        mockupsUploaded: [],
+        seoResult: null,
       };
     });
 }
@@ -693,6 +710,7 @@ export default function Page() {
   const [scaleJobs, setScaleJobs] = useState<ScaleJob[]>([]);
   const [scaleImporting, setScaleImporting] = useState(false);
   const [scaleUploading, setScaleUploading] = useState(false);
+  const [scaleSeoLoading, setScaleSeoLoading] = useState(false);
   const [scaleMessage, setScaleMessage] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -1173,6 +1191,13 @@ export default function Page() {
     setScaleMessage(null);
   }
 
+  function setScaleJobPrompt(jobId: string, value: string) {
+    updateScaleJob(jobId, (job) => ({
+      ...job,
+      midjourneyPrompt: value,
+    }));
+  }
+
   function updateScaleJob(
     jobId: string,
     updater: (job: ScaleJob) => ScaleJob
@@ -1341,14 +1366,16 @@ export default function Page() {
           ? "webp"
           : "jpg");
 
-    await retryAsync(
+    const uploadedDesign = await retryAsync(
       async () => {
-        await uploadMockupForListing(designCandidate, `design.${designExt}`, listingJobId);
+        return uploadMockupForListing(designCandidate, `design.${designExt}`, listingJobId);
       },
       {
         label: `${job.folderName}: failed to upload design`,
       }
     );
+
+    const uploadedMockups: ScaleUploadedMockup[] = [];
 
     for (let index = 0; index < mockupCandidates.length; index++) {
       const file = mockupCandidates[index];
@@ -1356,14 +1383,20 @@ export default function Page() {
         file.name.split(".").pop()?.toLowerCase() ||
         (file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg");
 
-      await retryAsync(
+      const upload = await retryAsync(
         async () => {
-          await uploadMockupForListing(file, `mockup-${index + 1}.${ext}`, listingJobId);
+          return uploadMockupForListing(file, `mockup-${index + 1}.${ext}`, listingJobId);
         },
         {
           label: `${job.folderName}: failed to upload mockup ${index + 1}`,
         }
       );
+
+      uploadedMockups.push({
+        id: uid(),
+        position: index + 1,
+        url: upload.url,
+      });
     }
 
     if (rootVideoCandidate) {
@@ -1413,6 +1446,8 @@ export default function Page() {
       status: "uploaded",
       stepLabel: "Upload complete",
       errorMessage: null,
+      designUrl: uploadedDesign.url,
+      mockupsUploaded: uploadedMockups,
     }));
   }
 
@@ -1453,6 +1488,109 @@ export default function Page() {
         : `Upload finished. ${completedCount} listing jobs complete.`
     );
     setScaleUploading(false);
+  }
+
+  async function generateSeoForScaleJob(job: ScaleJob) {
+    if (!job.listingId || !job.designUrl || !job.mockupsUploaded?.length) {
+      throw new Error("Upload this listing before generating SEO.");
+    }
+
+    if (!job.midjourneyPrompt.trim()) {
+      throw new Error("Add the Midjourney prompt for this listing first.");
+    }
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      status: "generating_seo",
+      stepLabel: "Generating SEO",
+      errorMessage: null,
+    }));
+
+    const payload = {
+      listingId: job.listingId,
+      productType,
+      designUrl: job.designUrl,
+      midjourneyPrompt: job.midjourneyPrompt,
+      mockups: job.mockupsUploaded.map((item) => ({
+        id: item.id,
+        position: item.position,
+        url: item.url,
+      })),
+    };
+
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || `HTTP ${res.status}`);
+    }
+
+    const data: SeoResult = await res.json();
+    const altMap = new Map<string, string>();
+
+    for (const item of data.media || []) {
+      altMap.set(item.id, item.alt_text);
+    }
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      status: "seo_complete",
+      stepLabel: "SEO complete",
+      errorMessage: null,
+      seoResult: data,
+      mockupsUploaded: (current.mockupsUploaded || []).map((item) => ({
+        ...item,
+        altText: altMap.get(item.id) ?? item.altText,
+      })),
+    }));
+  }
+
+  async function generateScaleSeoJobs() {
+    const eligible = scaleJobs.filter(
+      (job) =>
+        (job.status === "uploaded" || job.status === "failed") &&
+        !!job.designUrl &&
+        !!job.mockupsUploaded?.length &&
+        !!job.midjourneyPrompt.trim()
+    );
+
+    if (eligible.length === 0) {
+      setScaleMessage("No uploaded Scale jobs are ready for SEO yet.");
+      return;
+    }
+
+    setScaleSeoLoading(true);
+    setScaleMessage(`Generating SEO for ${eligible.length} listing jobs...`);
+    let completedCount = 0;
+    let failedCount = 0;
+
+    await runWithConcurrency(eligible, 3, async (job) => {
+      try {
+        await generateSeoForScaleJob(job);
+        completedCount += 1;
+      } catch (error: any) {
+        failedCount += 1;
+        updateScaleJob(job.id, (current) => ({
+          ...current,
+          status: "failed",
+          stepLabel: "SEO failed",
+          errorMessage: error?.message || "SEO generation failed",
+        }));
+      }
+    });
+
+    setScaleMessage(
+      failedCount > 0
+        ? `SEO finished. ${completedCount} complete, ${failedCount} failed.`
+        : `SEO finished. ${completedCount} listing jobs complete.`
+    );
+    setScaleSeoLoading(false);
   }
 
   function resetAll() {
@@ -3296,6 +3434,7 @@ export default function Page() {
                         disabled={
                           scaleImporting ||
                           scaleUploading ||
+                          scaleSeoLoading ||
                           scaleJobs.every(
                             (job) => job.status !== "ready" && job.status !== "failed"
                           )
@@ -3310,6 +3449,34 @@ export default function Page() {
                           <>
                             <Upload size={16} />
                             Upload
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => void generateScaleSeoJobs()}
+                        disabled={
+                          scaleImporting ||
+                          scaleUploading ||
+                          scaleSeoLoading ||
+                          scaleJobs.every(
+                            (job) =>
+                              !(job.status === "uploaded" || job.status === "failed") ||
+                              !job.designUrl ||
+                              !job.mockupsUploaded?.length ||
+                              !job.midjourneyPrompt.trim()
+                          )
+                        }
+                      >
+                        {scaleSeoLoading ? (
+                          <>
+                            <Loader2 className="animate-spin" size={16} />
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={16} />
+                            Generate SEO
                           </>
                         )}
                       </Button>
@@ -3328,7 +3495,7 @@ export default function Page() {
                       <Button
                         variant="secondary"
                         onClick={() => scaleInputRef.current?.click()}
-                        disabled={scaleImporting || scaleUploading}
+                        disabled={scaleImporting || scaleUploading || scaleSeoLoading}
                       >
                         {scaleImporting ? (
                           <>
@@ -3345,7 +3512,12 @@ export default function Page() {
                       <Button
                         variant="ghost"
                         onClick={resetScale}
-                        disabled={scaleImporting || scaleUploading || scaleJobs.length === 0}
+                        disabled={
+                          scaleImporting ||
+                          scaleUploading ||
+                          scaleSeoLoading ||
+                          scaleJobs.length === 0
+                        }
                       >
                         Reset
                       </Button>
@@ -3450,19 +3622,25 @@ export default function Page() {
                                   <div
                                     className={cn(
                                       "inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
-                                      job.status === "uploaded"
+                                      job.status === "seo_complete"
                                         ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                                        : job.status === "uploading"
+                                        : job.status === "generating_seo" || job.status === "uploading"
                                           ? "border-[#eeba2b]/30 bg-[#eeba2b]/10 text-[#f1cc61]"
+                                          : job.status === "uploaded"
+                                            ? "border-teal-500/30 bg-teal-500/10 text-teal-200"
                                           : job.status === "ready"
                                             ? "border-sky-500/30 bg-sky-500/10 text-sky-200"
                                             : "border-red-500/30 bg-red-500/10 text-red-200"
                                     )}
                                   >
-                                    {job.status === "uploaded"
+                                    {job.status === "seo_complete"
                                       ? "Complete"
-                                      : job.status === "uploading"
+                                      : job.status === "generating_seo"
+                                        ? "Generating SEO"
+                                        : job.status === "uploading"
                                         ? "Uploading"
+                                        : job.status === "uploaded"
+                                          ? "Uploaded"
                                         : job.status === "ready"
                                           ? "Ready"
                                           : "Needs attention"}
@@ -3480,6 +3658,20 @@ export default function Page() {
                                   ) : null}
                                 </div>
 
+                                <div className="mt-4 space-y-2">
+                                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                                    Midjourney prompt
+                                  </div>
+                                  <textarea
+                                    value={job.midjourneyPrompt}
+                                    onChange={(e) => setScaleJobPrompt(job.id, e.target.value)}
+                                    placeholder="Paste the Midjourney prompt for this listing"
+                                    rows={3}
+                                    disabled={scaleUploading || scaleSeoLoading}
+                                    className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                                  />
+                                </div>
+
                                 {job.errorMessage ? (
                                   <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
                                     {job.errorMessage}
@@ -3487,6 +3679,10 @@ export default function Page() {
                                 ) : job.issues.length > 0 ? (
                                   <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
                                     {job.issues.join(" • ")}
+                                  </div>
+                                ) : job.seoResult ? (
+                                  <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-200">
+                                    SEO ready: title, tags, description, and alt text were generated for this listing.
                                   </div>
                                 ) : null}
                               </div>
