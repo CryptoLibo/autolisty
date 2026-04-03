@@ -29,7 +29,6 @@ import {
   CheckCircle2,
   Layers3,
   LayoutDashboard,
-  Library,
   Menu,
 } from "lucide-react";
 
@@ -112,10 +111,114 @@ type EtsySyncResponse = {
   error?: string;
 };
 
-type AppSection = "single" | "batch" | "mockups";
+type AppSection = "single" | "batch";
+
+type ScaleImportedFile = {
+  id: string;
+  file: File;
+  relativePath: string;
+};
+
+type ScaleJobStatus = "ready" | "needs_attention";
+
+type ScaleJob = {
+  id: string;
+  folderName: string;
+  files: ScaleImportedFile[];
+  counts: {
+    design: number;
+    mockups: number;
+    videos: number;
+    deliverables: number;
+    pinterest: number;
+  };
+  issues: string[];
+  status: ScaleJobStatus;
+};
 
 function uid() {
   return crypto.randomUUID();
+}
+
+function normalizeRelativePath(value: string) {
+  return value.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+}
+
+function getTopFolderName(relativePath: string) {
+  const normalized = normalizeRelativePath(relativePath);
+  return normalized.split("/")[0] || "";
+}
+
+function getNestedPath(relativePath: string) {
+  const normalized = normalizeRelativePath(relativePath);
+  const [, ...rest] = normalized.split("/");
+  return rest.join("/");
+}
+
+function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
+  const grouped = new Map<string, ScaleImportedFile[]>();
+
+  for (const item of files) {
+    const folderName = getTopFolderName(item.relativePath);
+    if (!folderName) continue;
+    const current = grouped.get(folderName) || [];
+    current.push(item);
+    grouped.set(folderName, current);
+  }
+
+  return Array.from(grouped.entries())
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
+    .map(([folderName, group]) => {
+      let design = 0;
+      let mockups = 0;
+      let videos = 0;
+      let deliverables = 0;
+      let pinterest = 0;
+
+      for (const item of group) {
+        const nestedPath = getNestedPath(item.relativePath);
+        const segments = normalizeRelativePath(nestedPath).split("/").filter(Boolean);
+        const rootName = segments[0] || "";
+
+        if (segments.length === 1) {
+          if (/^midjourney\./i.test(rootName) && item.file.type.startsWith("image/")) {
+            design += 1;
+          } else if (item.file.type.startsWith("video/")) {
+            videos += 1;
+          } else if (
+            item.file.type.startsWith("image/") &&
+            !/^upscayl\./i.test(rootName)
+          ) {
+            mockups += 1;
+          }
+        } else if (/^diseños finales$/i.test(rootName)) {
+          deliverables += 1;
+        } else if (/^pines$/i.test(rootName)) {
+          pinterest += 1;
+        }
+      }
+
+      const issues: string[] = [];
+      if (design === 0) issues.push("Missing Midjourney design");
+      if (mockups === 0) issues.push("Missing listing media");
+      if (deliverables === 0) issues.push("Missing delivery files");
+      if (pinterest === 0) issues.push("Missing Pinterest images");
+
+      return {
+        id: uid(),
+        folderName,
+        files: group,
+        counts: {
+          design,
+          mockups,
+          videos,
+          deliverables,
+          pinterest,
+        },
+        issues,
+        status: issues.length === 0 ? "ready" : "needs_attention",
+      };
+    });
 }
 
 function getFileExtension(file: File, fallback: string) {
@@ -546,6 +649,7 @@ function SidebarNavItem({
 
 export default function Page() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const scaleInputRef = useRef<HTMLInputElement | null>(null);
   const [activeSection, setActiveSection] = useState<AppSection>("single");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [productType, setProductType] = useState<ProductType>("frame_tv_art");
@@ -576,6 +680,9 @@ export default function Page() {
 
   const [deliveryPdfUrl, setDeliveryPdfUrl] = useState<string | null>(null);
   const [deliveryLoading, setDeliveryLoading] = useState(false);
+  const [scaleJobs, setScaleJobs] = useState<ScaleJob[]>([]);
+  const [scaleImporting, setScaleImporting] = useState(false);
+  const [scaleMessage, setScaleMessage] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -905,6 +1012,131 @@ export default function Page() {
   function clearPinterestImages() {
     for (const item of pinterestImages) URL.revokeObjectURL(item.previewUrl);
     setPinterestImages([]);
+  }
+
+  async function readEntryFiles(
+    entry: any,
+    parentPath = ""
+  ): Promise<ScaleImportedFile[]> {
+    if (!entry) return [];
+
+    if (entry.isFile) {
+      const file = await new Promise<File>((resolve, reject) => {
+        entry.file(resolve, reject);
+      });
+
+      return [
+        {
+          id: uid(),
+          file,
+          relativePath: normalizeRelativePath(
+            parentPath ? `${parentPath}/${file.name}` : file.name
+          ),
+        },
+      ];
+    }
+
+    if (!entry.isDirectory) {
+      return [];
+    }
+
+    const reader = entry.createReader();
+    const entries: any[] = [];
+
+    while (true) {
+      const batch = await new Promise<any[]>((resolve, reject) => {
+        reader.readEntries(resolve, reject);
+      });
+      if (!batch.length) break;
+      entries.push(...batch);
+    }
+
+    const collected = await Promise.all(
+      entries.map((child) =>
+        readEntryFiles(
+          child,
+          normalizeRelativePath(parentPath ? `${parentPath}/${entry.name}` : entry.name)
+        )
+      )
+    );
+
+    return collected.flat();
+  }
+
+  async function extractScaleImportedFiles(
+    files: File[],
+    items?: DataTransferItemList | null
+  ): Promise<ScaleImportedFile[]> {
+    if (items?.length) {
+      const entries = Array.from(items)
+        .map((item) => (item as any).webkitGetAsEntry?.())
+        .filter(Boolean);
+
+      if (entries.length > 0) {
+        const collected = await Promise.all(entries.map((entry) => readEntryFiles(entry)));
+        const flattened = collected.flat();
+        if (flattened.length > 0) {
+          return flattened;
+        }
+      }
+    }
+
+    return files
+      .map((file) => {
+        const relativePath =
+          (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+
+        return {
+          id: uid(),
+          file,
+          relativePath: normalizeRelativePath(relativePath),
+        };
+      })
+      .filter((item) => item.relativePath.includes("/"));
+  }
+
+  async function importScaleListings(
+    files: File[],
+    items?: DataTransferItemList | null
+  ) {
+    if (files.length === 0 && !items?.length) return;
+
+    setScaleImporting(true);
+    setScaleMessage(null);
+
+    try {
+      const importedFiles = await extractScaleImportedFiles(files, items);
+
+      if (importedFiles.length === 0) {
+        setScaleJobs([]);
+        setScaleMessage(
+          "No listing folders were detected. Drop prepared listing folders or choose a parent folder."
+        );
+        return;
+      }
+
+      const jobs = buildScaleJobs(importedFiles);
+      setScaleJobs(jobs);
+
+      const readyCount = jobs.filter((job) => job.status === "ready").length;
+      const issueCount = jobs.length - readyCount;
+
+      setScaleMessage(
+        issueCount > 0
+          ? `${jobs.length} listings imported. ${readyCount} ready, ${issueCount} need attention.`
+          : `${jobs.length} listings imported and ready for Scale.`
+      );
+    } catch (e: any) {
+      setScaleJobs([]);
+      setScaleMessage(e?.message || "Failed to import listing folders into Scale.");
+    } finally {
+      setScaleImporting(false);
+    }
+  }
+
+  function resetScale() {
+    setScaleJobs([]);
+    setScaleMessage(null);
   }
 
   function resetAll() {
@@ -1860,9 +2092,7 @@ export default function Page() {
           <div className="text-sm font-medium text-neutral-100">
             {activeSection === "single"
               ? "Listing"
-              : activeSection === "batch"
-                ? "Scale"
-                : "Mockups"}
+              : "Scale"}
           </div>
         </div>
       </button>
@@ -1916,16 +2146,6 @@ export default function Page() {
                     setWorkspaceOpen(false);
                   }}
                   icon={<Layers3 size={18} />}
-                />
-                <SidebarNavItem
-                  title="Mockups"
-                  subtitle="Upcoming visual tool for building listing-ready mockup sets automatically."
-                  active={activeSection === "mockups"}
-                  onClick={() => {
-                    setActiveSection("mockups");
-                    setWorkspaceOpen(false);
-                  }}
-                  icon={<Library size={18} />}
                 />
               </div>
             </div>
@@ -2745,120 +2965,182 @@ export default function Page() {
             </div>
             ) : activeSection === "batch" ? (
               <div className="space-y-6">
-                <Card title="Scale" accent>
-                  <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-                    <div className="space-y-4">
-                      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
-                        <div className="text-sm font-medium text-neutral-100">
-                          Multi-listing production workspace
+                <Card
+                  title="Scale"
+                  accent
+                  right={
+                    <div className="flex items-center gap-3">
+                      <input
+                        ref={scaleInputRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        {...({ webkitdirectory: "", directory: "" } as any)}
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files || []);
+                          void importScaleListings(files);
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                      <Button
+                        variant="secondary"
+                        onClick={() => scaleInputRef.current?.click()}
+                        disabled={scaleImporting}
+                      >
+                        {scaleImporting ? (
+                          <>
+                            <Loader2 className="animate-spin" size={16} />
+                            Importing...
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={16} />
+                            Import listings
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={resetScale}
+                        disabled={scaleImporting || scaleJobs.length === 0}
+                      >
+                        Reset
+                      </Button>
+                    </div>
+                  }
+                >
+                  <div className="space-y-6">
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void importScaleListings(
+                          Array.from(e.dataTransfer.files || []),
+                          e.dataTransfer.items
+                        );
+                      }}
+                      className="rounded-3xl border border-dashed border-[#eeba2b]/20 bg-neutral-900/30 p-6 transition hover:border-[#eeba2b]/35"
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 text-[#eeba2b]">
+                          <Layers3 size={20} />
                         </div>
-                        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-400">
-                          This section will turn one imported batch folder into many independent listing jobs, each with its own media, SEO, PDF, Etsy, and Pinterest status.
-                        </p>
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-5">
-                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
-                            Batch import
+                        <div className="space-y-2">
+                          <div className="text-sm font-semibold text-neutral-100">
+                            Drop listing folders directly into Scale
                           </div>
-                          <div className="mt-2 text-sm leading-relaxed text-neutral-300">
-                            Import one master folder containing many listing folders, then validate product consistency before any upload begins.
+                          <div className="max-w-3xl text-sm leading-relaxed text-neutral-400">
+                            Import as many prepared listing folders as you want. Each folder becomes one
+                            independent job, ready for its own upload, SEO, PDF, Etsy, and Pinterest flow.
                           </div>
-                        </div>
-                        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-5">
-                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
-                            Controlled stages
-                          </div>
-                          <div className="mt-2 text-sm leading-relaxed text-neutral-300">
-                            Run upload, SEO, PDF, Etsy, and Pinterest in explicit stages with progress per listing instead of one giant blind process.
-                          </div>
-                        </div>
-                        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-5">
-                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
-                            Review first
-                          </div>
-                          <div className="mt-2 text-sm leading-relaxed text-neutral-300">
-                            Each listing will keep its own detail view so we can inspect outputs before sending them to Etsy or Pinterest.
+                          <div className="text-xs text-neutral-500">
+                            You can drag folders here or use <span className="text-neutral-300">Import listings</span> to choose a parent folder.
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="rounded-3xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-5">
-                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#f1cc61]">
-                        Planned layout
-                      </div>
-                      <div className="mt-3 space-y-3 text-sm text-neutral-200">
-                        <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                          1. Batch toolbar with product type, import folder, run stage, and reset.
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+                      <div className="space-y-4">
+                        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <div className="text-sm font-medium text-neutral-100">
+                                Imported listing jobs
+                              </div>
+                              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-400">
+                                This is the first Scale layer: import many prepared folders and let the app
+                                convert each one into an isolated job before we activate parallel stages.
+                              </p>
+                            </div>
+                            <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-4 py-3 text-sm text-[#f1cc61]">
+                              {scaleJobs.length} job{scaleJobs.length === 1 ? "" : "s"}
+                            </div>
+                          </div>
                         </div>
-                        <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                          2. Job list showing folder name, preview, progress, and errors.
-                        </div>
-                        <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                          3. Detail panel for one listing at a time when deeper review is needed.
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <Card title="Mockups" accent>
-                  <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-                    <div className="space-y-4">
-                      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
-                        <div className="text-sm font-medium text-neutral-100">
-                          Dedicated mockup selection workspace
-                        </div>
-                        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-400">
-                          This section will let you upload a reusable mockup pool, classify assets visually as MID, CLOSE, and WIDE, and generate ready-to-use sets for each listing.
-                        </p>
+
+                        {scaleMessage ? (
+                          <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-4 text-sm text-[#f1cc61]">
+                            {scaleMessage}
+                          </div>
+                        ) : null}
+
+                        {scaleJobs.length === 0 ? (
+                          <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-5 text-sm text-neutral-500">
+                            No listing jobs imported yet.
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {scaleJobs.map((job) => (
+                              <div
+                                key={job.id}
+                                className="rounded-3xl border border-neutral-800 bg-neutral-950/80 p-5"
+                              >
+                                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                  <div className="space-y-2">
+                                    <div className="text-sm font-semibold text-neutral-100">
+                                      {job.folderName}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 text-xs text-neutral-400">
+                                      <span className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5">
+                                        Design {job.counts.design}
+                                      </span>
+                                      <span className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5">
+                                        Media {job.counts.mockups}
+                                      </span>
+                                      <span className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5">
+                                        Video {job.counts.videos}
+                                      </span>
+                                      <span className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5">
+                                        Deliverables {job.counts.deliverables}
+                                      </span>
+                                      <span className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5">
+                                        Pins {job.counts.pinterest}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div
+                                    className={cn(
+                                      "inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
+                                      job.status === "ready"
+                                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                                        : "border-red-500/30 bg-red-500/10 text-red-200"
+                                    )}
+                                  >
+                                    {job.status === "ready" ? "Ready" : "Needs attention"}
+                                  </div>
+                                </div>
+
+                                {job.issues.length > 0 ? (
+                                  <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
+                                    {job.issues.join(" • ")}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-5">
-                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
-                            Attribute pools
-                          </div>
-                          <div className="mt-2 text-sm leading-relaxed text-neutral-300">
-                            Separate upload areas for MID, CLOSE, and WIDE so the app can build balanced sets automatically.
-                          </div>
+                      <div className="rounded-3xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-5">
+                        <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#f1cc61]">
+                          Scale foundation
                         </div>
-                        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-5">
-                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
-                            Fixed images
+                        <div className="mt-3 space-y-3 text-sm text-neutral-200">
+                          <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                            1. Import listing folders directly into the workspace.
                           </div>
-                          <div className="mt-2 text-sm leading-relaxed text-neutral-300">
-                            Keep universal listing images locked in the positions you use across every product.
+                          <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                            2. Create one isolated job per folder, with its own state and validation.
                           </div>
-                        </div>
-                        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-5">
-                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
-                            Output preview
+                          <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                            3. Add true parallel stages next, starting with upload and SEO.
                           </div>
-                          <div className="mt-2 text-sm leading-relaxed text-neutral-300">
-                            Preview how each listing will receive a 6-image selection before anything is exported or uploaded.
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-3xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-5">
-                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#f1cc61]">
-                        Planned selection rules
-                      </div>
-                      <div className="mt-3 space-y-3 text-sm text-neutral-200">
-                        <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                          1. Randomly choose 2 MID, 2 CLOSE, and 2 WIDE images per listing.
-                        </div>
-                        <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                          2. Apply fixed images in their locked positions without changing the visual rules.
-                        </div>
-                        <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                          3. Export numbered selections ready for Photoshop and the listing workflow.
                         </div>
                       </div>
                     </div>
