@@ -4512,8 +4512,8 @@ export default function Page() {
                 accent
                 right={
                   <div className="w-full lg:min-w-[980px]">
-                    <div className="flex flex-col gap-2 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start lg:gap-4">
-                      <div className="space-y-2">
+                    <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[220px_minmax(0,1fr)_120px] lg:items-center lg:gap-4">
+                      <div className="flex justify-center lg:justify-start">
                         <select
                           value={scaleProductType}
                           onChange={(e) =>
@@ -4530,7 +4530,7 @@ export default function Page() {
                         </select>
                       </div>
                       <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-4">
                           <Button
                             variant={
                               scaleImportComplete ? "success" : "primary"
@@ -4674,9 +4674,9 @@ export default function Page() {
                                 </>
                               )}
                             </Button>
-                          </div>
+                        </div>
 
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                           <Button
                             variant={
                               scaleEtsyComplete
@@ -4753,8 +4753,8 @@ export default function Page() {
                                 />
                                 Fetch Etsy URL
                               </>
-                            )}
-                          </Button>
+                              )}
+                            </Button>
                           <Button
                             variant={
                               scalePinterestComplete
@@ -4831,18 +4831,20 @@ export default function Page() {
                                 </>
                               )}
                             </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={resetScale}
-                            disabled={
-                              scaleBusy ||
-                              scaleJobs.length === 0
-                            }
-                          >
-                            <X size={16} />
-                            Reset
-                          </Button>
                         </div>
+                      </div>
+                      <div className="flex justify-center lg:justify-end">
+                        <Button
+                          variant="ghost"
+                          onClick={resetScale}
+                          disabled={
+                            scaleBusy ||
+                            scaleJobs.length === 0
+                          }
+                        >
+                          <X size={16} />
+                          Reset
+                        </Button>
                       </div>
                     </div>
                       <input
