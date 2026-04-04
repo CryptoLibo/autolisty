@@ -858,7 +858,12 @@ export default function Page() {
   const scaleCanGeneratePdf = scaleSeoComplete && !scalePdfComplete;
   const scaleCanSyncEtsy = scalePdfComplete && !scaleEtsyComplete;
   const scaleCanGeneratePinterest = (scaleEtsyComplete || scalePdfComplete) && !scalePinterestComplete;
-  const scaleCanPublishPinterest = scalePinterestComplete && !scalePublishedComplete;
+  const scaleHasPublishReadyJobs = scaleJobs.some(
+    (job) =>
+      (job.status === "pinterest_complete" || job.status === "failed") &&
+      !!job.pinterestPins?.some((pin) => pin.title && pin.description)
+  );
+  const scaleCanPublishPinterest = scaleHasPublishReadyJobs && !scalePublishedComplete;
 
   useEffect(() => {
     async function loadEtsyStatus() {
