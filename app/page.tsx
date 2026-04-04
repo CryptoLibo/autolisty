@@ -822,6 +822,10 @@ export default function Page() {
     () => selectedProduct.delivery.fields,
     [selectedProduct]
   );
+  const scaleDeliveryFields = useMemo(
+    () => getProductOption(scaleProductType).delivery.fields,
+    [scaleProductType]
+  );
   const scaleHasJobs = scaleJobs.length > 0;
   const scaleImportComplete = scaleHasJobs;
   const scaleUploadComplete =
@@ -1549,8 +1553,7 @@ export default function Page() {
 
   function buildScaleDeliverables(job: ScaleJob) {
     const { deliverableCandidates } = parseScaleJobFiles(job);
-    const scaleProduct = getProductOption(scaleProductType);
-    const scaleFields = scaleProduct.delivery.fields;
+    const scaleFields = scaleDeliveryFields;
 
     return scaleProductType === "frame_tv_art"
       ? [
@@ -1567,11 +1570,11 @@ export default function Page() {
               field: scaleFields.find((candidate) => candidate.id === "instructions")!,
             })),
         ]
-      : deliverableCandidates
-          .map((file) => {
-            const field = classifyPrintableDeliverableField(file);
-            return field ? { file, field } : null;
-          })
+        : deliverableCandidates
+            .map((file) => {
+              const field = classifyPrintableDeliverableField(file, scaleFields);
+              return field ? { file, field } : null;
+            })
           .filter((item): item is { file: File; field: DeliveryField } => !!item)
             .sort(
               (a, b) =>
@@ -1582,7 +1585,7 @@ export default function Page() {
 
   function getRequiredScaleDeliverableFieldIds() {
     return scaleProductType === "printable_wall_art"
-      ? activeDeliveryFields.map((field) => field.id)
+      ? scaleDeliveryFields.map((field) => field.id)
       : ["design"];
   }
 
@@ -1615,7 +1618,8 @@ export default function Page() {
 
       const productValidation = validateImportedFolderProduct(
         deliverables.map((item) => item.file),
-        scaleProductType
+        scaleProductType,
+        scaleDeliveryFields
       );
 
     if (!productValidation.ok) {
@@ -2448,23 +2452,26 @@ export default function Page() {
     );
   }
 
-  function classifyPrintableDeliverableField(file: File): DeliveryField | null {
+  function classifyPrintableDeliverableField(
+    file: File,
+    fields: DeliveryField[] = activeDeliveryFields
+  ): DeliveryField | null {
     const { normalizedName } = getFolderAwareName(file);
 
     if (/(^|[^0-9])2[-_x ]?3([^0-9]|$)/.test(normalizedName)) {
-      return activeDeliveryFields.find((field) => field.id === "ratio_2_3") || null;
+      return fields.find((field) => field.id === "ratio_2_3") || null;
     }
     if (/(^|[^0-9])3[-_x ]?4([^0-9]|$)/.test(normalizedName)) {
-      return activeDeliveryFields.find((field) => field.id === "ratio_3_4") || null;
+      return fields.find((field) => field.id === "ratio_3_4") || null;
     }
     if (/(^|[^0-9])4[-_x ]?5([^0-9]|$)/.test(normalizedName)) {
-      return activeDeliveryFields.find((field) => field.id === "ratio_4_5") || null;
+      return fields.find((field) => field.id === "ratio_4_5") || null;
     }
     if (/11[-_x ]?14/.test(normalizedName)) {
-      return activeDeliveryFields.find((field) => field.id === "ratio_11_14") || null;
+      return fields.find((field) => field.id === "ratio_11_14") || null;
     }
     if (/iso/.test(normalizedName)) {
-      return activeDeliveryFields.find((field) => field.id === "ratio_iso") || null;
+      return fields.find((field) => field.id === "ratio_iso") || null;
     }
 
     return null;
@@ -2472,7 +2479,8 @@ export default function Page() {
 
   function validateImportedFolderProduct(
     deliverableCandidates: File[],
-    currentProductType: ProductType
+    currentProductType: ProductType,
+    printableFields: DeliveryField[] = activeDeliveryFields
   ) {
     if (deliverableCandidates.length === 0) {
       return {
@@ -2488,7 +2496,7 @@ export default function Page() {
     );
 
     const printableMatches = deliverableImages.filter((file) =>
-      classifyPrintableDeliverableField(file)
+      classifyPrintableDeliverableField(file, printableFields)
     );
 
     const looksLikePrintable =
@@ -2548,7 +2556,7 @@ export default function Page() {
     if (
       currentProductType === "printable_wall_art" &&
       printableMatches.length > 0 &&
-      printableMatches.length < activeDeliveryFields.length
+      printableMatches.length < printableFields.length
     ) {
       return {
         ok: false,
@@ -4269,7 +4277,10 @@ export default function Page() {
                                     (job) =>
                                       !(job.status === "seo_complete" || job.status === "failed") ||
                                       !job.listingId ||
-                                    !job.seoResult
+                                    !job.seoResult ||
+                                    !getRequiredScaleDeliverableFieldIds().every((fieldId) =>
+                                      (job.uploadedDeliverableFieldIds || []).includes(fieldId)
+                                    )
                                 )
                               }
                             >
