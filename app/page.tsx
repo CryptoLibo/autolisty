@@ -888,6 +888,7 @@ export default function Page() {
       !!job.pinterestPins?.some((pin) => pin.title && pin.description)
   );
   const scaleCanPublishPinterest = scaleHasPublishReadyJobs && !scalePublishedComplete;
+  const scaleR2CleanupLocked = scaleJobs.some((job) => hasReachedScaleStage(job.status, "etsy"));
 
   useEffect(() => {
     async function loadEtsyStatus() {
@@ -4457,7 +4458,7 @@ export default function Page() {
                 accent
                 right={
                   <div className="w-full lg:min-w-[980px]">
-                    <div className="flex flex-col gap-2 lg:grid lg:grid-cols-[220px_240px_minmax(0,1fr)] lg:items-start lg:gap-4">
+                    <div className="flex flex-col gap-2 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start lg:gap-4">
                       <div className="space-y-2">
                         <select
                           value={scaleProductType}
@@ -4470,28 +4471,6 @@ export default function Page() {
                           {PRODUCT_OPTIONS.map((product) => (
                             <option key={product.value} value={product.value}>
                               {product.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <select
-                          value={selectedPinterestBoardId}
-                          onChange={(e) => setSelectedPinterestBoardId(e.target.value)}
-                          disabled={scaleBusy || !pinterestAuth?.connected || !(pinterestAuth?.boards || []).length}
-                          className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <option value="">
-                            {!pinterestAuth?.connected
-                              ? "Connect Pinterest first"
-                              : !(pinterestAuth?.boards || []).length
-                                ? "No boards available"
-                                : "Select Pinterest board"}
-                          </option>
-                          {(pinterestAuth?.boards || []).map((board) => (
-                            <option key={board.id} value={board.id}>
-                              {board.name}
-                              {board.privacy ? ` (${board.privacy})` : ""}
                             </option>
                           ))}
                         </select>
@@ -4791,6 +4770,129 @@ export default function Page() {
                       className="space-y-4 rounded-3xl border border-dashed border-[#eeba2b]/18 bg-neutral-900/20 p-1 transition hover:border-[#eeba2b]/30"
                     >
                       <div className="space-y-4">
+                          <div className="grid gap-4 lg:grid-cols-2">
+                            <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-medium text-neutral-100">
+                                  Etsy connection
+                                </div>
+                                {etsyAuth?.connected ? (
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() => void disconnectEtsy()}
+                                    disabled={etsyLoading}
+                                  >
+                                    Disconnect
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="primary"
+                                    onClick={() => {
+                                      window.location.href = "/api/etsy/auth/start";
+                                    }}
+                                    disabled={etsyLoading}
+                                  >
+                                    Connect Etsy
+                                  </Button>
+                                )}
+                              </div>
+                              <div className="mt-4 space-y-2 text-sm text-neutral-300">
+                                {etsyLoading ? (
+                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4 text-neutral-300">
+                                    Checking Etsy connection...
+                                  </div>
+                                ) : etsyAuth?.connected ? (
+                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4">
+                                    <div className="font-medium text-neutral-100">
+                                      {etsyAuth.shops?.[0]?.shop_name || "Connected to Etsy"}
+                                    </div>
+                                    <div className="mt-2 text-xs text-neutral-400">
+                                      Shop ID: {etsyAuth.shops?.[0]?.shop_id || "Unknown"}
+                                    </div>
+                                    <div className="text-xs text-neutral-400">
+                                      User ID: {etsyAuth.userId || "Unknown"}
+                                    </div>
+                                    <div className="text-xs text-neutral-400">
+                                      Scopes: {(etsyAuth.scopes || []).join(", ") || "None"}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4 text-neutral-300">
+                                    No Etsy account connected yet.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-medium text-neutral-100">
+                                  Pinterest connection
+                                </div>
+                                {pinterestAuth?.connected ? (
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() => void disconnectPinterest()}
+                                    disabled={pinterestAuthLoading}
+                                  >
+                                    Disconnect
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="primary"
+                                    onClick={() => {
+                                      window.location.href = "/api/pinterest/auth/start";
+                                    }}
+                                    disabled={pinterestAuthLoading}
+                                  >
+                                    Connect Pinterest
+                                  </Button>
+                                )}
+                              </div>
+                              <div className="mt-4 space-y-3 text-sm text-neutral-300">
+                                {pinterestAuthLoading ? (
+                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4 text-neutral-300">
+                                    Checking Pinterest connection...
+                                  </div>
+                                ) : pinterestAuth?.connected ? (
+                                  <div className="space-y-3 rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4">
+                                    <div className="font-medium text-neutral-100">
+                                      {pinterestAuth.user?.username || "Connected to Pinterest"}
+                                    </div>
+                                    <div className="text-xs text-neutral-400">
+                                      Account type: {pinterestAuth.user?.account_type || "Unknown"}
+                                    </div>
+                                    <div className="text-xs text-neutral-400">
+                                      Scopes: {(pinterestAuth.scopes || []).join(", ") || "None"}
+                                    </div>
+                                    <select
+                                      value={selectedPinterestBoardId}
+                                      onChange={(e) => setSelectedPinterestBoardId(e.target.value)}
+                                      disabled={scaleBusy || !(pinterestAuth.boards || []).length}
+                                      className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      <option value="">
+                                        {!(pinterestAuth.boards || []).length
+                                          ? "No boards available"
+                                          : "Select Pinterest board"}
+                                      </option>
+                                      {(pinterestAuth.boards || []).map((board) => (
+                                        <option key={board.id} value={board.id}>
+                                          {board.name}
+                                          {board.privacy ? ` (${board.privacy})` : ""}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                ) : (
+                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4 text-neutral-300">
+                                    No Pinterest account connected yet.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
                           <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                               <div>
@@ -4807,7 +4909,8 @@ export default function Page() {
                                   onClick={() => void clearScaleSessionUploads()}
                                   disabled={
                                     scaleBusy ||
-                                    !scaleJobs.some((job) => !!job.listingId)
+                                    !scaleJobs.some((job) => !!job.listingId) ||
+                                    scaleR2CleanupLocked
                                   }
                                 >
                                   {scaleDeletingAll ? "Clearing session..." : "Clear session uploads"}
@@ -4934,7 +5037,8 @@ export default function Page() {
                                         disabled={
                                           scaleBusy ||
                                           !job.listingId ||
-                                          scaleDeletingJobIds.includes(job.id)
+                                          scaleDeletingJobIds.includes(job.id) ||
+                                          hasReachedScaleStage(job.status, "etsy")
                                         }
                                       >
                                         {scaleDeletingJobIds.includes(job.id)
