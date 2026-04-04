@@ -813,6 +813,7 @@ export default function Page() {
     Array<{ id: string; url: string; position: number }>
   >([]);
   const [scaleMessage, setScaleMessage] = useState<string | null>(null);
+  const [scaleMessageTone, setScaleMessageTone] = useState<"info" | "error">("info");
 
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1392,33 +1393,88 @@ export default function Page() {
   ) {
     if (files.length === 0 && !items?.length) return;
 
+    const scaleSessionLocked = scaleJobs.some(
+      (job) => !!job.listingId || hasReachedScaleStage(job.status, "uploaded") || job.status === "uploading"
+    );
+
+    if (scaleSessionLocked) {
+      setScaleMessageTone("error");
+      setScaleMessage(
+        "You can only add more listings during the import stage. Reset Scale or clear the current session before importing new folders."
+      );
+      return;
+    }
+
     setScaleImporting(true);
     setScaleMessage(null);
+    setScaleMessageTone("info");
 
     try {
       const importedFiles = await extractScaleImportedFiles(files, items);
 
       if (importedFiles.length === 0) {
-        setScaleJobs([]);
+        setScaleJobs((prev) => prev);
+        setScaleMessageTone("error");
         setScaleMessage(
           "No listing folders were detected. Drop prepared listing folders or choose a parent folder."
         );
         return;
       }
 
-      const jobs = buildScaleJobs(importedFiles);
-      setScaleJobs(jobs);
+      const incomingJobs = buildScaleJobs(importedFiles);
+      const existingFolderNames = new Set(scaleJobs.map((job) => job.folderName.toLowerCase()));
+      const uniqueJobs = incomingJobs.filter(
+        (job) => !existingFolderNames.has(job.folderName.toLowerCase())
+      );
 
-      const readyCount = jobs.filter((job) => job.status === "ready").length;
-      const issueCount = jobs.length - readyCount;
+      const validJobs: ScaleJob[] = [];
+      let rejectedForProduct = 0;
 
+      for (const job of uniqueJobs) {
+        const { deliverableCandidates } = parseScaleJobFiles(job);
+        const productValidation = validateImportedFolderProduct(
+          deliverableCandidates,
+          scaleProductType,
+          scaleDeliveryFields
+        );
+
+        if (!productValidation.ok) {
+          rejectedForProduct += 1;
+          continue;
+        }
+
+        validJobs.push(job);
+      }
+
+      if (validJobs.length > 0) {
+        setScaleJobs((prev) => [...prev, ...validJobs]);
+      }
+
+      if (rejectedForProduct > 0) {
+        setScaleMessageTone("error");
+        setScaleMessage(
+          rejectedForProduct === 1
+            ? "One imported listing does not match the selected product."
+            : `${rejectedForProduct} imported listings do not match the selected product.`
+        );
+        return;
+      }
+
+      if (uniqueJobs.length === 0) {
+        setScaleMessageTone("error");
+        setScaleMessage("Those listing folders are already in the current Scale session.");
+        return;
+      }
+
+      const totalJobs = scaleJobs.length + validJobs.length;
+      setScaleMessageTone("info");
       setScaleMessage(
-        issueCount > 0
-          ? `${jobs.length} listings imported. ${readyCount} ready, ${issueCount} need attention.`
-          : `${jobs.length} listings imported and ready for Scale.`
+        validJobs.length === 1
+          ? `${totalJobs} listing in Scale. New folder added successfully.`
+          : `${totalJobs} listings in Scale. ${validJobs.length} new folders added successfully.`
       );
     } catch (e: any) {
-      setScaleJobs([]);
+      setScaleMessageTone("error");
       setScaleMessage(e?.message || "Failed to import listing folders into Scale.");
     } finally {
       setScaleImporting(false);
@@ -1428,6 +1484,7 @@ export default function Page() {
   function resetScale() {
     setScaleJobs([]);
     setScaleMessage(null);
+    setScaleMessageTone("info");
   }
 
   function setScaleJobPrompt(jobId: string, value: string) {
@@ -4727,7 +4784,14 @@ export default function Page() {
                           </div>
 
                         {scaleMessage ? (
-                          <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-4 text-sm text-[#f1cc61]">
+                          <div
+                            className={cn(
+                              "rounded-2xl p-4 text-sm",
+                              scaleMessageTone === "error"
+                                ? "border border-red-500/20 bg-red-500/10 text-red-200"
+                                : "border border-[#eeba2b]/20 bg-[#eeba2b]/10 text-[#f1cc61]"
+                            )}
+                          >
                             {scaleMessage}
                           </div>
                         ) : null}
