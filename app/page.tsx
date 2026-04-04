@@ -4457,21 +4457,45 @@ export default function Page() {
                 accent
                 right={
                   <div className="w-full lg:min-w-[980px]">
-                    <div className="flex flex-col gap-2 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-center lg:gap-4">
-                      <select
-                        value={scaleProductType}
-                        onChange={(e) =>
-                          handleScaleProductTypeChange(e.target.value as ProductType)
-                        }
-                        disabled={scaleBusy}
-                        className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
-                      >
-                        {PRODUCT_OPTIONS.map((product) => (
-                          <option key={product.value} value={product.value}>
-                            {product.label}
+                    <div className="flex flex-col gap-2 lg:grid lg:grid-cols-[220px_240px_minmax(0,1fr)] lg:items-start lg:gap-4">
+                      <div className="space-y-2">
+                        <select
+                          value={scaleProductType}
+                          onChange={(e) =>
+                            handleScaleProductTypeChange(e.target.value as ProductType)
+                          }
+                          disabled={scaleBusy}
+                          className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                        >
+                          {PRODUCT_OPTIONS.map((product) => (
+                            <option key={product.value} value={product.value}>
+                              {product.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <select
+                          value={selectedPinterestBoardId}
+                          onChange={(e) => setSelectedPinterestBoardId(e.target.value)}
+                          disabled={scaleBusy || !pinterestAuth?.connected || !(pinterestAuth?.boards || []).length}
+                          className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <option value="">
+                            {!pinterestAuth?.connected
+                              ? "Connect Pinterest first"
+                              : !(pinterestAuth?.boards || []).length
+                                ? "No boards available"
+                                : "Select Pinterest board"}
                           </option>
-                        ))}
-                      </select>
+                          {(pinterestAuth?.boards || []).map((board) => (
+                            <option key={board.id} value={board.id}>
+                              {board.name}
+                              {board.privacy ? ` (${board.privacy})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                       <div className="space-y-2">
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                           <Button
@@ -4708,18 +4732,9 @@ export default function Page() {
                             onClick={() => void publishScalePinterestJobs()}
                             disabled={
                               !scaleCanPublishPinterest ||
-                              scaleBusy ||
-                              !pinterestAuth?.connected ||
-                              !selectedPinterestBoardId ||
-                              scaleJobs.every(
-                                    (job) =>
-                                      !(job.status === "pinterest_complete" || job.status === "failed") ||
-                                      !job.pinterestPins?.some(
-                                        (pin) => pin.title && pin.description
-                                      )
-                                  )
-                                }
-                            >
+                              scaleBusy
+                            }
+                          >
                               {scalePinterestPublishing ? (
                                 <>
                                   <Loader2 className="animate-spin" size={16} />
