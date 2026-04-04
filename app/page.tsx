@@ -20,7 +20,6 @@ import { CSS } from "@dnd-kit/utilities";
 import Image from "next/image";
 import {
   Copy,
-  Database,
   Eye,
   FolderOpen,
   Image as ImageIcon,
@@ -779,14 +778,6 @@ function SidebarNavItem({
         </div>
       </div>
     </button>
-  );
-}
-
-function BrandLetterIcon({ letter }: { letter: string }) {
-  return (
-    <span className="inline-flex h-4 w-4 items-center justify-center text-[13px] font-semibold leading-none">
-      {letter}
-    </span>
   );
 }
 
@@ -4583,7 +4574,13 @@ export default function Page() {
                                 </>
                               ) : (
                                 <>
-                                  <Database size={16} />
+                                  <Image
+                                    src="/icons/cloudflare.png"
+                                    alt=""
+                                    width={16}
+                                    height={16}
+                                    className="h-4 w-4 object-contain"
+                                  />
                                   R2 Upload
                                 </>
                               )}
@@ -4688,7 +4685,13 @@ export default function Page() {
                                 </>
                               ) : (
                                 <>
-                                  <BrandLetterIcon letter="E" />
+                                  <Image
+                                    src="/icons/etsy.png"
+                                    alt=""
+                                    width={16}
+                                    height={16}
+                                    className="h-4 w-4 object-contain"
+                                  />
                                   Sync Etsy
                                 </>
                               )}
@@ -4782,7 +4785,13 @@ export default function Page() {
                                 </>
                               ) : (
                                 <>
-                                  <BrandLetterIcon letter="P" />
+                                  <Image
+                                    src="/icons/pinterest.png"
+                                    alt=""
+                                    width={16}
+                                    height={16}
+                                    className="h-4 w-4 object-contain"
+                                  />
                                   Publish Pinterest
                                 </>
                               )}
