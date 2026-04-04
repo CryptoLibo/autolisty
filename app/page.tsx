@@ -4545,7 +4545,13 @@ export default function Page() {
                                 </>
                               ) : (
                                 <>
-                                  <FolderOpen size={16} />
+                                  <Image
+                                    src="/icons/folder.png"
+                                    alt=""
+                                    width={16}
+                                    height={16}
+                                    className="h-4 w-4 object-contain"
+                                  />
                                   Import listings
                                 </>
                               )}
@@ -4613,7 +4619,13 @@ export default function Page() {
                                 </>
                               ) : (
                                 <>
-                                  <Sparkles size={16} />
+                                  <Image
+                                    src="/icons/rocket.png"
+                                    alt=""
+                                    width={16}
+                                    height={16}
+                                    className="h-4 w-4 object-contain"
+                                  />
                                   Generate SEO
                                 </>
                               )}
@@ -4648,7 +4660,13 @@ export default function Page() {
                                 </>
                               ) : (
                                 <>
-                                  <FileText size={16} />
+                                  <Image
+                                    src="/icons/pdf.png"
+                                    alt=""
+                                    width={16}
+                                    height={16}
+                                    className="h-4 w-4 object-contain"
+                                  />
                                   Generate PDF
                                 </>
                               )}
@@ -4722,7 +4740,13 @@ export default function Page() {
                               </>
                             ) : (
                               <>
-                                <Link2 size={16} />
+                                <Image
+                                  src="/icons/hyperlink.png"
+                                  alt=""
+                                  width={16}
+                                  height={16}
+                                  className="h-4 w-4 object-contain"
+                                />
                                 Fetch Etsy URL
                               </>
                             )}
@@ -4759,7 +4783,13 @@ export default function Page() {
                                 </>
                               ) : (
                                 <>
-                                  <ImageIcon size={16} />
+                                  <Image
+                                    src="/icons/target.png"
+                                    alt=""
+                                    width={16}
+                                    height={16}
+                                    className="h-4 w-4 object-contain"
+                                  />
                                   Generate Pinterest
                                 </>
                               )}
@@ -4804,6 +4834,7 @@ export default function Page() {
                               scaleJobs.length === 0
                             }
                           >
+                            <X size={16} />
                             Reset
                           </Button>
                         </div>
