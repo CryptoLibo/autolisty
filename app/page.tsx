@@ -200,6 +200,14 @@ function getNestedPath(relativePath: string) {
   return rest.join("/");
 }
 
+function normalizeScaleFolderSegment(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\\/g, "/")
+    .toLowerCase();
+}
+
 function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
   const grouped = new Map<string, ScaleImportedFile[]>();
 
@@ -223,7 +231,7 @@ function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
       for (const item of group) {
         const nestedPath = getNestedPath(item.relativePath);
         const segments = normalizeRelativePath(nestedPath).split("/").filter(Boolean);
-        const rootName = normalizeFolderPath(segments[0] || "");
+        const rootName = normalizeScaleFolderSegment(segments[0] || "");
 
         if (segments.length === 1) {
           if (/^midjourney\./i.test(rootName) && item.file.type.startsWith("image/")) {
