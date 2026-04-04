@@ -1863,27 +1863,69 @@ export default function Page() {
       const uploadedPins: ScalePinterestPin[] = [];
       const uploadedDeliverableFieldIds: string[] = [];
 
-    for (let index = 0; index < mockupCandidates.length; index++) {
-      const file = mockupCandidates[index];
-      const ext =
-        file.name.split(".").pop()?.toLowerCase() ||
-        (file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg");
+    await runWithConcurrency(
+      mockupCandidates.map((file, index) => ({ file, index })),
+      4,
+      async ({ file, index }) => {
+        const ext =
+          file.name.split(".").pop()?.toLowerCase() ||
+          (file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg");
 
-      const upload = await retryAsync(
+        const upload = await retryAsync(
+          async () => {
+            return uploadMockupForListing(file, `mockup-${index + 1}.${ext}`, listingJobId);
+          },
+          {
+            label: `${job.folderName}: failed to upload mockup ${index + 1}`,
+          }
+        );
+
+        uploadedMockups.push({
+          id: uid(),
+          position: index + 1,
+          url: upload.url,
+        });
+      }
+    );
+
+    await runWithConcurrency(deliverables, 3, async (item) => {
+      await retryAsync(
         async () => {
-          return uploadMockupForListing(file, `mockup-${index + 1}.${ext}`, listingJobId);
+          await uploadDeliverableForListing(
+            item.file,
+            getDeliveryFilename(item.field, item.file),
+            listingJobId
+          );
         },
         {
-          label: `${job.folderName}: failed to upload mockup ${index + 1}`,
+          label: `${job.folderName}: failed to upload deliverable ${item.field.label}`,
         }
       );
+      uploadedDeliverableFieldIds.push(item.field.id);
+    });
 
-      uploadedMockups.push({
-        id: uid(),
-        position: index + 1,
-        url: upload.url,
-      });
-    }
+    await runWithConcurrency(
+      pinterestCandidates.map((file, index) => ({ file, index })),
+      3,
+      async ({ file, index }) => {
+        const ext = getFileExtension(file, "jpg");
+
+        const upload = await retryAsync(
+          async () => {
+            return uploadPinterestForListing(file, `pin-${index + 1}.${ext}`, listingJobId);
+          },
+          {
+            label: `${job.folderName}: failed to upload Pinterest image ${index + 1}`,
+          }
+        );
+
+        uploadedPins.push({
+          id: uid(),
+          position: index + 1,
+          url: upload.url,
+        });
+      }
+    );
 
     if (rootVideoCandidate) {
       const ext = rootVideoCandidate.name.split(".").pop()?.toLowerCase() || "mp4";
@@ -1897,41 +1939,8 @@ export default function Page() {
       );
     }
 
-      for (const item of deliverables) {
-        await retryAsync(
-          async () => {
-            await uploadDeliverableForListing(
-              item.file,
-            getDeliveryFilename(item.field, item.file),
-            listingJobId
-          );
-        },
-          {
-            label: `${job.folderName}: failed to upload deliverable ${item.field.label}`,
-          }
-        );
-        uploadedDeliverableFieldIds.push(item.field.id);
-      }
-
-    for (let index = 0; index < pinterestCandidates.length; index++) {
-      const file = pinterestCandidates[index];
-      const ext = getFileExtension(file, "jpg");
-
-      const upload = await retryAsync(
-        async () => {
-          return uploadPinterestForListing(file, `pin-${index + 1}.${ext}`, listingJobId);
-        },
-        {
-          label: `${job.folderName}: failed to upload Pinterest image ${index + 1}`,
-        }
-      );
-
-      uploadedPins.push({
-        id: uid(),
-        position: index + 1,
-        url: upload.url,
-      });
-    }
+    uploadedMockups.sort((a, b) => a.position - b.position);
+    uploadedPins.sort((a, b) => a.position - b.position);
 
     updateScaleJob(job.id, (current) => ({
       ...current,
