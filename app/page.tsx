@@ -4770,8 +4770,8 @@ export default function Page() {
                       className="space-y-4 rounded-3xl border border-dashed border-[#eeba2b]/18 bg-neutral-900/20 p-1 transition hover:border-[#eeba2b]/30"
                     >
                       <div className="space-y-4">
-                          <div className="grid gap-4 lg:grid-cols-2">
-                            <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-4">
                               <div className="flex items-center justify-between gap-3">
                                 <div className="text-sm font-medium text-neutral-100">
                                   Etsy connection
@@ -4796,17 +4796,17 @@ export default function Page() {
                                   </Button>
                                 )}
                               </div>
-                              <div className="mt-4 space-y-2 text-sm text-neutral-300">
+                              <div className="mt-3 space-y-2 text-sm text-neutral-300">
                                 {etsyLoading ? (
-                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4 text-neutral-300">
+                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-3 text-neutral-300">
                                     Checking Etsy connection...
                                   </div>
                                 ) : etsyAuth?.connected ? (
-                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4">
+                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-3">
                                     <div className="font-medium text-neutral-100">
                                       {etsyAuth.shops?.[0]?.shop_name || "Connected to Etsy"}
                                     </div>
-                                    <div className="mt-2 text-xs text-neutral-400">
+                                    <div className="mt-1 text-xs text-neutral-400">
                                       Shop ID: {etsyAuth.shops?.[0]?.shop_id || "Unknown"}
                                     </div>
                                     <div className="text-xs text-neutral-400">
@@ -4817,14 +4817,14 @@ export default function Page() {
                                     </div>
                                   </div>
                                 ) : (
-                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4 text-neutral-300">
+                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-3 text-neutral-300">
                                     No Etsy account connected yet.
                                   </div>
                                 )}
                               </div>
                             </div>
 
-                            <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
+                            <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-4">
                               <div className="flex items-center justify-between gap-3">
                                 <div className="text-sm font-medium text-neutral-100">
                                   Pinterest connection
@@ -4849,13 +4849,13 @@ export default function Page() {
                                   </Button>
                                 )}
                               </div>
-                              <div className="mt-4 space-y-3 text-sm text-neutral-300">
+                              <div className="mt-3 space-y-2 text-sm text-neutral-300">
                                 {pinterestAuthLoading ? (
-                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4 text-neutral-300">
+                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-3 text-neutral-300">
                                     Checking Pinterest connection...
                                   </div>
                                 ) : pinterestAuth?.connected ? (
-                                  <div className="space-y-3 rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4">
+                                  <div className="space-y-2 rounded-2xl border border-neutral-800 bg-neutral-950/70 p-3">
                                     <div className="font-medium text-neutral-100">
                                       {pinterestAuth.user?.username || "Connected to Pinterest"}
                                     </div>
@@ -4885,7 +4885,7 @@ export default function Page() {
                                     </select>
                                   </div>
                                 ) : (
-                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4 text-neutral-300">
+                                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-3 text-neutral-300">
                                     No Pinterest account connected yet.
                                   </div>
                                 )}
