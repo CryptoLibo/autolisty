@@ -882,11 +882,15 @@ export default function Page() {
   const scaleCanFetchEtsyUrls = scaleEtsyComplete && !scaleHasEtsyLinks;
   const scaleCanGeneratePinterest =
     (scaleEtsyComplete || scalePdfComplete) && scaleHasEtsyLinks && !scalePinterestComplete;
-  const scaleHasPublishReadyJobs = scaleJobs.some(
-    (job) =>
-      (job.status === "pinterest_complete" || job.status === "failed") &&
-      !!job.pinterestPins?.some((pin) => pin.title && pin.description)
-  );
+  const scaleHasPublishReadyJobs =
+    scaleHasJobs &&
+    !!selectedPinterestBoardId &&
+    scaleJobs.every(
+      (job) =>
+        !!job.pinterestLink.trim() &&
+        !!job.pinterestPins?.length &&
+        job.pinterestPins.every((pin) => !!pin.title && !!pin.description)
+    );
   const scaleCanPublishPinterest = scaleHasPublishReadyJobs && !scalePublishedComplete;
   const scaleR2CleanupLocked = scaleJobs.some((job) => hasReachedScaleStage(job.status, "etsy"));
 
@@ -2507,8 +2511,9 @@ export default function Page() {
 
     const eligible = scaleJobs.filter(
       (job) =>
-        (job.status === "pinterest_complete" || job.status === "failed") &&
-        !!job.pinterestPins?.some((pin) => pin.title && pin.description)
+        !!job.pinterestLink.trim() &&
+        !!job.pinterestPins?.length &&
+        job.pinterestPins.every((pin) => !!pin.title && !!pin.description)
     );
 
     if (eligible.length === 0) {
