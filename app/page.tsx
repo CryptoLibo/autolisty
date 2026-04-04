@@ -1606,28 +1606,35 @@ export default function Page() {
     await Promise.all(runners);
   }
 
-  async function uploadScaleJob(job: ScaleJob) {
-    const listingJobId = job.listingId || generateListingId();
-    const {
-      designCandidate,
-      pinterestCandidates,
-      rootVideoCandidate,
-      mockupCandidates,
-    } = parseScaleJobFiles(job);
-    const deliverables = buildScaleDeliverables(job);
+    async function uploadScaleJob(job: ScaleJob) {
+      const listingJobId = job.listingId || generateListingId();
+      const {
+        designCandidate,
+        pinterestCandidates,
+        rootVideoCandidate,
+        mockupCandidates,
+        deliverableCandidates,
+      } = parseScaleJobFiles(job);
+      const deliverables = buildScaleDeliverables(job);
 
       const productValidation = validateImportedFolderProduct(
-        deliverables.map((item) => item.file),
+        deliverableCandidates,
         scaleProductType,
         scaleDeliveryFields
       );
 
-    if (!productValidation.ok) {
-      throw new Error(
-        productValidation.message ||
-          "The imported folder does not match the selected product."
-      );
-    }
+      if (!productValidation.ok) {
+        throw new Error(
+          productValidation.message ||
+            "The imported folder does not match the selected product."
+        );
+      }
+
+      if (deliverableCandidates.length > 0 && deliverables.length === 0) {
+        throw new Error(
+          "Scale detected delivery files, but could not map them to the selected product."
+        );
+      }
 
     if (!designCandidate) {
       throw new Error("Missing Midjourney design");
