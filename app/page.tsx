@@ -753,6 +753,7 @@ export default function Page() {
   const [activeSection, setActiveSection] = useState<AppSection>("single");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [productType, setProductType] = useState<ProductType>("frame_tv_art");
+  const [scaleProductType, setScaleProductType] = useState<ProductType>("frame_tv_art");
   const [listingId, setListingId] = useState<string | null>(null);
   const listingIdRef = useRef<string | null>(null);
 
@@ -815,6 +816,10 @@ export default function Page() {
 
   const mockupIds = useMemo(() => mockups.map((m) => m.id), [mockups]);
   const selectedProduct = useMemo(() => getProductOption(productType), [productType]);
+  const selectedScaleProduct = useMemo(
+    () => getProductOption(scaleProductType),
+    [scaleProductType]
+  );
   const activeDeliveryFields = useMemo(
     () => selectedProduct.delivery.fields,
     [selectedProduct]
@@ -1545,10 +1550,10 @@ export default function Page() {
 
   function buildScaleDeliverables(job: ScaleJob) {
     const { deliverableCandidates } = parseScaleJobFiles(job);
-    const scaleProduct = getProductOption(productType);
+    const scaleProduct = getProductOption(scaleProductType);
     const scaleFields = scaleProduct.delivery.fields;
 
-    return productType === "frame_tv_art"
+    return scaleProductType === "frame_tv_art"
       ? [
           ...deliverableCandidates
             .filter((file) => file.type.startsWith("image/"))
@@ -1603,10 +1608,10 @@ export default function Page() {
     } = parseScaleJobFiles(job);
     const deliverables = buildScaleDeliverables(job);
 
-    const productValidation = validateImportedFolderProduct(
-      deliverables.map((item) => item.file),
-      productType
-    );
+      const productValidation = validateImportedFolderProduct(
+        deliverables.map((item) => item.file),
+        scaleProductType
+      );
 
     if (!productValidation.ok) {
       throw new Error(
@@ -1783,12 +1788,12 @@ export default function Page() {
       errorMessage: null,
     }));
 
-    const payload = {
-      listingId: job.listingId,
-      productType,
-      designUrl: job.designUrl,
-      midjourneyPrompt: job.midjourneyPrompt,
-      mockups: job.mockupsUploaded.map((item) => ({
+      const payload = {
+        listingId: job.listingId,
+        productType: scaleProductType,
+        designUrl: job.designUrl,
+        midjourneyPrompt: job.midjourneyPrompt,
+        mockups: job.mockupsUploaded.map((item) => ({
         id: item.id,
         position: item.position,
         url: item.url,
@@ -1886,11 +1891,11 @@ export default function Page() {
       errorMessage: null,
     }));
 
-    const res = await fetch("/api/generate/delivery", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ listingId: job.listingId, productType }),
-    });
+      const res = await fetch("/api/generate/delivery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ listingId: job.listingId, productType: scaleProductType }),
+      });
 
     if (!res.ok) {
       const txt = await res.text();
@@ -2065,9 +2070,9 @@ export default function Page() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        productType,
-        listingTitle: job.seoResult.title,
+        body: JSON.stringify({
+          productType: scaleProductType,
+          listingTitle: job.seoResult.title,
         listingDescription: job.seoResult.description_final,
         listingKeywords: job.seoResult.description_keywords_5,
         destinationLink: job.pinterestLink,
@@ -2296,6 +2301,12 @@ export default function Page() {
     if (nextProductType === productType) return;
     resetAll();
     setProductType(nextProductType);
+  }
+
+  function handleScaleProductTypeChange(nextProductType: ProductType) {
+    if (nextProductType === scaleProductType) return;
+    resetScale();
+    setScaleProductType(nextProductType);
   }
 
   function handleDragEnd(e: DragEndEvent) {
@@ -4370,10 +4381,42 @@ export default function Page() {
                     </div>
                   }
                 >
-                  <div className="space-y-6">
-                    <div
-                      onDragOver={(e) => {
-                        e.preventDefault();
+                    <div className="space-y-6">
+                      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-5">
+                        <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-center">
+                          <div className="space-y-2">
+                            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                              Product type
+                            </div>
+                            <select
+                              value={scaleProductType}
+                              onChange={(e) =>
+                                handleScaleProductTypeChange(e.target.value as ProductType)
+                              }
+                              disabled={scaleBusy}
+                              className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                            >
+                              {PRODUCT_OPTIONS.map((product) => (
+                                <option key={product.value} value={product.value}>
+                                  {product.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4 text-sm text-neutral-300">
+                            Scale is currently configured for{" "}
+                            <span className="font-semibold text-neutral-100">
+                              {selectedScaleProduct.label}
+                            </span>
+                            . Changing this product resets the imported Scale jobs so the folder validation and delivery flow stay consistent.
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        onDragOver={(e) => {
+                          e.preventDefault();
                         e.stopPropagation();
                       }}
                       onDrop={(e) => {
