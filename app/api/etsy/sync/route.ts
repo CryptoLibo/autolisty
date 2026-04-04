@@ -238,10 +238,24 @@ export async function POST(req: Request) {
       throw wrapStepError("Failed while uploading the Etsy digital file", error);
     }
 
+    let refreshedListing: any = null;
+
+    try {
+      refreshedListing = await getShopListing(token, shopId, draftListingId);
+    } catch {
+      refreshedListing = null;
+    }
+
     return NextResponse.json({
       ok: true,
       shopId,
       listingId: draftListingId,
+      listingUrl:
+        refreshedListing?.url ||
+        refreshedListing?.listing_url ||
+        listing?.url ||
+        listing?.listing_url ||
+        null,
       uploadedImages: mockups.length,
       uploadedFiles: 1,
     });

@@ -107,8 +107,17 @@ type EtsySyncResponse = {
   ok?: boolean;
   shopId?: number;
   listingId?: string;
+  listingUrl?: string | null;
   uploadedImages?: number;
   uploadedFiles?: number;
+  error?: string;
+};
+
+type EtsyListingUrlResponse = {
+  ok?: boolean;
+  listingId?: string;
+  state?: string;
+  listingUrl?: string | null;
   error?: string;
 };
 
@@ -790,6 +799,7 @@ export default function Page() {
   const [scaleSeoLoading, setScaleSeoLoading] = useState(false);
   const [scalePdfLoading, setScalePdfLoading] = useState(false);
   const [scaleEtsyLoading, setScaleEtsyLoading] = useState(false);
+  const [scaleEtsyUrlLoading, setScaleEtsyUrlLoading] = useState(false);
   const [scalePinterestLoading, setScalePinterestLoading] = useState(false);
   const [scalePinterestPublishing, setScalePinterestPublishing] = useState(false);
   const [scaleDeletingAll, setScaleDeletingAll] = useState(false);
@@ -810,6 +820,7 @@ export default function Page() {
   const [etsyAuth, setEtsyAuth] = useState<EtsyAuthStatus | null>(null);
   const [etsyLoading, setEtsyLoading] = useState(true);
   const [etsySyncing, setEtsySyncing] = useState(false);
+  const [etsyUrlLoading, setEtsyUrlLoading] = useState(false);
   const [etsyMessage, setEtsyMessage] = useState<string | null>(null);
   const [etsyDraftListingId, setEtsyDraftListingId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -855,6 +866,7 @@ export default function Page() {
     scaleSeoLoading ||
     scalePdfLoading ||
     scaleEtsyLoading ||
+    scaleEtsyUrlLoading ||
     scalePinterestLoading ||
     scalePinterestPublishing ||
     scaleDeletingAll ||
@@ -864,7 +876,11 @@ export default function Page() {
   const scaleCanGenerateSeo = scaleUploadComplete && !scaleSeoComplete;
   const scaleCanGeneratePdf = scaleSeoComplete && !scalePdfComplete;
   const scaleCanSyncEtsy = scalePdfComplete && !scaleEtsyComplete;
-  const scaleCanGeneratePinterest = (scaleEtsyComplete || scalePdfComplete) && !scalePinterestComplete;
+  const scaleHasEtsyLinks =
+    scaleHasJobs && scaleJobs.every((job) => !!job.pinterestLink.trim());
+  const scaleCanFetchEtsyUrls = scaleEtsyComplete && !scaleHasEtsyLinks;
+  const scaleCanGeneratePinterest =
+    (scaleEtsyComplete || scalePdfComplete) && scaleHasEtsyLinks && !scalePinterestComplete;
   const scaleHasPublishReadyJobs = scaleJobs.some(
     (job) =>
       (job.status === "pinterest_complete" || job.status === "failed") &&
@@ -2116,9 +2132,83 @@ export default function Page() {
     setScaleEtsyLoading(false);
   }
 
+  async function fetchPublishedEtsyUrlForScaleJob(job: ScaleJob) {
+    if (!job.etsyDraftListingId.trim()) {
+      throw new Error("Enter the Etsy listing ID for this listing first.");
+    }
+
+    const res = await fetch("/api/etsy/listing-url", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        listingId: job.etsyDraftListingId.trim(),
+      }),
+    });
+
+    const data = (await res.json()) as EtsyListingUrlResponse;
+
+    if (!res.ok) {
+      throw new Error(data.error || "Failed to fetch Etsy listing URL.");
+    }
+
+    updateScaleJob(job.id, (current) => ({
+      ...current,
+      pinterestLink: data.listingUrl || current.pinterestLink,
+      stepLabel: data.listingUrl ? "Published Etsy URL loaded" : current.stepLabel,
+      errorMessage: null,
+    }));
+  }
+
+  async function fetchScalePublishedEtsyUrls() {
+    const eligible = scaleJobs.filter(
+      (job) =>
+        (job.status === "etsy_complete" || job.status === "failed") &&
+        !!job.etsyDraftListingId.trim()
+    );
+
+    if (eligible.length === 0) {
+      setScaleMessage("No Scale jobs are ready to fetch a published Etsy URL yet.");
+      return;
+    }
+
+    setScaleEtsyUrlLoading(true);
+    setScaleMessage(`Fetching published Etsy URLs for ${eligible.length} listing jobs...`);
+
+    let completedCount = 0;
+    let failedCount = 0;
+
+    await runWithConcurrency(eligible, 3, async (job) => {
+      try {
+        await fetchPublishedEtsyUrlForScaleJob(job);
+        completedCount += 1;
+      } catch (error: any) {
+        failedCount += 1;
+        updateScaleJob(job.id, (current) => ({
+          ...current,
+          status: "failed",
+          stepLabel: "Published Etsy URL failed",
+          errorMessage: error?.message || "Failed to fetch Etsy listing URL.",
+        }));
+      }
+    });
+
+    setScaleMessage(
+      failedCount > 0
+        ? `Etsy URL fetch finished. ${completedCount} complete, ${failedCount} failed.`
+        : `Etsy URL fetch finished. ${completedCount} listing jobs complete.`
+    );
+    setScaleEtsyUrlLoading(false);
+  }
+
   async function generatePinterestForScaleJob(job: ScaleJob) {
     if (!job.seoResult || !job.pinterestPins?.length) {
       throw new Error("Upload and generate SEO before creating Pinterest copy.");
+    }
+
+    if (!job.pinterestLink.trim()) {
+      throw new Error("Fetch the published Etsy URL before generating Pinterest copy.");
     }
 
     updateScaleJob(job.id, (current) => ({
@@ -2181,7 +2271,8 @@ export default function Page() {
           job.status === "pdf_complete" ||
           job.status === "failed") &&
         !!job.seoResult &&
-        !!job.pinterestPins?.length
+        !!job.pinterestPins?.length &&
+        !!job.pinterestLink.trim()
     );
 
     if (eligible.length === 0) {
@@ -3040,6 +3131,11 @@ export default function Page() {
       return;
     }
 
+    if (!pinterestLink.trim()) {
+      setError("Fetch or enter the published Etsy URL before generating Pinterest copy.");
+      return;
+    }
+
     setPinterestLoading(true);
     setError(null);
 
@@ -3300,6 +3396,43 @@ export default function Page() {
       setEtsyMessage(syncError?.message || "Failed to sync Etsy draft.");
     } finally {
       setEtsySyncing(false);
+    }
+  }
+
+  async function fetchPublishedEtsyUrl() {
+    const listingId = etsyDraftListingId.trim();
+    if (!listingId) {
+      setEtsyMessage("Enter the Etsy listing ID first.");
+      return;
+    }
+
+    setEtsyUrlLoading(true);
+    setEtsyMessage(null);
+
+    try {
+      const response = await fetch("/api/etsy/listing-url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ listingId }),
+      });
+
+      const data = (await response.json()) as EtsyListingUrlResponse;
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch Etsy listing URL.");
+      }
+
+      if (data.listingUrl) {
+        setPinterestLink(data.listingUrl);
+      }
+
+      setEtsyMessage(`Published Etsy URL loaded for listing ${data.listingId || listingId}.`);
+    } catch (syncError: any) {
+      setEtsyMessage(syncError?.message || "Failed to fetch Etsy listing URL.");
+    } finally {
+      setEtsyUrlLoading(false);
     }
   }
 
@@ -3771,6 +3904,25 @@ export default function Page() {
                   placeholder="Paste the Etsy product link when you have it. You can also leave this empty for now and add it manually later in Pinterest."
                   rows={3}
                 />
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    onClick={fetchPublishedEtsyUrl}
+                    disabled={etsyUrlLoading || !etsyDraftListingId.trim()}
+                  >
+                    {etsyUrlLoading ? (
+                      <>
+                        <Loader2 className="animate-spin" size={16} />
+                        Fetching Etsy URL...
+                      </>
+                    ) : (
+                      <>
+                        <Upload size={16} />
+                        Fetch published Etsy URL
+                      </>
+                    )}
+                  </Button>
+                </div>
 
                 <Dropzone
                   title="Pinterest images"
@@ -4335,7 +4487,7 @@ export default function Page() {
                             </Button>
                           </div>
 
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
                           <Button
                             variant={
                               scaleEtsyComplete
@@ -4372,6 +4524,37 @@ export default function Page() {
                             </Button>
                           <Button
                             variant={
+                              scaleHasEtsyLinks
+                                ? "success"
+                                : scaleCanFetchEtsyUrls
+                                  ? "primary"
+                                  : "secondary"
+                            }
+                            onClick={() => void fetchScalePublishedEtsyUrls()}
+                            disabled={
+                              !scaleCanFetchEtsyUrls ||
+                              scaleBusy ||
+                              scaleJobs.every(
+                                (job) =>
+                                  !(job.status === "etsy_complete" || job.status === "failed") ||
+                                  !job.etsyDraftListingId.trim()
+                              )
+                            }
+                          >
+                            {scaleEtsyUrlLoading ? (
+                              <>
+                                <Loader2 className="animate-spin" size={16} />
+                                Fetching URLs...
+                              </>
+                            ) : (
+                              <>
+                                <Upload size={16} />
+                                Fetch Etsy URL
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            variant={
                               scalePinterestComplete
                                 ? "success"
                                 : scaleCanGeneratePinterest
@@ -4390,7 +4573,8 @@ export default function Page() {
                                         job.status === "failed"
                                       ) ||
                                       !job.seoResult ||
-                                      !job.pinterestPins?.length
+                                      !job.pinterestPins?.length ||
+                                      !job.pinterestLink.trim()
                                   )
                                 }
                             >
