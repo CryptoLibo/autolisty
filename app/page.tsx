@@ -780,6 +780,8 @@ export default function Page() {
   const [scaleEtsyLoading, setScaleEtsyLoading] = useState(false);
   const [scalePinterestLoading, setScalePinterestLoading] = useState(false);
   const [scalePinterestPublishing, setScalePinterestPublishing] = useState(false);
+  const [scaleDeletingAll, setScaleDeletingAll] = useState(false);
+  const [scaleDeletingJobIds, setScaleDeletingJobIds] = useState<string[]>([]);
   const [scaleMessage, setScaleMessage] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -828,7 +830,9 @@ export default function Page() {
     scalePdfLoading ||
     scaleEtsyLoading ||
     scalePinterestLoading ||
-    scalePinterestPublishing;
+    scalePinterestPublishing ||
+    scaleDeletingAll ||
+    scaleDeletingJobIds.length > 0;
   const scaleCanImport = !scaleImportComplete;
   const scaleCanUpload = scaleImportComplete && !scaleUploadComplete;
   const scaleCanGenerateSeo = scaleUploadComplete && !scaleSeoComplete;
@@ -1315,6 +1319,99 @@ export default function Page() {
     updater: (job: ScaleJob) => ScaleJob
   ) {
     setScaleJobs((prev) => prev.map((job) => (job.id === jobId ? updater(job) : job)));
+  }
+
+  function resetScaleJobAfterDelete(job: ScaleJob): ScaleJob {
+    return {
+      ...job,
+      listingId: undefined,
+      status: "ready",
+      stepLabel: "Ready to upload again",
+      errorMessage: null,
+      designUrl: undefined,
+      mockupsUploaded: undefined,
+      seoResult: null,
+      deliveryPdfUrl: null,
+      etsyResult: null,
+      pinterestPins: undefined,
+    };
+  }
+
+  async function deleteScaleListingAssets(listingIds: string[]) {
+    const response = await fetch("/api/r2/delete-listings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ listingIds }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data?.error || "Failed to delete R2 assets");
+    }
+
+    return data as {
+      ok: true;
+      results: Array<{ listingId: string; deletedObjectCount: number }>;
+    };
+  }
+
+  async function clearScaleJobUploads(jobId: string) {
+    const targetJob = scaleJobs.find((job) => job.id === jobId);
+
+    if (!targetJob?.listingId) {
+      setScaleMessage("This listing does not have uploaded R2 assets yet.");
+      return;
+    }
+
+    setScaleDeletingJobIds((prev) => [...prev, jobId]);
+    setScaleMessage(`Deleting R2 assets for ${targetJob.folderName}...`);
+
+    try {
+      await deleteScaleListingAssets([targetJob.listingId]);
+
+      updateScaleJob(jobId, (current) => resetScaleJobAfterDelete(current));
+      setScaleMessage(`R2 assets deleted for ${targetJob.folderName}.`);
+    } catch (error: any) {
+      updateScaleJob(jobId, (current) => ({
+        ...current,
+        status: "failed",
+        stepLabel: "Delete failed",
+        errorMessage: error?.message || "Failed to delete R2 assets for this listing.",
+      }));
+      setScaleMessage(error?.message || "Failed to delete listing assets.");
+    } finally {
+      setScaleDeletingJobIds((prev) => prev.filter((id) => id !== jobId));
+    }
+  }
+
+  async function clearScaleSessionUploads() {
+    const listingIds = scaleJobs
+      .map((job) => job.listingId)
+      .filter((value): value is string => !!value);
+
+    if (listingIds.length === 0) {
+      setScaleMessage("This Scale session has no uploaded R2 assets to clear.");
+      return;
+    }
+
+    setScaleDeletingAll(true);
+    setScaleMessage(`Deleting R2 assets for ${listingIds.length} Scale jobs...`);
+
+    try {
+      await deleteScaleListingAssets(listingIds);
+
+      setScaleJobs((prev) => prev.map((job) => (
+        job.listingId ? resetScaleJobAfterDelete(job) : job
+      )));
+      setScaleMessage(`R2 assets deleted for ${listingIds.length} Scale jobs.`);
+    } catch (error: any) {
+      setScaleMessage(error?.message || "Failed to delete session uploads.");
+    } finally {
+      setScaleDeletingAll(false);
+    }
   }
 
   function parseScaleJobFiles(job: ScaleJob) {
@@ -4242,22 +4339,34 @@ export default function Page() {
 
                     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
                       <div className="space-y-4">
-                        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                              <div className="text-sm font-medium text-neutral-100">
-                                Imported listing jobs
+                          <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <div className="text-sm font-medium text-neutral-100">
+                                  Imported listing jobs
                               </div>
                               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-400">
                                 This is the first Scale layer: import many prepared folders and let the app
                                 convert each one into an isolated job before we activate parallel stages.
                               </p>
-                            </div>
-                            <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-4 py-3 text-sm text-[#f1cc61]">
-                              {scaleJobs.length} job{scaleJobs.length === 1 ? "" : "s"}
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-4 py-3 text-sm text-[#f1cc61]">
+                                  {scaleJobs.length} job{scaleJobs.length === 1 ? "" : "s"}
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => void clearScaleSessionUploads()}
+                                  disabled={
+                                    scaleBusy ||
+                                    !scaleJobs.some((job) => !!job.listingId)
+                                  }
+                                >
+                                  {scaleDeletingAll ? "Clearing session..." : "Clear session uploads"}
+                                </Button>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
                         {scaleMessage ? (
                           <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-4 text-sm text-[#f1cc61]">
@@ -4276,11 +4385,11 @@ export default function Page() {
                                 key={job.id}
                                 className="rounded-3xl border border-neutral-800 bg-neutral-950/80 p-5"
                               >
-                                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                                  <div className="space-y-2">
-                                    <div className="text-sm font-semibold text-neutral-100">
-                                      {job.folderName}
-                                    </div>
+                                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                    <div className="space-y-2">
+                                      <div className="text-sm font-semibold text-neutral-100">
+                                        {job.folderName}
+                                      </div>
                                     <div className="flex flex-wrap gap-2 text-xs text-neutral-400">
                                       <span className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5">
                                         Design {job.counts.design}
@@ -4294,68 +4403,82 @@ export default function Page() {
                                       <span className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5">
                                         Deliverables {job.counts.deliverables}
                                       </span>
-                                      <span className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5">
-                                        Pins {job.counts.pinterest}
-                                      </span>
+                                        <span className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5">
+                                          Pins {job.counts.pinterest}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <div
+                                        className={cn(
+                                          "inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
+                                          job.status === "published"
+                                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                                          : job.status === "generating_pdf" ||
+                                                job.status === "generating_seo" ||
+                                                job.status === "generating_pinterest" ||
+                                                job.status === "publishing_pinterest" ||
+                                                job.status === "syncing_etsy" ||
+                                                job.status === "uploading"
+                                              ? "border-[#eeba2b]/30 bg-[#eeba2b]/10 text-[#f1cc61]"
+                                              : job.status === "pinterest_complete"
+                                                ? "border-pink-500/30 bg-pink-500/10 text-pink-200"
+                                              : job.status === "etsy_complete"
+                                                ? "border-lime-500/30 bg-lime-500/10 text-lime-200"
+                                              : job.status === "pdf_complete"
+                                                ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-200"
+                                              : job.status === "seo_complete"
+                                                ? "border-violet-500/30 bg-violet-500/10 text-violet-200"
+                                              : job.status === "uploaded"
+                                                ? "border-teal-500/30 bg-teal-500/10 text-teal-200"
+                                              : job.status === "ready"
+                                                ? "border-sky-500/30 bg-sky-500/10 text-sky-200"
+                                                : "border-red-500/30 bg-red-500/10 text-red-200"
+                                        )}
+                                      >
+                                        {job.status === "published"
+                                          ? "Complete"
+                                          : job.status === "publishing_pinterest"
+                                            ? "Publishing Pinterest"
+                                          : job.status === "pinterest_complete"
+                                            ? "Pinterest ready"
+                                          : job.status === "generating_pinterest"
+                                            ? "Generating Pinterest"
+                                          : job.status === "etsy_complete"
+                                            ? "Etsy ready"
+                                          : job.status === "syncing_etsy"
+                                            ? "Syncing Etsy"
+                                          : job.status === "generating_pdf"
+                                            ? "Generating PDF"
+                                          : job.status === "pdf_complete"
+                                            ? "PDF ready"
+                                          : job.status === "generating_seo"
+                                            ? "Generating SEO"
+                                            : job.status === "seo_complete"
+                                              ? "SEO ready"
+                                            : job.status === "uploading"
+                                              ? "Uploading"
+                                            : job.status === "uploaded"
+                                              ? "Uploaded"
+                                            : job.status === "ready"
+                                              ? "Ready"
+                                              : "Needs attention"}
+                                      </div>
+                                      <Button
+                                        variant="ghost"
+                                        onClick={() => void clearScaleJobUploads(job.id)}
+                                        disabled={
+                                          scaleBusy ||
+                                          !job.listingId ||
+                                          scaleDeletingJobIds.includes(job.id)
+                                        }
+                                      >
+                                        {scaleDeletingJobIds.includes(job.id)
+                                          ? "Clearing..."
+                                          : "Clear uploads"}
+                                      </Button>
                                     </div>
                                   </div>
-
-                                  <div
-                                    className={cn(
-                                      "inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
-                                      job.status === "published"
-                                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                                      : job.status === "generating_pdf" ||
-                                            job.status === "generating_seo" ||
-                                            job.status === "generating_pinterest" ||
-                                            job.status === "publishing_pinterest" ||
-                                            job.status === "syncing_etsy" ||
-                                            job.status === "uploading"
-                                          ? "border-[#eeba2b]/30 bg-[#eeba2b]/10 text-[#f1cc61]"
-                                          : job.status === "pinterest_complete"
-                                            ? "border-pink-500/30 bg-pink-500/10 text-pink-200"
-                                          : job.status === "etsy_complete"
-                                            ? "border-lime-500/30 bg-lime-500/10 text-lime-200"
-                                          : job.status === "pdf_complete"
-                                            ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-200"
-                                          : job.status === "seo_complete"
-                                            ? "border-violet-500/30 bg-violet-500/10 text-violet-200"
-                                          : job.status === "uploaded"
-                                            ? "border-teal-500/30 bg-teal-500/10 text-teal-200"
-                                          : job.status === "ready"
-                                            ? "border-sky-500/30 bg-sky-500/10 text-sky-200"
-                                            : "border-red-500/30 bg-red-500/10 text-red-200"
-                                    )}
-                                  >
-                                    {job.status === "published"
-                                      ? "Complete"
-                                      : job.status === "publishing_pinterest"
-                                        ? "Publishing Pinterest"
-                                      : job.status === "pinterest_complete"
-                                        ? "Pinterest ready"
-                                      : job.status === "generating_pinterest"
-                                        ? "Generating Pinterest"
-                                      : job.status === "etsy_complete"
-                                        ? "Etsy ready"
-                                      : job.status === "syncing_etsy"
-                                        ? "Syncing Etsy"
-                                      : job.status === "generating_pdf"
-                                        ? "Generating PDF"
-                                      : job.status === "pdf_complete"
-                                        ? "PDF ready"
-                                      : job.status === "generating_seo"
-                                        ? "Generating SEO"
-                                        : job.status === "seo_complete"
-                                          ? "SEO ready"
-                                        : job.status === "uploading"
-                                          ? "Uploading"
-                                        : job.status === "uploaded"
-                                          ? "Uploaded"
-                                        : job.status === "ready"
-                                          ? "Ready"
-                                          : "Needs attention"}
-                                  </div>
-                                </div>
 
                                 <div className="mt-3 text-xs text-neutral-500">
                                   {job.stepLabel}
