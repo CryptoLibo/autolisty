@@ -452,12 +452,21 @@ function Card({
           : "border-neutral-800 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
       )}
     >
-      <div className="flex flex-col gap-4 border-b border-white/6 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-2.5 w-2.5 rounded-full bg-[#eeba2b]" />
-          <h2 className="text-sm font-semibold text-neutral-100">{title}</h2>
-        </div>
-        {right}
+      <div
+        className={cn(
+          "border-b border-white/6 px-6 py-5",
+          title
+            ? "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+            : "flex items-center"
+        )}
+      >
+        {title ? (
+          <div className="flex items-center gap-3">
+            <div className="h-2.5 w-2.5 rounded-full bg-[#eeba2b]" />
+            <h2 className="text-sm font-semibold text-neutral-100">{title}</h2>
+          </div>
+        ) : null}
+        {right ? <div className={cn(title ? "" : "w-full")}>{right}</div> : null}
       </div>
       <div className="p-6">{children}</div>
     </section>
@@ -4512,8 +4521,8 @@ export default function Page() {
                 accent
                 right={
                   <div className="w-full lg:min-w-[980px]">
-                    <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[220px_minmax(0,1fr)_120px] lg:items-start lg:gap-4">
-                      <div className="flex justify-center lg:justify-start">
+                    <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[220px_minmax(0,1fr)_120px] lg:items-center lg:gap-4">
+                      <div className="flex justify-center">
                         <select
                           value={scaleProductType}
                           onChange={(e) =>
@@ -4833,7 +4842,7 @@ export default function Page() {
                             </Button>
                         </div>
                       </div>
-                      <div className="flex justify-center lg:justify-end">
+                      <div className="flex justify-center">
                         <Button
                           variant="ghost"
                           onClick={resetScale}
