@@ -1011,6 +1011,38 @@ export default function Page() {
     };
   }, [scaleSeoModalJob]);
 
+  useEffect(() => {
+    if (activeSection !== "batch") return;
+
+    function hasFilePayload(event: DragEvent) {
+      const types = Array.from(event.dataTransfer?.types || []);
+      return types.includes("Files");
+    }
+
+    function handleDragOver(event: DragEvent) {
+      if (!hasFilePayload(event)) return;
+      event.preventDefault();
+    }
+
+    function handleDrop(event: DragEvent) {
+      if (!hasFilePayload(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void importScaleListings(
+        Array.from(event.dataTransfer?.files || []),
+        event.dataTransfer?.items
+      );
+    }
+
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("drop", handleDrop);
+
+    return () => {
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("drop", handleDrop);
+    };
+  }, [activeSection]);
+
   function ensureListingId() {
     if (listingIdRef.current) return listingIdRef.current;
     if (listingId) {
