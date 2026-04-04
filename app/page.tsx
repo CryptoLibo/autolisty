@@ -200,14 +200,6 @@ function getNestedPath(relativePath: string) {
   return rest.join("/");
 }
 
-function getScaleImportedFileInfo(item: ScaleImportedFile) {
-  const normalizedPath = normalizeFolderPath(item.relativePath || item.file.name);
-  return {
-    normalizedPath,
-    normalizedName: normalizeFolderPath(item.file.name),
-  };
-}
-
 function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
   const grouped = new Map<string, ScaleImportedFile[]>();
 
@@ -2292,6 +2284,14 @@ export default function Page() {
       relativePath,
       normalizedPath: normalizeFolderPath(relativePath || file.name),
       normalizedName: normalizeFolderPath(file.name),
+    };
+  }
+
+  function getScaleImportedFileInfo(item: ScaleImportedFile) {
+    const normalizedPath = normalizeFolderPath(item.relativePath || item.file.name);
+    return {
+      normalizedPath,
+      normalizedName: normalizeFolderPath(item.file.name),
     };
   }
 
