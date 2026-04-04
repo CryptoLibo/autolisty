@@ -5065,7 +5065,10 @@ export default function Page() {
                     </div>
                   </div>
 
-                  <div className="rounded-3xl border border-white/8 bg-neutral-950/70 p-5">
+                  <div
+                    className="rounded-3xl border border-white/8 bg-neutral-950/70 p-5"
+                    style={{ contentVisibility: "auto", containIntrinsicSize: "420px" }}
+                  >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
                       Description
                     </div>
@@ -5084,7 +5087,10 @@ export default function Page() {
                     </div>
                   </div>
 
-                  <div className="rounded-3xl border border-white/8 bg-neutral-950/70 p-5">
+                  <div
+                    className="rounded-3xl border border-white/8 bg-neutral-950/70 p-5"
+                    style={{ contentVisibility: "auto", containIntrinsicSize: "720px" }}
+                  >
                     <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
                       Mockups & alt text
                     </div>
@@ -5106,6 +5112,8 @@ export default function Page() {
                                 src={item.url}
                                 alt={`Mockup ${item.position}`}
                                 className="h-44 w-full rounded-2xl border border-neutral-800 object-cover"
+                                loading="lazy"
+                                decoding="async"
                               />
                               <div className="mt-3 text-xs leading-relaxed text-neutral-300">
                                 {altText}
@@ -5119,7 +5127,10 @@ export default function Page() {
                     )}
                   </div>
 
-                  <div className="rounded-3xl border border-white/8 bg-neutral-950/70 p-5">
+                  <div
+                    className="rounded-3xl border border-white/8 bg-neutral-950/70 p-5"
+                    style={{ contentVisibility: "auto", containIntrinsicSize: "680px" }}
+                  >
                     <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
                       Pinterest
                     </div>
@@ -5140,6 +5151,8 @@ export default function Page() {
                                 src={item.url}
                                 alt={`Pin ${item.position}`}
                                 className="h-56 w-full rounded-2xl border border-neutral-800 object-cover"
+                                loading="lazy"
+                                decoding="async"
                               />
                               <div className="mt-3 space-y-2">
                                 <div className="text-sm font-medium text-neutral-100">
