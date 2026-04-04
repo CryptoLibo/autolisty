@@ -131,6 +131,8 @@ const STORAGE_KEYS = {
   scaleProductType: "autolisty.scaleProductType",
 } as const;
 
+const ICON_REV = "20260404";
+
 function readStoredActiveSection(): AppSection {
   if (typeof window === "undefined") return "single";
   const value = window.localStorage.getItem(STORAGE_KEYS.activeSection);
@@ -4581,11 +4583,12 @@ export default function Page() {
                               ) : (
                                 <>
                                   <Image
-                                    src="/icons/cloudflare.png"
+                                    src={`/icons/cloudflare.png?v=${ICON_REV}`}
                                     alt=""
                                     width={16}
                                     height={16}
                                     className="h-4 w-4 object-contain"
+                                    unoptimized
                                   />
                                   R2 Upload
                                 </>
@@ -4704,11 +4707,12 @@ export default function Page() {
                               ) : (
                                 <>
                                   <Image
-                                    src="/icons/etsy.png"
+                                    src={`/icons/etsy.png?v=${ICON_REV}`}
                                     alt=""
                                     width={16}
                                     height={16}
                                     className="h-4 w-4 object-contain"
+                                    unoptimized
                                   />
                                   Sync Etsy
                                 </>
@@ -4816,11 +4820,12 @@ export default function Page() {
                               ) : (
                                 <>
                                   <Image
-                                    src="/icons/pinterest.png"
+                                    src={`/icons/pinterest.png?v=${ICON_REV}`}
                                     alt=""
                                     width={16}
                                     height={16}
                                     className="h-4 w-4 object-contain"
+                                    unoptimized
                                   />
                                   Publish Pinterest
                                 </>
