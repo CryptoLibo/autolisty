@@ -790,6 +790,8 @@ export default function Page() {
   const [scalePinterestPublishing, setScalePinterestPublishing] = useState(false);
   const [scaleDeletingAll, setScaleDeletingAll] = useState(false);
   const [scaleDeletingJobIds, setScaleDeletingJobIds] = useState<string[]>([]);
+  const [selectedScaleJobId, setSelectedScaleJobId] = useState<string | null>(null);
+  const [selectedScalePreviewUrl, setSelectedScalePreviewUrl] = useState<string | null>(null);
   const [scaleMessage, setScaleMessage] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -831,6 +833,8 @@ export default function Page() {
     scaleHasJobs && scaleJobs.every((job) => hasReachedScaleStage(job.status, "pinterest"));
   const scalePublishedComplete =
     scaleHasJobs && scaleJobs.every((job) => hasReachedScaleStage(job.status, "published"));
+  const selectedScaleJob =
+    scaleJobs.find((job) => job.id === selectedScaleJobId) || scaleJobs[0] || null;
   const scaleBusy =
     scaleImporting ||
     scaleUploading ||
@@ -913,6 +917,46 @@ export default function Page() {
     void loadEtsyStatus();
     void loadPinterestStatus();
   }, []);
+
+  useEffect(() => {
+    if (!selectedScaleJobId && scaleJobs.length > 0) {
+      setSelectedScaleJobId(scaleJobs[0].id);
+      return;
+    }
+
+    if (
+      selectedScaleJobId &&
+      scaleJobs.length > 0 &&
+      !scaleJobs.some((job) => job.id === selectedScaleJobId)
+    ) {
+      setSelectedScaleJobId(scaleJobs[0].id);
+      return;
+    }
+
+    if (scaleJobs.length === 0 && selectedScaleJobId) {
+      setSelectedScaleJobId(null);
+    }
+  }, [scaleJobs, selectedScaleJobId]);
+
+  useEffect(() => {
+    if (!selectedScaleJob) {
+      setSelectedScalePreviewUrl(null);
+      return;
+    }
+
+    const { designCandidate } = parseScaleJobFiles(selectedScaleJob);
+    if (!designCandidate) {
+      setSelectedScalePreviewUrl(null);
+      return;
+    }
+
+    const nextUrl = URL.createObjectURL(designCandidate);
+    setSelectedScalePreviewUrl(nextUrl);
+
+    return () => {
+      URL.revokeObjectURL(nextUrl);
+    };
+  }, [selectedScaleJob]);
 
   function ensureListingId() {
     if (listingIdRef.current) return listingIdRef.current;
@@ -4404,11 +4448,17 @@ export default function Page() {
                           </div>
                         ) : (
                           <div className="space-y-3">
-                            {scaleJobs.map((job) => (
-                              <div
-                                key={job.id}
-                                className="rounded-3xl border border-neutral-800 bg-neutral-950/80 p-5"
-                              >
+                              {scaleJobs.map((job) => (
+                                <div
+                                  key={job.id}
+                                  onClick={() => setSelectedScaleJobId(job.id)}
+                                  className={cn(
+                                    "cursor-pointer rounded-3xl border bg-neutral-950/80 p-5 transition",
+                                    selectedScaleJob?.id === job.id
+                                      ? "border-[#eeba2b]/40 ring-1 ring-[#eeba2b]/20"
+                                      : "border-neutral-800 hover:border-neutral-700"
+                                  )}
+                                >
                                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                                     <div className="space-y-2">
                                       <div className="text-sm font-semibold text-neutral-100">
@@ -4610,22 +4660,81 @@ export default function Page() {
                         )}
                       </div>
 
-                      <div className="rounded-3xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-5">
-                        <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#f1cc61]">
-                          Scale foundation
+                        <div className="rounded-3xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-5">
+                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#f1cc61]">
+                            Selected listing
+                          </div>
+
+                          {selectedScaleJob ? (
+                            <div className="mt-3 space-y-4">
+                              <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                                <div className="text-sm font-semibold text-neutral-100">
+                                  {selectedScaleJob.folderName}
+                                </div>
+                                <div className="mt-2 text-xs text-neutral-400">
+                                  {selectedScaleJob.stepLabel || "Ready"}
+                                  {selectedScaleJob.listingId ? (
+                                    <>
+                                      {" "}
+                                      <span className="text-neutral-500">•</span>{" "}
+                                      {selectedScaleJob.listingId}
+                                    </>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div className="overflow-hidden rounded-3xl border border-white/8 bg-neutral-950/70 p-3">
+                                <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                                  Design preview
+                                </div>
+                                <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-900/60">
+                                  {selectedScalePreviewUrl ? (
+                                    <img
+                                      src={selectedScalePreviewUrl}
+                                      alt={`${selectedScaleJob.folderName} design preview`}
+                                      className="max-h-[240px] w-auto rounded-xl border border-neutral-800 object-contain"
+                                    />
+                                  ) : (
+                                    <div className="px-4 text-center text-sm text-neutral-500">
+                                      No Midjourney design detected for this listing.
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-3 text-xs text-neutral-300">
+                                <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                                  <div className="text-neutral-500">Media</div>
+                                  <div className="mt-1 text-sm font-semibold text-neutral-100">
+                                    {selectedScaleJob.counts.mockups}
+                                  </div>
+                                </div>
+                                <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                                  <div className="text-neutral-500">Pins</div>
+                                  <div className="mt-1 text-sm font-semibold text-neutral-100">
+                                    {selectedScaleJob.counts.pinterest}
+                                  </div>
+                                </div>
+                                <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                                  <div className="text-neutral-500">Deliverables</div>
+                                  <div className="mt-1 text-sm font-semibold text-neutral-100">
+                                    {selectedScaleJob.counts.deliverables}
+                                  </div>
+                                </div>
+                                <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                                  <div className="text-neutral-500">Video</div>
+                                  <div className="mt-1 text-sm font-semibold text-neutral-100">
+                                    {selectedScaleJob.counts.videos}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-3 rounded-2xl border border-white/8 bg-neutral-950/60 p-4 text-sm text-neutral-400">
+                              Import listings to preview the main design of the selected job here.
+                            </div>
+                          )}
                         </div>
-                        <div className="mt-3 space-y-3 text-sm text-neutral-200">
-                          <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                            1. Import listing folders directly into the workspace.
-                          </div>
-                          <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                            2. Create one isolated job per folder, with its own state and validation.
-                          </div>
-                          <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                            3. Add true parallel stages next, starting with upload and SEO.
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </Card>
