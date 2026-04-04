@@ -1013,6 +1013,24 @@ export default function Page() {
   }, [scaleSeoModalJob]);
 
   useEffect(() => {
+    if (!scaleSeoModalJob) return;
+
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousBodyTouchAction = document.body.style.touchAction;
+
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+
+    return () => {
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+      document.body.style.touchAction = previousBodyTouchAction;
+    };
+  }, [scaleSeoModalJob]);
+
+  useEffect(() => {
     if (activeSection !== "batch") return;
 
     function hasFilePayload(event: DragEvent) {
