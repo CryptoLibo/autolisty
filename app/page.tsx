@@ -909,7 +909,10 @@ export default function Page() {
     scalePinterestPublishing ||
     scaleDeletingAll ||
     scaleDeletingJobIds.length > 0;
-  const scaleCanImport = !scaleImportComplete;
+  const scaleImportLocked = scaleJobs.some(
+    (job) => !!job.listingId || hasReachedScaleStage(job.status, "uploaded") || job.status === "uploading"
+  );
+  const scaleCanImport = !scaleImportLocked;
   const scaleCanUpload = scaleImportComplete && !scaleUploadComplete;
   const scaleCanGenerateSeo = scaleUploadComplete && !scaleSeoComplete;
   const scaleCanGeneratePdf = scaleSeoComplete && !scalePdfComplete;
