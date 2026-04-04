@@ -816,10 +816,6 @@ export default function Page() {
 
   const mockupIds = useMemo(() => mockups.map((m) => m.id), [mockups]);
   const selectedProduct = useMemo(() => getProductOption(productType), [productType]);
-  const selectedScaleProduct = useMemo(
-    () => getProductOption(scaleProductType),
-    [scaleProductType]
-  );
   const activeDeliveryFields = useMemo(
     () => selectedProduct.delivery.fields,
     [selectedProduct]
@@ -4130,7 +4126,24 @@ export default function Page() {
                 title="Scale"
                 accent
                 right={
-                  <div className="w-full space-y-2 sm:w-auto sm:min-w-[720px]">
+                  <div className="w-full space-y-2 sm:w-auto sm:min-w-[920px]">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[220px_minmax(0,1fr)] sm:items-center">
+                      <select
+                        value={scaleProductType}
+                        onChange={(e) =>
+                          handleScaleProductTypeChange(e.target.value as ProductType)
+                        }
+                        disabled={scaleBusy}
+                        className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                      >
+                        {PRODUCT_OPTIONS.map((product) => (
+                          <option key={product.value} value={product.value}>
+                            {product.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                       <Button
                         variant={
@@ -4380,40 +4393,8 @@ export default function Page() {
                       />
                     </div>
                   }
-                >
+                  >
                     <div className="space-y-6">
-                      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-5">
-                        <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-center">
-                          <div className="space-y-2">
-                            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
-                              Product type
-                            </div>
-                            <select
-                              value={scaleProductType}
-                              onChange={(e) =>
-                                handleScaleProductTypeChange(e.target.value as ProductType)
-                              }
-                              disabled={scaleBusy}
-                              className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
-                            >
-                              {PRODUCT_OPTIONS.map((product) => (
-                                <option key={product.value} value={product.value}>
-                                  {product.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4 text-sm text-neutral-300">
-                            Scale is currently configured for{" "}
-                            <span className="font-semibold text-neutral-100">
-                              {selectedScaleProduct.label}
-                            </span>
-                            . Changing this product resets the imported Scale jobs so the folder validation and delivery flow stay consistent.
-                          </div>
-                        </div>
-                      </div>
-
                       <div
                         onDragOver={(e) => {
                           e.preventDefault();
