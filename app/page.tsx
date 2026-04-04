@@ -20,6 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import Image from "next/image";
 import {
   Copy,
+  Eye,
   Image as ImageIcon,
   Loader2,
   Sparkles,
@@ -793,8 +794,14 @@ export default function Page() {
   const [scalePinterestPublishing, setScalePinterestPublishing] = useState(false);
   const [scaleDeletingAll, setScaleDeletingAll] = useState(false);
   const [scaleDeletingJobIds, setScaleDeletingJobIds] = useState<string[]>([]);
-  const [selectedScaleJobId, setSelectedScaleJobId] = useState<string | null>(null);
-  const [selectedScalePreviewUrl, setSelectedScalePreviewUrl] = useState<string | null>(null);
+  const [scaleSeoModalJobId, setScaleSeoModalJobId] = useState<string | null>(null);
+  const [scaleSeoModalDesignUrl, setScaleSeoModalDesignUrl] = useState<string | null>(null);
+  const [scaleSeoModalMockupUrls, setScaleSeoModalMockupUrls] = useState<
+    Array<{ id: string; url: string; position: number }>
+  >([]);
+  const [scaleSeoModalPinUrls, setScaleSeoModalPinUrls] = useState<
+    Array<{ id: string; url: string; position: number }>
+  >([]);
   const [scaleMessage, setScaleMessage] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -840,8 +847,8 @@ export default function Page() {
     scaleHasJobs && scaleJobs.every((job) => hasReachedScaleStage(job.status, "pinterest"));
   const scalePublishedComplete =
     scaleHasJobs && scaleJobs.every((job) => hasReachedScaleStage(job.status, "published"));
-  const selectedScaleJob =
-    scaleJobs.find((job) => job.id === selectedScaleJobId) || scaleJobs[0] || null;
+  const scaleSeoModalJob =
+    scaleJobs.find((job) => job.id === scaleSeoModalJobId) || null;
   const scaleBusy =
     scaleImporting ||
     scaleUploading ||
@@ -931,44 +938,62 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    if (!selectedScaleJobId && scaleJobs.length > 0) {
-      setSelectedScaleJobId(scaleJobs[0].id);
+    if (!scaleSeoModalJob) {
+      setScaleSeoModalDesignUrl(null);
+      setScaleSeoModalMockupUrls([]);
+      setScaleSeoModalPinUrls([]);
       return;
     }
 
-    if (
-      selectedScaleJobId &&
-      scaleJobs.length > 0 &&
-      !scaleJobs.some((job) => job.id === selectedScaleJobId)
-    ) {
-      setSelectedScaleJobId(scaleJobs[0].id);
-      return;
+    const { designCandidate, mockupCandidates, pinterestCandidates } = parseScaleJobFiles(scaleSeoModalJob);
+    const localUrls: string[] = [];
+
+    if (scaleSeoModalJob.designUrl) {
+      setScaleSeoModalDesignUrl(scaleSeoModalJob.designUrl);
+    } else if (designCandidate) {
+      const nextUrl = URL.createObjectURL(designCandidate);
+      localUrls.push(nextUrl);
+      setScaleSeoModalDesignUrl(nextUrl);
+    } else {
+      setScaleSeoModalDesignUrl(null);
     }
 
-    if (scaleJobs.length === 0 && selectedScaleJobId) {
-      setSelectedScaleJobId(null);
+    if (scaleSeoModalJob.mockupsUploaded?.length) {
+      setScaleSeoModalMockupUrls(
+        [...scaleSeoModalJob.mockupsUploaded]
+          .sort((a, b) => a.position - b.position)
+          .map((item) => ({ id: item.id, url: item.url, position: item.position }))
+      );
+    } else {
+      setScaleSeoModalMockupUrls(
+        mockupCandidates.map((file, index) => {
+          const nextUrl = URL.createObjectURL(file);
+          localUrls.push(nextUrl);
+          return { id: `${scaleSeoModalJob.id}-mockup-${index}`, url: nextUrl, position: index + 1 };
+        })
+      );
     }
-  }, [scaleJobs, selectedScaleJobId]);
 
-  useEffect(() => {
-    if (!selectedScaleJob) {
-      setSelectedScalePreviewUrl(null);
-      return;
+    if (scaleSeoModalJob.pinterestPins?.length) {
+      setScaleSeoModalPinUrls(
+        [...scaleSeoModalJob.pinterestPins]
+          .sort((a, b) => a.position - b.position)
+          .map((item) => ({ id: item.id, url: item.url, position: item.position }))
+      );
+    } else {
+      setScaleSeoModalPinUrls(
+        pinterestCandidates.map((file, index) => {
+          const nextUrl = URL.createObjectURL(file);
+          localUrls.push(nextUrl);
+          return { id: `${scaleSeoModalJob.id}-pin-${index}`, url: nextUrl, position: index + 1 };
+        })
+      );
     }
-
-    const { designCandidate } = parseScaleJobFiles(selectedScaleJob);
-    if (!designCandidate) {
-      setSelectedScalePreviewUrl(null);
-      return;
-    }
-
-    const nextUrl = URL.createObjectURL(designCandidate);
-    setSelectedScalePreviewUrl(nextUrl);
 
     return () => {
-      URL.revokeObjectURL(nextUrl);
+      localUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [selectedScaleJob]);
+  }, [scaleSeoModalJob]);
 
   function ensureListingId() {
     if (listingIdRef.current) return listingIdRef.current;
@@ -4444,8 +4469,7 @@ export default function Page() {
                     </div>
                   }
                   >
-                    <div className="space-y-6">
-                      <div
+                    <div
                         onDragOver={(e) => {
                           e.preventDefault();
                         e.stopPropagation();
@@ -4458,39 +4482,15 @@ export default function Page() {
                           e.dataTransfer.items
                         );
                       }}
-                      className="rounded-3xl border border-dashed border-[#eeba2b]/20 bg-neutral-900/30 p-6 transition hover:border-[#eeba2b]/35"
+                      className="space-y-4 rounded-3xl border border-dashed border-[#eeba2b]/18 bg-neutral-900/20 p-1 transition hover:border-[#eeba2b]/30"
                     >
-                      <div className="flex items-start gap-4">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 text-[#eeba2b]">
-                          <Layers3 size={20} />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="text-sm font-semibold text-neutral-100">
-                            Drop listing folders directly into Scale
-                          </div>
-                          <div className="max-w-3xl text-sm leading-relaxed text-neutral-400">
-                            Import as many prepared listing folders as you want. Each folder becomes one
-                            independent job, ready for its own upload, SEO, PDF, Etsy, and Pinterest flow.
-                          </div>
-                          <div className="text-xs text-neutral-500">
-                            You can drag folders here or use <span className="text-neutral-300">Import listings</span> to choose a parent folder.
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
                       <div className="space-y-4">
                           <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                               <div>
                                 <div className="text-sm font-medium text-neutral-100">
                                   Imported listing jobs
-                              </div>
-                              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-400">
-                                This is the first Scale layer: import many prepared folders and let the app
-                                convert each one into an isolated job before we activate parallel stages.
-                              </p>
+                                </div>
                               </div>
                               <div className="flex items-center gap-3">
                                 <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-4 py-3 text-sm text-[#f1cc61]">
@@ -4525,12 +4525,8 @@ export default function Page() {
                               {scaleJobs.map((job) => (
                                 <div
                                   key={job.id}
-                                  onClick={() => setSelectedScaleJobId(job.id)}
                                   className={cn(
-                                    "cursor-pointer rounded-3xl border bg-neutral-950/80 p-5 transition",
-                                    selectedScaleJob?.id === job.id
-                                      ? "border-[#eeba2b]/40 ring-1 ring-[#eeba2b]/20"
-                                      : "border-neutral-800 hover:border-neutral-700"
+                                    "rounded-3xl border border-neutral-800 bg-neutral-950/80 p-5 transition hover:border-neutral-700"
                                   )}
                                 >
                                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -4612,6 +4608,13 @@ export default function Page() {
                                               ? "Ready"
                                               : "Needs attention"}
                                       </div>
+                                      <Button
+                                        variant="ghost"
+                                        onClick={() => setScaleSeoModalJobId(job.id)}
+                                      >
+                                        <Eye size={16} />
+                                        View SEO
+                                      </Button>
                                       <Button
                                         variant="ghost"
                                         onClick={() => void clearScaleJobUploads(job.id)}
@@ -4733,88 +4736,216 @@ export default function Page() {
                           </div>
                         )}
                       </div>
-
-                        <div className="rounded-3xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-5">
-                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#f1cc61]">
-                            Selected listing
-                          </div>
-
-                          {selectedScaleJob ? (
-                            <div className="mt-3 space-y-4">
-                              <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                                <div className="text-sm font-semibold text-neutral-100">
-                                  {selectedScaleJob.folderName}
-                                </div>
-                                <div className="mt-2 text-xs text-neutral-400">
-                                  {selectedScaleJob.stepLabel || "Ready"}
-                                  {selectedScaleJob.listingId ? (
-                                    <>
-                                      {" "}
-                                      <span className="text-neutral-500">•</span>{" "}
-                                      {selectedScaleJob.listingId}
-                                    </>
-                                  ) : null}
-                                </div>
-                              </div>
-
-                              <div className="overflow-hidden rounded-3xl border border-white/8 bg-neutral-950/70 p-3">
-                                <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
-                                  Design preview
-                                </div>
-                                <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-900/60">
-                                  {selectedScalePreviewUrl ? (
-                                    <img
-                                      src={selectedScalePreviewUrl}
-                                      alt={`${selectedScaleJob.folderName} design preview`}
-                                      className="max-h-[240px] w-auto rounded-xl border border-neutral-800 object-contain"
-                                    />
-                                  ) : (
-                                    <div className="px-4 text-center text-sm text-neutral-500">
-                                      No Midjourney design detected for this listing.
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-3 text-xs text-neutral-300">
-                                <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                                  <div className="text-neutral-500">Media</div>
-                                  <div className="mt-1 text-sm font-semibold text-neutral-100">
-                                    {selectedScaleJob.counts.mockups}
-                                  </div>
-                                </div>
-                                <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                                  <div className="text-neutral-500">Pins</div>
-                                  <div className="mt-1 text-sm font-semibold text-neutral-100">
-                                    {selectedScaleJob.counts.pinterest}
-                                  </div>
-                                </div>
-                                <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                                  <div className="text-neutral-500">Deliverables</div>
-                                  <div className="mt-1 text-sm font-semibold text-neutral-100">
-                                    {selectedScaleJob.counts.deliverables}
-                                  </div>
-                                </div>
-                                <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
-                                  <div className="text-neutral-500">Video</div>
-                                  <div className="mt-1 text-sm font-semibold text-neutral-100">
-                                    {selectedScaleJob.counts.videos}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="mt-3 rounded-2xl border border-white/8 bg-neutral-950/60 p-4 text-sm text-neutral-400">
-                              Import listings to preview the main design of the selected job here.
-                            </div>
-                          )}
-                        </div>
-                    </div>
                   </div>
                 </Card>
               </div>
             ) : null}
           </div>
+
+        {scaleSeoModalJob ? (
+          <div className="fixed inset-0 z-50">
+            <button
+              type="button"
+              aria-label="Close SEO review"
+              className="absolute inset-0 bg-black/70 backdrop-blur-[2px]"
+              onClick={() => setScaleSeoModalJobId(null)}
+            />
+            <div className="absolute inset-x-4 top-6 mx-auto max-h-[calc(100vh-3rem)] max-w-6xl overflow-hidden rounded-[28px] border border-[#eeba2b]/20 bg-[#0b0f14]/98 shadow-[0_32px_90px_rgba(0,0,0,0.55)] backdrop-blur sm:inset-x-6">
+              <div className="flex items-center justify-between gap-4 border-b border-white/8 px-5 py-4 sm:px-6">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
+                    SEO Review
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-neutral-100">
+                    {scaleSeoModalJob.folderName}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setScaleSeoModalJobId(null)}
+                  className="rounded-2xl border border-neutral-800 bg-neutral-950 p-2 text-neutral-300 transition hover:bg-neutral-900"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="grid max-h-[calc(100vh-8rem)] gap-6 overflow-y-auto p-5 sm:p-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+                <div className="space-y-4">
+                  <div className="overflow-hidden rounded-3xl border border-white/8 bg-neutral-950/70 p-3">
+                    <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                      Design
+                    </div>
+                    <div className="flex min-h-[360px] items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-900/60">
+                      {scaleSeoModalDesignUrl ? (
+                        <img
+                          src={scaleSeoModalDesignUrl}
+                          alt={`${scaleSeoModalJob.folderName} design`}
+                          className="max-h-[340px] w-auto rounded-xl border border-neutral-800 object-contain"
+                        />
+                      ) : (
+                        <div className="px-4 text-center text-sm text-neutral-500">
+                          No Midjourney design detected for this listing.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs text-neutral-300">
+                    <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                      <div className="text-neutral-500">Media</div>
+                      <div className="mt-1 text-sm font-semibold text-neutral-100">
+                        {scaleSeoModalJob.counts.mockups}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                      <div className="text-neutral-500">Pins</div>
+                      <div className="mt-1 text-sm font-semibold text-neutral-100">
+                        {scaleSeoModalJob.counts.pinterest}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                      <div className="text-neutral-500">Deliverables</div>
+                      <div className="mt-1 text-sm font-semibold text-neutral-100">
+                        {scaleSeoModalJob.counts.deliverables}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-white/8 bg-neutral-950/60 p-4">
+                      <div className="text-neutral-500">Video</div>
+                      <div className="mt-1 text-sm font-semibold text-neutral-100">
+                        {scaleSeoModalJob.counts.videos}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-5">
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-3xl border border-white/8 bg-neutral-950/70 p-5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                        Title
+                      </div>
+                      <div className="mt-3 text-sm leading-relaxed text-neutral-100">
+                        {scaleSeoModalJob.seoResult?.title || "SEO title not generated yet."}
+                      </div>
+                    </div>
+                    <div className="rounded-3xl border border-white/8 bg-neutral-950/70 p-5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                        Tags
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(scaleSeoModalJob.seoResult?.tags_13 || []).length ? (
+                          scaleSeoModalJob.seoResult?.tags_13.map((tag, idx) => (
+                            <span
+                              key={`${scaleSeoModalJob.id}-tag-${idx}`}
+                              className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5 text-xs text-neutral-200"
+                            >
+                              {tag}
+                            </span>
+                          ))
+                        ) : (
+                          <div className="text-sm text-neutral-500">Tags not generated yet.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/8 bg-neutral-950/70 p-5">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                      Description
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(scaleSeoModalJob.seoResult?.description_keywords_5 || []).map((keyword, idx) => (
+                        <span
+                          key={`${scaleSeoModalJob.id}-keyword-${idx}`}
+                          className="rounded-full border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-3 py-1.5 text-xs text-[#f1cc61]"
+                        >
+                          {keyword}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="mt-4 text-sm leading-relaxed text-neutral-300 whitespace-pre-wrap">
+                      {scaleSeoModalJob.seoResult?.description_final || "Description not generated yet."}
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/8 bg-neutral-950/70 p-5">
+                    <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                      Mockups & alt text
+                    </div>
+                    {scaleSeoModalMockupUrls.length ? (
+                      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                        {scaleSeoModalMockupUrls.map((item) => {
+                          const altText =
+                            scaleSeoModalJob.mockupsUploaded?.find((mockup) => mockup.id === item.id)
+                              ?.altText || "Alt text not generated yet.";
+                          return (
+                            <div
+                              key={item.id}
+                              className="overflow-hidden rounded-3xl border border-white/8 bg-neutral-900/50 p-3"
+                            >
+                              <div className="mb-3 flex items-center justify-between text-xs text-neutral-400">
+                                <span>Pos {item.position}</span>
+                              </div>
+                              <img
+                                src={item.url}
+                                alt={`Mockup ${item.position}`}
+                                className="h-44 w-full rounded-2xl border border-neutral-800 object-cover"
+                              />
+                              <div className="mt-3 text-xs leading-relaxed text-neutral-300">
+                                {altText}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-neutral-500">No mockups available for preview.</div>
+                    )}
+                  </div>
+
+                  <div className="rounded-3xl border border-white/8 bg-neutral-950/70 p-5">
+                    <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                      Pinterest
+                    </div>
+                    {scaleSeoModalPinUrls.length ? (
+                      <div className="grid gap-4 lg:grid-cols-3">
+                        {scaleSeoModalPinUrls.map((item) => {
+                          const pin =
+                            scaleSeoModalJob.pinterestPins?.find((candidate) => candidate.id === item.id);
+                          return (
+                            <div
+                              key={item.id}
+                              className="overflow-hidden rounded-3xl border border-white/8 bg-neutral-900/50 p-3"
+                            >
+                              <div className="mb-3 text-xs text-neutral-400">
+                                pin-{item.position}
+                              </div>
+                              <img
+                                src={item.url}
+                                alt={`Pin ${item.position}`}
+                                className="h-56 w-full rounded-2xl border border-neutral-800 object-cover"
+                              />
+                              <div className="mt-3 space-y-2">
+                                <div className="text-sm font-medium text-neutral-100">
+                                  {pin?.title || "Pin title not generated yet."}
+                                </div>
+                                <div className="text-xs leading-relaxed text-neutral-300">
+                                  {pin?.description || "Pin description not generated yet."}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-neutral-500">No Pinterest previews available yet.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <SiteFooter />
       </div>
