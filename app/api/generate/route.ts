@@ -641,7 +641,7 @@ function appendListingId(description: string, listingId: string | null) {
   return `${normalized}\n\n${marker}`
 }
 
-async function rewriteAltTexts({
+async function rewriteTitleAndAltTexts({
   productConfig,
   listingTitle,
   analysis,
@@ -656,13 +656,27 @@ async function rewriteAltTexts({
     alt_text: string
   }>
 }) {
-  if (mediaDrafts.length === 0) return mediaDrafts
+  if (mediaDrafts.length === 0) {
+    return {
+      title: listingTitle,
+      media: mediaDrafts,
+    }
+  }
 
   const minAlt = productConfig?.image_rules?.alt_text?.min_characters ?? 200
   const maxAlt = productConfig?.image_rules?.alt_text?.max_characters ?? 250
 
   const systemPrompt = `
-You are rewriting Etsy listing image alt text for a digital art product.
+You are polishing an Etsy listing title and rewriting Etsy listing image alt text for a digital art product.
+
+YOUR TITLE GOAL
+- Keep the original title strategy and search intent intact.
+- Improve coherence, readability, and phrasing.
+- Remove awkward redundancy and clumsy wording.
+- Do not turn the title into a completely new title.
+- Preserve the product type and overall keyword intent.
+- For printable wall art, avoid redundant constructions such as "Printable Print".
+- Keep the title commercially strong, polished, and natural.
 
 YOUR GOAL
 - Rewrite each alt text so it sounds fully natural, human, and coherent.
@@ -682,7 +696,7 @@ OUTPUT
 - Return ONLY valid JSON.
 - Do not add markdown.
 - Do not add commentary.
-`
+  `
 
   const userPrompt = `
 product_config:
@@ -694,11 +708,12 @@ ${listingTitle}
 listing_analysis:
 ${JSON.stringify(analysis)}
 
-Rewrite the following alt text drafts into polished final alt text:
+Polish the title and rewrite the following alt text drafts into polished final alt text:
 ${JSON.stringify(mediaDrafts)}
 
 Return JSON in this exact shape:
 {
+  "title": "",
   "media": [
     { "id": "", "position": 0, "alt_text": "" }
   ]
@@ -725,22 +740,29 @@ Return JSON in this exact shape:
   const end = raw.lastIndexOf("}")
 
   if (start === -1 || end === -1) {
-    return mediaDrafts
+    return {
+      title: listingTitle,
+      media: mediaDrafts,
+    }
   }
 
   const parsed = JSON.parse(raw.slice(start, end + 1))
   const rewrittenMedia = Array.isArray(parsed.media) ? parsed.media : []
+  const polishedTitle = cleanText(parsed.title) || listingTitle
 
-  return mediaDrafts.map((draft) => {
-    const found =
-      rewrittenMedia.find((entry: any) => entry.id === draft.id) ||
-      rewrittenMedia.find((entry: any) => entry.position === draft.position)
+  return {
+    title: polishedTitle,
+    media: mediaDrafts.map((draft) => {
+      const found =
+        rewrittenMedia.find((entry: any) => entry.id === draft.id) ||
+        rewrittenMedia.find((entry: any) => entry.position === draft.position)
 
-    return {
-      ...draft,
-      alt_text: clampAltText(found?.alt_text || draft.alt_text || "", minAlt, maxAlt),
-    }
-  })
+      return {
+        ...draft,
+        alt_text: clampAltText(found?.alt_text || draft.alt_text || "", minAlt, maxAlt),
+      }
+    }),
+  }
 }
 
 function buildTitleFromComponents(
@@ -960,19 +982,28 @@ Return JSON in this exact shape:
       }
     })
 
-    const media = await rewriteAltTexts({
+    const polished = await rewriteTitleAndAltTexts({
       productConfig,
       listingTitle: title,
       analysis,
       mediaDrafts,
     })
 
+    const polishedTitle = normalizeTitle(
+      polished.title,
+      productConfig,
+      parsed.title_components || {},
+      productConfig?.title_rules?.word_rules?.min_words ?? 13,
+      productConfig?.title_rules?.word_rules?.max_words ?? 15,
+      productConfig?.title_rules?.word_rules?.max_characters ?? 140
+    )
+
     const output = {
-      title,
+      title: polishedTitle,
       description_keywords_5: keywords5,
       description_final: description,
       tags_13: tags,
-      media,
+      media: polished.media,
     }
 
     return new Response(JSON.stringify(output), {
