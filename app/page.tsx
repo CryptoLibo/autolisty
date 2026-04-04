@@ -4126,8 +4126,8 @@ export default function Page() {
                 title="Scale"
                 accent
                 right={
-                  <div className="w-full space-y-2 sm:w-auto sm:min-w-[920px]">
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[220px_minmax(0,1fr)] sm:items-center">
+                  <div className="w-full lg:min-w-[980px]">
+                    <div className="flex flex-col gap-2 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-center lg:gap-4">
                       <select
                         value={scaleProductType}
                         onChange={(e) =>
@@ -4142,243 +4142,244 @@ export default function Page() {
                           </option>
                         ))}
                       </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      <Button
-                        variant={
-                          scaleImportComplete ? "success" : "primary"
-                        }
-                        onClick={() => scaleInputRef.current?.click()}
-                        disabled={
-                          scaleBusy && !scaleImporting
-                        }
-                      >
-                        {scaleImporting ? (
-                          <>
-                            <Loader2 className="animate-spin" size={16} />
-                              Importing...
-                            </>
-                          ) : (
-                            <>
-                              <Upload size={16} />
-                              Import listings
-                            </>
-                          )}
-                        </Button>
-                      <Button
-                        variant={
-                          scaleUploadComplete
-                            ? "success"
-                            : scaleCanUpload
-                              ? "primary"
-                              : "secondary"
-                        }
-                        onClick={() => void uploadScaleJobs()}
-                        disabled={
-                          !scaleCanUpload ||
-                          scaleBusy ||
-                          scaleJobs.every(
-                                (job) => job.status !== "ready" && job.status !== "failed"
-                              )
-                        }
-                        >
-                          {scaleUploading ? (
-                            <>
-                              <Loader2 className="animate-spin" size={16} />
-                              Uploading...
-                            </>
-                          ) : (
-                            <>
-                              <Upload size={16} />
-                              Upload
-                            </>
-                          )}
-                        </Button>
-                      <Button
-                        variant={
-                          scaleSeoComplete
-                            ? "success"
-                            : scaleCanGenerateSeo
-                              ? "primary"
-                              : "secondary"
-                        }
-                        onClick={() => void generateScaleSeoJobs()}
-                        disabled={
-                          !scaleCanGenerateSeo ||
-                          scaleBusy ||
-                          scaleJobs.every(
-                                (job) =>
-                                  !(job.status === "uploaded" || job.status === "failed") ||
-                                  !job.designUrl ||
-                                !job.mockupsUploaded?.length ||
-                                !job.midjourneyPrompt.trim()
-                            )
-                          }
-                        >
-                          {scaleSeoLoading ? (
-                            <>
-                              <Loader2 className="animate-spin" size={16} />
-                              Generating...
-                            </>
-                          ) : (
-                            <>
-                              <Sparkles size={16} />
-                              Generate SEO
-                            </>
-                          )}
-                        </Button>
-                      <Button
-                        variant={
-                          scalePdfComplete
-                            ? "success"
-                            : scaleCanGeneratePdf
-                              ? "primary"
-                              : "secondary"
-                        }
-                        onClick={() => void generateScalePdfJobs()}
-                        disabled={
-                          !scaleCanGeneratePdf ||
-                          scaleBusy ||
-                          scaleJobs.every(
-                                (job) =>
-                                  !(job.status === "seo_complete" || job.status === "failed") ||
-                                  !job.listingId ||
-                                !job.seoResult
-                            )
-                          }
-                        >
-                          {scalePdfLoading ? (
-                            <>
-                              <Loader2 className="animate-spin" size={16} />
-                              Generating PDF...
-                            </>
-                          ) : (
-                            <>
-                              <FileText size={16} />
-                              Generate PDF
-                            </>
-                          )}
-                        </Button>
-                      </div>
-
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
-                      <Button
-                        variant={
-                          scaleEtsyComplete
-                            ? "success"
-                            : scaleCanSyncEtsy
-                              ? "primary"
-                              : "secondary"
-                        }
-                        onClick={() => void syncScaleEtsyJobs()}
-                        disabled={
-                          !scaleCanSyncEtsy ||
-                          scaleBusy ||
-                          !etsyAuth?.connected ||
-                          scaleJobs.every(
-                                (job) =>
-                                  !(job.status === "pdf_complete" || job.status === "failed") ||
-                                !job.seoResult ||
-                                !job.deliveryPdfUrl ||
-                                !job.etsyDraftListingId.trim()
-                            )
-                          }
-                        >
-                          {scaleEtsyLoading ? (
-                            <>
-                              <Loader2 className="animate-spin" size={16} />
-                              Syncing Etsy...
-                            </>
-                          ) : (
-                            <>
-                              <Upload size={16} />
-                              Sync Etsy
-                            </>
-                          )}
-                        </Button>
-                      <Button
-                        variant={
-                          scalePinterestComplete
-                            ? "success"
-                            : scaleCanGeneratePinterest
-                              ? "primary"
-                              : "secondary"
-                        }
-                        onClick={() => void generateScalePinterestJobs()}
-                        disabled={
-                          !scaleCanGeneratePinterest ||
-                          scaleBusy ||
-                          scaleJobs.every(
-                                (job) =>
-                                  !(
-                                    job.status === "etsy_complete" ||
-                                  job.status === "pdf_complete" ||
-                                  job.status === "failed"
-                                ) ||
-                                !job.seoResult ||
-                                !job.pinterestPins?.length
-                            )
-                          }
-                        >
-                          {scalePinterestLoading ? (
-                            <>
-                              <Loader2 className="animate-spin" size={16} />
-                              Generating Pins...
-                            </>
-                          ) : (
-                            <>
-                              <Sparkles size={16} />
-                              Generate Pinterest
-                            </>
-                          )}
-                        </Button>
-                      <Button
-                        variant={
-                          scalePublishedComplete
-                            ? "success"
-                            : scaleCanPublishPinterest
-                              ? "primary"
-                              : "secondary"
-                        }
-                        onClick={() => void publishScalePinterestJobs()}
-                        disabled={
-                          !scaleCanPublishPinterest ||
-                          scaleBusy ||
-                          !pinterestAuth?.connected ||
-                          !selectedPinterestBoardId ||
-                          scaleJobs.every(
-                                (job) =>
-                                !(job.status === "pinterest_complete" || job.status === "failed") ||
-                                !job.pinterestPins?.some(
-                                  (pin) => pin.title && pin.description
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          <Button
+                            variant={
+                              scaleImportComplete ? "success" : "primary"
+                            }
+                            onClick={() => scaleInputRef.current?.click()}
+                            disabled={
+                              scaleBusy && !scaleImporting
+                            }
+                          >
+                            {scaleImporting ? (
+                              <>
+                                <Loader2 className="animate-spin" size={16} />
+                                  Importing...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload size={16} />
+                                  Import listings
+                                </>
+                              )}
+                            </Button>
+                          <Button
+                            variant={
+                              scaleUploadComplete
+                                ? "success"
+                                : scaleCanUpload
+                                  ? "primary"
+                                  : "secondary"
+                            }
+                            onClick={() => void uploadScaleJobs()}
+                            disabled={
+                              !scaleCanUpload ||
+                              scaleBusy ||
+                              scaleJobs.every(
+                                    (job) => job.status !== "ready" && job.status !== "failed"
+                                  )
+                            }
+                            >
+                              {scaleUploading ? (
+                                <>
+                                  <Loader2 className="animate-spin" size={16} />
+                                  Uploading...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload size={16} />
+                                  Upload
+                                </>
+                              )}
+                            </Button>
+                          <Button
+                            variant={
+                              scaleSeoComplete
+                                ? "success"
+                                : scaleCanGenerateSeo
+                                  ? "primary"
+                                  : "secondary"
+                            }
+                            onClick={() => void generateScaleSeoJobs()}
+                            disabled={
+                              !scaleCanGenerateSeo ||
+                              scaleBusy ||
+                              scaleJobs.every(
+                                    (job) =>
+                                      !(job.status === "uploaded" || job.status === "failed") ||
+                                      !job.designUrl ||
+                                    !job.mockupsUploaded?.length ||
+                                    !job.midjourneyPrompt.trim()
                                 )
-                            )
-                          }
-                        >
-                          {scalePinterestPublishing ? (
-                            <>
-                              <Loader2 className="animate-spin" size={16} />
-                              Publishing...
-                            </>
-                          ) : (
-                            <>
-                              <Upload size={16} />
-                              Publish Pinterest
-                            </>
-                          )}
-                        </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={resetScale}
-                        disabled={
-                          scaleBusy ||
-                          scaleJobs.length === 0
-                        }
-                      >
-                          Reset
-                        </Button>
+                              }
+                            >
+                              {scaleSeoLoading ? (
+                                <>
+                                  <Loader2 className="animate-spin" size={16} />
+                                  Generating...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles size={16} />
+                                  Generate SEO
+                                </>
+                              )}
+                            </Button>
+                          <Button
+                            variant={
+                              scalePdfComplete
+                                ? "success"
+                                : scaleCanGeneratePdf
+                                  ? "primary"
+                                  : "secondary"
+                            }
+                            onClick={() => void generateScalePdfJobs()}
+                            disabled={
+                              !scaleCanGeneratePdf ||
+                              scaleBusy ||
+                              scaleJobs.every(
+                                    (job) =>
+                                      !(job.status === "seo_complete" || job.status === "failed") ||
+                                      !job.listingId ||
+                                    !job.seoResult
+                                )
+                              }
+                            >
+                              {scalePdfLoading ? (
+                                <>
+                                  <Loader2 className="animate-spin" size={16} />
+                                  Generating PDF...
+                                </>
+                              ) : (
+                                <>
+                                  <FileText size={16} />
+                                  Generate PDF
+                                </>
+                              )}
+                            </Button>
+                          </div>
+
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
+                          <Button
+                            variant={
+                              scaleEtsyComplete
+                                ? "success"
+                                : scaleCanSyncEtsy
+                                  ? "primary"
+                                  : "secondary"
+                            }
+                            onClick={() => void syncScaleEtsyJobs()}
+                            disabled={
+                              !scaleCanSyncEtsy ||
+                              scaleBusy ||
+                              !etsyAuth?.connected ||
+                              scaleJobs.every(
+                                    (job) =>
+                                      !(job.status === "pdf_complete" || job.status === "failed") ||
+                                    !job.seoResult ||
+                                    !job.deliveryPdfUrl ||
+                                    !job.etsyDraftListingId.trim()
+                                )
+                              }
+                            >
+                              {scaleEtsyLoading ? (
+                                <>
+                                  <Loader2 className="animate-spin" size={16} />
+                                  Syncing Etsy...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload size={16} />
+                                  Sync Etsy
+                                </>
+                              )}
+                            </Button>
+                          <Button
+                            variant={
+                              scalePinterestComplete
+                                ? "success"
+                                : scaleCanGeneratePinterest
+                                  ? "primary"
+                                  : "secondary"
+                            }
+                            onClick={() => void generateScalePinterestJobs()}
+                            disabled={
+                              !scaleCanGeneratePinterest ||
+                              scaleBusy ||
+                              scaleJobs.every(
+                                    (job) =>
+                                      !(
+                                        job.status === "etsy_complete" ||
+                                        job.status === "pdf_complete" ||
+                                        job.status === "failed"
+                                      ) ||
+                                      !job.seoResult ||
+                                      !job.pinterestPins?.length
+                                  )
+                                }
+                            >
+                              {scalePinterestLoading ? (
+                                <>
+                                  <Loader2 className="animate-spin" size={16} />
+                                  Generating Pins...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles size={16} />
+                                  Generate Pinterest
+                                </>
+                              )}
+                            </Button>
+                          <Button
+                            variant={
+                              scalePublishedComplete
+                                ? "success"
+                                : scaleCanPublishPinterest
+                                  ? "primary"
+                                  : "secondary"
+                            }
+                            onClick={() => void publishScalePinterestJobs()}
+                            disabled={
+                              !scaleCanPublishPinterest ||
+                              scaleBusy ||
+                              !pinterestAuth?.connected ||
+                              !selectedPinterestBoardId ||
+                              scaleJobs.every(
+                                    (job) =>
+                                      !(job.status === "pinterest_complete" || job.status === "failed") ||
+                                      !job.pinterestPins?.some(
+                                        (pin) => pin.title && pin.description
+                                      )
+                                  )
+                                }
+                            >
+                              {scalePinterestPublishing ? (
+                                <>
+                                  <Loader2 className="animate-spin" size={16} />
+                                  Publishing...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload size={16} />
+                                  Publish Pinterest
+                                </>
+                              )}
+                            </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={resetScale}
+                            disabled={
+                              scaleBusy ||
+                              scaleJobs.length === 0
+                            }
+                          >
+                            Reset
+                          </Button>
+                        </div>
                       </div>
+                    </div>
                       <input
                         ref={scaleInputRef}
                         type="file"
