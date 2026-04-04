@@ -4508,11 +4508,11 @@ export default function Page() {
             ) : activeSection === "batch" ? (
               <div className="space-y-6">
                 <Card
-                title="Scale"
+                title=""
                 accent
                 right={
                   <div className="w-full lg:min-w-[980px]">
-                    <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[220px_minmax(0,1fr)_120px] lg:items-center lg:gap-4">
+                    <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[220px_minmax(0,1fr)_120px] lg:items-start lg:gap-4">
                       <div className="flex justify-center lg:justify-start">
                         <select
                           value={scaleProductType}
@@ -4530,7 +4530,7 @@ export default function Page() {
                         </select>
                       </div>
                       <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-4">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                           <Button
                             variant={
                               scaleImportComplete ? "success" : "primary"
@@ -4673,7 +4673,7 @@ export default function Page() {
                                   Generate PDF
                                 </>
                               )}
-                            </Button>
+                          </Button>
                         </div>
 
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
