@@ -123,6 +123,26 @@ type EtsyListingUrlResponse = {
 
 type AppSection = "single" | "batch";
 
+const STORAGE_KEYS = {
+  activeSection: "autolisty.activeSection",
+  listingProductType: "autolisty.listingProductType",
+  scaleProductType: "autolisty.scaleProductType",
+} as const;
+
+function readStoredActiveSection(): AppSection {
+  if (typeof window === "undefined") return "single";
+  const value = window.localStorage.getItem(STORAGE_KEYS.activeSection);
+  return value === "batch" ? "batch" : "single";
+}
+
+function readStoredProductType(
+  key: (typeof STORAGE_KEYS)["listingProductType"] | (typeof STORAGE_KEYS)["scaleProductType"]
+): ProductType {
+  if (typeof window === "undefined") return "frame_tv_art";
+  const value = window.localStorage.getItem(key);
+  return value === "printable_wall_art" ? "printable_wall_art" : "frame_tv_art";
+}
+
 type ScaleImportedFile = {
   id: string;
   file: File;
@@ -762,10 +782,14 @@ function SidebarNavItem({
 export default function Page() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const scaleInputRef = useRef<HTMLInputElement | null>(null);
-  const [activeSection, setActiveSection] = useState<AppSection>("single");
+  const [activeSection, setActiveSection] = useState<AppSection>(readStoredActiveSection);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [productType, setProductType] = useState<ProductType>("frame_tv_art");
-  const [scaleProductType, setScaleProductType] = useState<ProductType>("frame_tv_art");
+  const [productType, setProductType] = useState<ProductType>(() =>
+    readStoredProductType(STORAGE_KEYS.listingProductType)
+  );
+  const [scaleProductType, setScaleProductType] = useState<ProductType>(() =>
+    readStoredProductType(STORAGE_KEYS.scaleProductType)
+  );
   const [listingId, setListingId] = useState<string | null>(null);
   const listingIdRef = useRef<string | null>(null);
 
@@ -1016,6 +1040,18 @@ export default function Page() {
       localUrls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, [scaleSeoModalJob]);
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEYS.activeSection, activeSection);
+  }, [activeSection]);
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEYS.listingProductType, productType);
+  }, [productType]);
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEYS.scaleProductType, scaleProductType);
+  }, [scaleProductType]);
 
   useEffect(() => {
     if (!scaleSeoModalJob) return;
