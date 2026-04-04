@@ -200,6 +200,14 @@ function getNestedPath(relativePath: string) {
   return rest.join("/");
 }
 
+function getScaleImportedFileInfo(item: ScaleImportedFile) {
+  const normalizedPath = normalizeFolderPath(item.relativePath || item.file.name);
+  return {
+    normalizedPath,
+    normalizedName: normalizeFolderPath(item.file.name),
+  };
+}
+
 function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
   const grouped = new Map<string, ScaleImportedFile[]>();
 
@@ -223,7 +231,7 @@ function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
       for (const item of group) {
         const nestedPath = getNestedPath(item.relativePath);
         const segments = normalizeRelativePath(nestedPath).split("/").filter(Boolean);
-        const rootName = segments[0] || "";
+        const rootName = normalizeFolderPath(segments[0] || "");
 
         if (segments.length === 1) {
           if (/^midjourney\./i.test(rootName) && item.file.type.startsWith("image/")) {
@@ -236,9 +244,9 @@ function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
           ) {
             mockups += 1;
           }
-        } else if (/^diseños finales$/i.test(rootName)) {
+        } else if (rootName === "disenos finales") {
           deliverables += 1;
-        } else if (/^pines$/i.test(rootName)) {
+        } else if (rootName === "pines" || rootName === "pins") {
           pinterest += 1;
         }
       }
@@ -1415,63 +1423,71 @@ export default function Page() {
   }
 
   function parseScaleJobFiles(job: ScaleJob) {
-    const acceptedFiles = job.files
-      .map((item) => item.file)
-      .filter((file) => {
-        const info = getFolderAwareName(file);
-        if (info.normalizedName.includes("upscayl")) return false;
-        if (
-          file.type === "application/pdf" &&
-          !pathHasFolderSegment(info.normalizedPath, "disenos finales")
-        ) {
-          return false;
-        }
-        return true;
-      });
-
-    const designCandidate = acceptedFiles.find((file) => {
-      const info = getFolderAwareName(file);
-      return file.type.startsWith("image/") && info.normalizedName.includes("midjourney");
+    const acceptedItems = job.files.filter((item) => {
+      const info = getScaleImportedFileInfo(item);
+      if (info.normalizedName.includes("upscayl")) return false;
+      if (
+        item.file.type === "application/pdf" &&
+        !pathHasFolderSegment(info.normalizedPath, "disenos finales")
+      ) {
+        return false;
+      }
+      return true;
     });
+
+    const designCandidate =
+      acceptedItems.find((item) => {
+        const info = getScaleImportedFileInfo(item);
+        return (
+          item.file.type.startsWith("image/") &&
+          info.normalizedName.includes("midjourney")
+        );
+      })?.file || null;
 
     const pinterestCandidates = sortNumericFileNames(
-      acceptedFiles.filter((file) => {
-        const info = getFolderAwareName(file);
-        return (
-          file.type.startsWith("image/") &&
-          pathHasFolderSegment(info.normalizedPath, "pines", "pins")
-        );
-      })
+      acceptedItems
+        .filter((item) => {
+          const info = getScaleImportedFileInfo(item);
+          return (
+            item.file.type.startsWith("image/") &&
+            pathHasFolderSegment(info.normalizedPath, "pines", "pins")
+          );
+        })
+        .map((item) => item.file)
     );
 
-    const deliverableCandidates = acceptedFiles.filter((file) => {
-      const info = getFolderAwareName(file);
-      return (
-        (file.type.startsWith("image/") || file.type === "application/pdf") &&
-        pathHasFolderSegment(info.normalizedPath, "disenos finales")
-      );
-    });
+    const deliverableCandidates = acceptedItems
+      .filter((item) => {
+        const info = getScaleImportedFileInfo(item);
+        return (
+          (item.file.type.startsWith("image/") || item.file.type === "application/pdf") &&
+          pathHasFolderSegment(info.normalizedPath, "disenos finales")
+        );
+      })
+      .map((item) => item.file);
 
     const rootVideoCandidate =
-      acceptedFiles.find((file) => {
-        const info = getFolderAwareName(file);
+      acceptedItems.find((item) => {
+        const info = getScaleImportedFileInfo(item);
         return (
-          file.type.startsWith("video/") &&
+          item.file.type.startsWith("video/") &&
           !pathHasFolderSegment(info.normalizedPath, "pines", "pins") &&
           !pathHasFolderSegment(info.normalizedPath, "disenos finales")
         );
-      }) || null;
+      })?.file || null;
 
     const mockupCandidates = sortNumericFileNames(
-      acceptedFiles.filter((file) => {
-        const info = getFolderAwareName(file);
-        if (!file.type.startsWith("image/")) return false;
-        if (designCandidate && file === designCandidate) return false;
-        if (pathHasFolderSegment(info.normalizedPath, "pines", "pins")) return false;
-        if (pathHasFolderSegment(info.normalizedPath, "disenos finales")) return false;
-        if (info.normalizedName.includes("upscayl")) return false;
-        return true;
-      })
+      acceptedItems
+        .filter((item) => {
+          const info = getScaleImportedFileInfo(item);
+          if (!item.file.type.startsWith("image/")) return false;
+          if (designCandidate && item.file === designCandidate) return false;
+          if (pathHasFolderSegment(info.normalizedPath, "pines", "pins")) return false;
+          if (pathHasFolderSegment(info.normalizedPath, "disenos finales")) return false;
+          if (info.normalizedName.includes("upscayl")) return false;
+          return true;
+        })
+        .map((item) => item.file)
     );
 
     return {
