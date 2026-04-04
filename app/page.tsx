@@ -173,6 +173,7 @@ type ScaleJob = {
   errorMessage?: string | null;
   designUrl?: string;
   mockupsUploaded?: ScaleUploadedMockup[];
+  uploadedDeliverableFieldIds?: string[];
   seoResult?: SeoResult | null;
   deliveryPdfUrl?: string | null;
   etsyDraftListingId: string;
@@ -275,6 +276,7 @@ function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
         midjourneyPrompt: "",
         designUrl: undefined,
         mockupsUploaded: [],
+        uploadedDeliverableFieldIds: [],
         seoResult: null,
         deliveryPdfUrl: null,
         etsyDraftListingId: "",
@@ -1383,6 +1385,7 @@ export default function Page() {
       errorMessage: null,
       designUrl: undefined,
       mockupsUploaded: undefined,
+      uploadedDeliverableFieldIds: [],
       seoResult: null,
       deliveryPdfUrl: null,
       etsyResult: null,
@@ -1570,11 +1573,17 @@ export default function Page() {
             return field ? { file, field } : null;
           })
           .filter((item): item is { file: File; field: DeliveryField } => !!item)
-          .sort(
-            (a, b) =>
-              scaleFields.findIndex((field) => field.id === a.field.id) -
-              scaleFields.findIndex((field) => field.id === b.field.id)
-          );
+            .sort(
+              (a, b) =>
+                scaleFields.findIndex((field) => field.id === a.field.id) -
+                scaleFields.findIndex((field) => field.id === b.field.id)
+            );
+  }
+
+  function getRequiredScaleDeliverableFieldIds() {
+    return scaleProductType === "printable_wall_art"
+      ? activeDeliveryFields.map((field) => field.id)
+      : ["design"];
   }
 
   async function runWithConcurrency<T>(
@@ -1645,8 +1654,9 @@ export default function Page() {
       }
     );
 
-    const uploadedMockups: ScaleUploadedMockup[] = [];
-    const uploadedPins: ScalePinterestPin[] = [];
+      const uploadedMockups: ScaleUploadedMockup[] = [];
+      const uploadedPins: ScalePinterestPin[] = [];
+      const uploadedDeliverableFieldIds: string[] = [];
 
     for (let index = 0; index < mockupCandidates.length; index++) {
       const file = mockupCandidates[index];
@@ -1682,20 +1692,21 @@ export default function Page() {
       );
     }
 
-    for (const item of deliverables) {
-      await retryAsync(
-        async () => {
-          await uploadDeliverableForListing(
-            item.file,
+      for (const item of deliverables) {
+        await retryAsync(
+          async () => {
+            await uploadDeliverableForListing(
+              item.file,
             getDeliveryFilename(item.field, item.file),
             listingJobId
           );
         },
-        {
-          label: `${job.folderName}: failed to upload deliverable ${item.field.label}`,
-        }
-      );
-    }
+          {
+            label: `${job.folderName}: failed to upload deliverable ${item.field.label}`,
+          }
+        );
+        uploadedDeliverableFieldIds.push(item.field.id);
+      }
 
     for (let index = 0; index < pinterestCandidates.length; index++) {
       const file = pinterestCandidates[index];
@@ -1722,12 +1733,13 @@ export default function Page() {
       listingId: listingJobId,
       status: "uploaded",
       stepLabel: "Upload complete",
-      errorMessage: null,
-      designUrl: uploadedDesign.url,
-      mockupsUploaded: uploadedMockups,
-      pinterestPins: uploadedPins,
-    }));
-  }
+        errorMessage: null,
+        designUrl: uploadedDesign.url,
+        mockupsUploaded: uploadedMockups,
+        uploadedDeliverableFieldIds,
+        pinterestPins: uploadedPins,
+      }));
+    }
 
   async function uploadScaleJobs() {
     const eligible = scaleJobs.filter(
@@ -1871,18 +1883,28 @@ export default function Page() {
     setScaleSeoLoading(false);
   }
 
-  async function generatePdfForScaleJob(job: ScaleJob) {
-    if (!job.listingId) {
-      throw new Error("Upload this listing before generating the final PDF.");
-    }
+    async function generatePdfForScaleJob(job: ScaleJob) {
+      if (!job.listingId) {
+        throw new Error("Upload this listing before generating the final PDF.");
+      }
 
-    if (!job.seoResult) {
-      throw new Error("Generate SEO for this listing before creating the PDF.");
-    }
+      if (!job.seoResult) {
+        throw new Error("Generate SEO for this listing before creating the PDF.");
+      }
 
-    updateScaleJob(job.id, (current) => ({
-      ...current,
-      status: "generating_pdf",
+      const requiredDeliverables = getRequiredScaleDeliverableFieldIds();
+      const uploadedFieldIds = new Set(job.uploadedDeliverableFieldIds || []);
+      const missingDeliverables = requiredDeliverables.filter(
+        (fieldId) => !uploadedFieldIds.has(fieldId)
+      );
+
+      if (missingDeliverables.length > 0) {
+        throw new Error("Upload the required deliverables before generating the final PDF.");
+      }
+
+      updateScaleJob(job.id, (current) => ({
+        ...current,
+        status: "generating_pdf",
       stepLabel: "Generating PDF",
       errorMessage: null,
     }));
@@ -1909,13 +1931,17 @@ export default function Page() {
     }));
   }
 
-  async function generateScalePdfJobs() {
-    const eligible = scaleJobs.filter(
-      (job) =>
-        (job.status === "seo_complete" || job.status === "failed") &&
-        !!job.listingId &&
-        !!job.seoResult
-    );
+    async function generateScalePdfJobs() {
+      const requiredDeliverables = getRequiredScaleDeliverableFieldIds();
+      const eligible = scaleJobs.filter(
+        (job) =>
+          (job.status === "seo_complete" || job.status === "failed") &&
+          !!job.listingId &&
+          !!job.seoResult &&
+          requiredDeliverables.every((fieldId) =>
+            (job.uploadedDeliverableFieldIds || []).includes(fieldId)
+          )
+      );
 
     if (eligible.length === 0) {
       setScaleMessage("No Scale jobs are ready to generate the final PDF yet.");
