@@ -20,8 +20,11 @@ import { CSS } from "@dnd-kit/utilities";
 import Image from "next/image";
 import {
   Copy,
+  Database,
   Eye,
+  FolderOpen,
   Image as ImageIcon,
+  Link2,
   Loader2,
   Sparkles,
   Upload,
@@ -776,6 +779,14 @@ function SidebarNavItem({
         </div>
       </div>
     </button>
+  );
+}
+
+function BrandLetterIcon({ letter }: { letter: string }) {
+  return (
+    <span className="inline-flex h-4 w-4 items-center justify-center text-[13px] font-semibold leading-none">
+      {letter}
+    </span>
   );
 }
 
@@ -4543,7 +4554,7 @@ export default function Page() {
                                 </>
                               ) : (
                                 <>
-                                  <Upload size={16} />
+                                  <FolderOpen size={16} />
                                   Import listings
                                 </>
                               )}
@@ -4572,8 +4583,8 @@ export default function Page() {
                                 </>
                               ) : (
                                 <>
-                                  <Upload size={16} />
-                                  Upload
+                                  <Database size={16} />
+                                  R2 Upload
                                 </>
                               )}
                             </Button>
@@ -4677,7 +4688,7 @@ export default function Page() {
                                 </>
                               ) : (
                                 <>
-                                  <Upload size={16} />
+                                  <BrandLetterIcon letter="E" />
                                   Sync Etsy
                                 </>
                               )}
@@ -4708,7 +4719,7 @@ export default function Page() {
                               </>
                             ) : (
                               <>
-                                <Upload size={16} />
+                                <Link2 size={16} />
                                 Fetch Etsy URL
                               </>
                             )}
@@ -4745,7 +4756,7 @@ export default function Page() {
                                 </>
                               ) : (
                                 <>
-                                  <Sparkles size={16} />
+                                  <ImageIcon size={16} />
                                   Generate Pinterest
                                 </>
                               )}
@@ -4771,7 +4782,7 @@ export default function Page() {
                                 </>
                               ) : (
                                 <>
-                                  <Upload size={16} />
+                                  <BrandLetterIcon letter="P" />
                                   Publish Pinterest
                                 </>
                               )}
