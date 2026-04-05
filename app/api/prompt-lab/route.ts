@@ -23,7 +23,6 @@ type PromptLabAnalysis = {
 
 type PromptLabPromptSet = {
   prompts: string[];
-  midjourney_block: string;
 };
 
 function extractJson<T>(raw: string): T {
@@ -39,6 +38,20 @@ function extractJson<T>(raw: string): T {
 
 function toDataUrl(buffer: Buffer, mimeType: string) {
   return `data:${mimeType};base64,${buffer.toString("base64")}`;
+}
+
+function escapePermutationPrompt(value: string) {
+  return String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/,/g, "\\,")
+    .replace(/\{/g, "\\{")
+    .replace(/\}/g, "\\}")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildMidjourneyPermutationBlock(prompts: string[]) {
+  return `{${prompts.map(escapePermutationPrompt).join(", ")}}`;
 }
 
 export async function POST(request: Request) {
@@ -116,7 +129,7 @@ Return ONLY valid JSON.
 `.trim();
 
     const promptUserPrompt = `
-Using the analysis below, generate exactly 4 Midjourney prompts plus one combined block.
+Using the analysis below, generate exactly 4 Midjourney prompts.
 
 Analysis:
 ${JSON.stringify(analysis, null, 2)}
@@ -124,8 +137,7 @@ ${JSON.stringify(analysis, null, 2)}
 Return JSON with this exact shape:
 
 {
-  "prompts": ["", "", "", ""],
-  "midjourney_block": ""
+  "prompts": ["", "", "", ""]
 }
 
 Rules:
@@ -134,7 +146,11 @@ Rules:
 - Keep prompts rich in visual direction, but do not overburden them with negatives.
 - Each prompt should feel like a distinct sibling of the same visual family.
 - Favor composition, form rhythm, texture, palette, and mood.
-- The combined block must contain all 4 prompts in one paste-friendly text block for Midjourney.
+- Do not drift into generic product photography or simplistic studio-object shots unless the reference truly works that way.
+- If the reference has richness, tension, ornament, or visual sophistication, preserve that level of ambition in the new prompts.
+- Create prompts that can compete visually with strong Etsy bestsellers, not safe or watered-down variations.
+- Avoid explaining the scene in a flat literal way. Write with strong visual direction and taste.
+- Preserve the aesthetic logic of the reference, but change the exact composition, arrangement, and internal relationships enough that the outputs feel like original siblings.
 `.trim();
 
     const promptResponse = await client.responses.create({
@@ -147,12 +163,17 @@ Rules:
         },
         {
           role: "user",
-          content: [{ type: "input_text", text: promptUserPrompt }],
+          content: [
+            { type: "input_text", text: promptUserPrompt },
+            { type: "input_image", image_url: dataUrl, detail: "auto" },
+          ],
         },
       ],
     });
 
     const promptSet = extractJson<PromptLabPromptSet>(promptResponse.output_text || "");
+    const prompts = (promptSet.prompts || []).map((prompt) => String(prompt || "").trim()).filter(Boolean);
+    const midjourneyBlock = buildMidjourneyPermutationBlock(prompts);
 
     return Response.json({
       summary: analysis.summary,
@@ -166,8 +187,8 @@ Rules:
       },
       styleBrief: analysis.style_brief,
       promptPrinciples: analysis.prompt_principles || [],
-      prompts: promptSet.prompts || [],
-      midjourneyBlock: promptSet.midjourney_block || "",
+      prompts,
+      midjourneyBlock,
     });
   } catch (error: any) {
     return Response.json(
