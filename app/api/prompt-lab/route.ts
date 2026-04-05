@@ -31,14 +31,19 @@ type PromptLabPromptSet = {
 };
 
 function extractJson<T>(raw: string): T {
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
+  const normalized = String(raw || "").trim();
+  const fenceMatch = normalized.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidate = fenceMatch?.[1]?.trim() || normalized;
+
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
 
   if (start === -1 || end === -1 || end <= start) {
     throw new Error("Model did not return valid JSON.");
   }
 
-  return JSON.parse(raw.slice(start, end + 1)) as T;
+  const jsonText = candidate.slice(start, end + 1);
+  return JSON.parse(jsonText) as T;
 }
 
 function toDataUrl(buffer: Buffer, mimeType: string) {
@@ -117,7 +122,7 @@ Rules:
 
     const analysisResponse = await client.responses.create({
       model: "gpt-4o",
-      temperature: 0.4,
+      temperature: 0.3,
       input: [
         {
           role: "system",
@@ -172,7 +177,7 @@ Rules:
 
     const promptResponse = await client.responses.create({
       model: "gpt-4o",
-      temperature: 0.8,
+      temperature: 0.65,
       input: [
         {
           role: "system",
