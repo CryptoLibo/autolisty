@@ -125,6 +125,22 @@ type EtsyListingUrlResponse = {
 
 type AppSection = "prompt" | "single" | "batch";
 
+type PromptLabResult = {
+  summary: string;
+  visualDna: {
+    composition: string;
+    formLanguage: string;
+    palette: string;
+    texture: string;
+    mood: string;
+    variationStrategy: string;
+  };
+  styleBrief: string;
+  promptPrinciples: string[];
+  prompts: string[];
+  midjourneyBlock: string;
+};
+
 const STORAGE_KEYS = {
   activeSection: "autolisty.activeSection",
   listingProductType: "autolisty.listingProductType",
@@ -802,6 +818,9 @@ export default function Page() {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [promptLabReferenceFile, setPromptLabReferenceFile] = useState<File | null>(null);
   const [promptLabReferencePreview, setPromptLabReferencePreview] = useState<string | null>(null);
+  const [promptLabLoading, setPromptLabLoading] = useState(false);
+  const [promptLabError, setPromptLabError] = useState<string | null>(null);
+  const [promptLabResult, setPromptLabResult] = useState<PromptLabResult | null>(null);
   const [productType, setProductType] = useState<ProductType>(() =>
     readStoredProductType(STORAGE_KEYS.listingProductType)
   );
@@ -2653,6 +2672,38 @@ export default function Page() {
     setScaleProductType(nextProductType);
   }
 
+  async function analyzePromptLabReference() {
+    if (!promptLabReferenceFile) {
+      setPromptLabError("Upload a reference image first.");
+      return;
+    }
+
+    setPromptLabLoading(true);
+    setPromptLabError(null);
+    setPromptLabResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", promptLabReferenceFile);
+
+      const res = await fetch("/api/prompt-lab", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = (await res.json()) as PromptLabResult & { error?: string };
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to analyze the reference image.");
+      }
+
+      setPromptLabResult(data);
+    } catch (e: any) {
+      setPromptLabError(e?.message || "Failed to analyze the reference image.");
+    } finally {
+      setPromptLabLoading(false);
+    }
+  }
+
   function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
@@ -3754,6 +3805,8 @@ export default function Page() {
                       onChange={(e) => {
                         const file = e.target.files?.[0] || null;
                         setPromptLabReferenceFile(file);
+                        setPromptLabError(null);
+                        setPromptLabResult(null);
                         e.currentTarget.value = "";
                       }}
                     />
@@ -3764,9 +3817,13 @@ export default function Page() {
                       <Upload size={16} />
                       Upload Reference
                     </Button>
-                    <Button variant="secondary" disabled>
-                      <Sparkles size={16} />
-                      Analyze Reference
+                    <Button
+                      variant={promptLabResult ? "success" : "secondary"}
+                      onClick={() => void analyzePromptLabReference()}
+                      disabled={!promptLabReferenceFile || promptLabLoading}
+                    >
+                      {promptLabLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
+                      {promptLabLoading ? "Analyzing..." : "Analyze Reference"}
                     </Button>
                   </div>
                 }
@@ -3799,6 +3856,12 @@ export default function Page() {
                         )}
                       </div>
                     </div>
+
+                    {promptLabError ? (
+                      <div className="rounded-[24px] border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
+                        {promptLabError}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="space-y-6">
@@ -3808,14 +3871,24 @@ export default function Page() {
                           Visual DNA
                         </div>
                         <div className="mt-4 space-y-3 text-sm leading-relaxed text-neutral-300">
-                          <p>
-                            The first pass will break the reference into composition, form language,
-                            palette, texture, mood, and commercial strengths.
-                          </p>
-                          <p>
-                            This should become the stable visual backbone that later prompt
-                            variations can inherit without drifting into copies.
-                          </p>
+                          {promptLabResult ? (
+                            <>
+                              <p>{promptLabResult.summary}</p>
+                              <div className="grid gap-3">
+                                <div><span className="text-neutral-500">Composition:</span> {promptLabResult.visualDna.composition}</div>
+                                <div><span className="text-neutral-500">Form language:</span> {promptLabResult.visualDna.formLanguage}</div>
+                                <div><span className="text-neutral-500">Palette:</span> {promptLabResult.visualDna.palette}</div>
+                                <div><span className="text-neutral-500">Texture:</span> {promptLabResult.visualDna.texture}</div>
+                                <div><span className="text-neutral-500">Mood:</span> {promptLabResult.visualDna.mood}</div>
+                                <div><span className="text-neutral-500">Variation strategy:</span> {promptLabResult.visualDna.variationStrategy}</div>
+                              </div>
+                            </>
+                          ) : (
+                            <p>
+                              The first pass will break the reference into composition, form language,
+                              palette, texture, mood, and variation strategy.
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="rounded-[28px] border border-white/8 bg-neutral-950/75 p-5">
@@ -3823,15 +3896,28 @@ export default function Page() {
                           Style Brief
                         </div>
                         <div className="mt-4 space-y-3 text-sm leading-relaxed text-neutral-300">
-                          <p>
-                            The second layer will convert that analysis into a reusable creative
-                            brief: what to preserve, what to vary, and how to keep the output in the
-                            same aesthetic family.
-                          </p>
-                          <p>
-                            This is where we will keep the prompts focused on pure image generation,
-                            not on product language, mockups, or staged interiors.
-                          </p>
+                          {promptLabResult ? (
+                            <>
+                              <p>{promptLabResult.styleBrief}</p>
+                              {promptLabResult.promptPrinciples.length ? (
+                                <div className="flex flex-wrap gap-2 pt-1">
+                                  {promptLabResult.promptPrinciples.map((principle, index) => (
+                                    <span
+                                      key={`prompt-principle-${index}`}
+                                      className="rounded-full border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-3 py-1.5 text-xs text-[#f1cc61]"
+                                    >
+                                      {principle}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </>
+                          ) : (
+                            <p>
+                              The second layer will convert that analysis into a reusable creative
+                              brief that keeps the prompts focused on pure image generation.
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -3852,7 +3938,7 @@ export default function Page() {
                       </div>
 
                       <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                        {Array.from({ length: 4 }).map((_, index) => (
+                        {(promptLabResult?.prompts || Array.from({ length: 4 }).map(() => "")).map((prompt, index) => (
                           <div
                             key={`prompt-lab-card-${index}`}
                             className="rounded-[24px] border border-neutral-800 bg-neutral-900/55 p-4"
@@ -3861,13 +3947,17 @@ export default function Page() {
                               <div className="text-sm font-semibold text-neutral-100">
                                 Prompt {index + 1}
                               </div>
-                              <Button variant="ghost" disabled>
+                              <Button
+                                variant="ghost"
+                                disabled={!prompt}
+                                onClick={() => void copyToClipboard(prompt)}
+                              >
                                 <Copy size={16} />
                                 Copy
                               </Button>
                             </div>
                             <div className="mt-4 min-h-[132px] rounded-2xl border border-white/8 bg-neutral-950/70 p-4 text-sm leading-relaxed text-neutral-500">
-                              Generated prompt variations will appear here after the reference analysis is connected.
+                              {prompt || "Generated prompt variations will appear here after the reference analysis is connected."}
                             </div>
                           </div>
                         ))}
@@ -3884,14 +3974,20 @@ export default function Page() {
                             We will also output one combined block so you can paste the full set directly into Midjourney.
                           </div>
                         </div>
-                        <Button variant="secondary" disabled>
+                        <Button
+                          variant="secondary"
+                          disabled={!promptLabResult?.midjourneyBlock}
+                          onClick={() => void copyToClipboard(promptLabResult?.midjourneyBlock || "")}
+                        >
                           <Copy size={16} />
                           Copy All
                         </Button>
                       </div>
 
                       <div className="mt-5 rounded-[24px] border border-[#eeba2b]/15 bg-neutral-950/70 p-5 text-sm leading-relaxed text-neutral-500">
-                        The combined Midjourney-ready prompt block will appear here after generation.
+                        <pre className="whitespace-pre-wrap font-inherit text-sm leading-relaxed text-neutral-300">
+                          {promptLabResult?.midjourneyBlock || "The combined Midjourney-ready prompt block will appear here after generation."}
+                        </pre>
                       </div>
                     </div>
                   </div>
