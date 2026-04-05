@@ -127,6 +127,10 @@ type AppSection = "prompt" | "single" | "batch";
 
 type PromptLabResult = {
   summary: string;
+  globalIntent: string;
+  buyerAppeal: string;
+  roomFit: string;
+  emotionalPromise: string;
   visualDna: {
     composition: string;
     formLanguage: string;
@@ -3880,23 +3884,40 @@ export default function Page() {
                             <>
                               <p>{promptLabResult.summary}</p>
                               <div className="grid gap-3">
-                                <div><span className="text-neutral-500">Composition:</span> {promptLabResult.visualDna.composition}</div>
-                                <div><span className="text-neutral-500">Form language:</span> {promptLabResult.visualDna.formLanguage}</div>
-                                <div><span className="text-neutral-500">Palette:</span> {promptLabResult.visualDna.palette}</div>
-                                <div><span className="text-neutral-500">Texture:</span> {promptLabResult.visualDna.texture}</div>
-                                <div><span className="text-neutral-500">Mood:</span> {promptLabResult.visualDna.mood}</div>
-                                <div><span className="text-neutral-500">Subject identity:</span> {promptLabResult.subjectIdentity}</div>
-                                <div><span className="text-neutral-500">Styling signals:</span> {promptLabResult.stylingSignals}</div>
-                                <div><span className="text-neutral-500">Visual contrast:</span> {promptLabResult.visualContrastLogic}</div>
-                                <div><span className="text-neutral-500">Commercial hook:</span> {promptLabResult.commercialHook}</div>
-                                <div><span className="text-neutral-500">Variation boundaries:</span> {promptLabResult.variationBoundaries}</div>
-                                <div><span className="text-neutral-500">Variation strategy:</span> {promptLabResult.visualDna.variationStrategy}</div>
+                                <div><span className="text-neutral-500">Intent:</span> {promptLabResult.globalIntent}</div>
+                                <div><span className="text-neutral-500">Buyer pull:</span> {promptLabResult.buyerAppeal}</div>
+                                <div><span className="text-neutral-500">Best room fit:</span> {promptLabResult.roomFit}</div>
+                                <div><span className="text-neutral-500">Emotional promise:</span> {promptLabResult.emotionalPromise}</div>
+                              </div>
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                {[
+                                  promptLabResult.visualDna.composition,
+                                  promptLabResult.visualDna.formLanguage,
+                                  promptLabResult.visualDna.palette,
+                                  promptLabResult.visualDna.texture,
+                                  promptLabResult.visualDna.mood,
+                                  promptLabResult.subjectIdentity,
+                                  promptLabResult.stylingSignals,
+                                ]
+                                  .filter(Boolean)
+                                  .slice(0, 7)
+                                  .map((item, index) => (
+                                    <span
+                                      key={`prompt-lab-dna-${index}`}
+                                      className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5 text-xs text-neutral-300"
+                                    >
+                                      {item}
+                                    </span>
+                                  ))}
+                              </div>
+                              <div className="rounded-2xl border border-white/8 bg-neutral-900/45 p-3 text-xs leading-relaxed text-neutral-400">
+                                Keep: {promptLabResult.visualContrastLogic}
                               </div>
                             </>
                           ) : (
                             <p>
-                              The first pass will break the reference into composition, form language,
-                              palette, texture, mood, and variation strategy.
+                              The first pass will define what the image sells, where it belongs,
+                              and the visual DNA that makes it commercially magnetic.
                             </p>
                           )}
                         </div>
