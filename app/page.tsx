@@ -1056,37 +1056,37 @@ export default function Page() {
       setScaleSeoModalDesignUrl(null);
     }
 
-    if (scaleSeoModalJob.mockupsUploaded?.length) {
-      setScaleSeoModalMockupUrls(
-        [...scaleSeoModalJob.mockupsUploaded]
-          .sort((a, b) => a.position - b.position)
-          .map((item) => ({ id: item.id, url: item.url, position: item.position }))
-      );
-    } else {
-      setScaleSeoModalMockupUrls(
-        mockupCandidates.map((file, index) => {
-          const nextUrl = URL.createObjectURL(file);
-          localUrls.push(nextUrl);
-          return { id: `${scaleSeoModalJob.id}-mockup-${index}`, url: nextUrl, position: index + 1 };
-        })
-      );
-    }
+      if (scaleSeoModalJob.mockupsUploaded?.length) {
+        setScaleSeoModalMockupUrls(
+          [...scaleSeoModalJob.mockupsUploaded]
+            .sort((a, b) => a.position - b.position)
+            .map((item) => ({ id: item.id, url: item.url, position: item.position }))
+        );
+      } else {
+        setScaleSeoModalMockupUrls(
+          mockupCandidates.map((item, index) => {
+            const nextUrl = URL.createObjectURL(item.file);
+            localUrls.push(nextUrl);
+            return { id: item.id, url: nextUrl, position: index + 1 };
+          })
+        );
+      }
 
-    if (scaleSeoModalJob.pinterestPins?.length) {
-      setScaleSeoModalPinUrls(
-        [...scaleSeoModalJob.pinterestPins]
-          .sort((a, b) => a.position - b.position)
-          .map((item) => ({ id: item.id, url: item.url, position: item.position }))
-      );
-    } else {
-      setScaleSeoModalPinUrls(
-        pinterestCandidates.map((file, index) => {
-          const nextUrl = URL.createObjectURL(file);
-          localUrls.push(nextUrl);
-          return { id: `${scaleSeoModalJob.id}-pin-${index}`, url: nextUrl, position: index + 1 };
-        })
-      );
-    }
+      if (scaleSeoModalJob.pinterestPins?.length) {
+        setScaleSeoModalPinUrls(
+          [...scaleSeoModalJob.pinterestPins]
+            .sort((a, b) => a.position - b.position)
+            .map((item) => ({ id: item.id, url: item.url, position: item.position }))
+        );
+      } else {
+        setScaleSeoModalPinUrls(
+          pinterestCandidates.map((item, index) => {
+            const nextUrl = URL.createObjectURL(item.file);
+            localUrls.push(nextUrl);
+            return { id: item.id, url: nextUrl, position: index + 1 };
+          })
+        );
+      }
 
     return () => {
       localUrls.forEach((url) => URL.revokeObjectURL(url));
@@ -1792,7 +1792,7 @@ export default function Page() {
         );
       })?.file || null;
 
-    const pinterestCandidates = sortNumericFileNames(
+    const pinterestCandidates = sortNumericScaleItems(
       acceptedItems
         .filter((item) => {
           const info = getScaleImportedFileInfo(item);
@@ -1801,7 +1801,6 @@ export default function Page() {
             pathHasFolderSegment(info.normalizedPath, "pines", "pins")
           );
         })
-        .map((item) => item.file)
     );
 
     const deliverableCandidates = acceptedItems
@@ -1824,7 +1823,7 @@ export default function Page() {
         );
       })?.file || null;
 
-    const mockupCandidates = sortNumericFileNames(
+    const mockupCandidates = sortNumericScaleItems(
       acceptedItems
         .filter((item) => {
           const info = getScaleImportedFileInfo(item);
@@ -1835,7 +1834,6 @@ export default function Page() {
           if (info.normalizedName.includes("upscayl")) return false;
           return true;
         })
-        .map((item) => item.file)
     );
 
     return {
@@ -1965,13 +1963,14 @@ export default function Page() {
       const uploadedPins: ScalePinterestPin[] = [];
       const uploadedDeliverableFieldIds: string[] = [];
 
-    await runWithConcurrency(
-      mockupCandidates.map((file, index) => ({ file, index })),
-      4,
-      async ({ file, index }) => {
-        const ext =
-          file.name.split(".").pop()?.toLowerCase() ||
-          (file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg");
+      await runWithConcurrency(
+        mockupCandidates.map((item, index) => ({ item, index })),
+        4,
+        async ({ item, index }) => {
+          const file = item.file;
+          const ext =
+            file.name.split(".").pop()?.toLowerCase() ||
+            (file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg");
 
         const upload = await retryAsync(
           async () => {
@@ -1982,13 +1981,13 @@ export default function Page() {
           }
         );
 
-        uploadedMockups.push({
-          id: uid(),
-          position: index + 1,
-          url: upload.url,
-        });
-      }
-    );
+          uploadedMockups.push({
+            id: item.id,
+            position: index + 1,
+            url: upload.url,
+          });
+        }
+      );
 
     await runWithConcurrency(deliverables, 3, async (item) => {
       await retryAsync(
@@ -2006,28 +2005,29 @@ export default function Page() {
       uploadedDeliverableFieldIds.push(item.field.id);
     });
 
-    await runWithConcurrency(
-      pinterestCandidates.map((file, index) => ({ file, index })),
-      3,
-      async ({ file, index }) => {
-        const ext = getFileExtension(file, "jpg");
+      await runWithConcurrency(
+        pinterestCandidates.map((item, index) => ({ item, index })),
+        3,
+        async ({ item, index }) => {
+          const file = item.file;
+          const ext = getFileExtension(file, "jpg");
 
-        const upload = await retryAsync(
-          async () => {
-            return uploadPinterestForListing(file, `pin-${index + 1}.${ext}`, listingJobId);
+          const upload = await retryAsync(
+            async () => {
+              return uploadPinterestForListing(file, `pin-${index + 1}.${ext}`, listingJobId);
           },
           {
             label: `${job.folderName}: failed to upload Pinterest image ${index + 1}`,
           }
         );
 
-        uploadedPins.push({
-          id: uid(),
-          position: index + 1,
-          url: upload.url,
-        });
-      }
-    );
+          uploadedPins.push({
+            id: item.id,
+            position: index + 1,
+            url: upload.url,
+          });
+        }
+      );
 
     if (rootVideoCandidate) {
       const ext = rootVideoCandidate.name.split(".").pop()?.toLowerCase() || "mp4";
@@ -2804,16 +2804,27 @@ export default function Page() {
     };
   }
 
-  function sortNumericFileNames(files: File[]) {
-    return [...files].sort((a, b) => {
-      const aMatch = a.name.match(/^(\d+)/);
-      const bMatch = b.name.match(/^(\d+)/);
+    function sortNumericFileNames(files: File[]) {
+      return [...files].sort((a, b) => {
+        const aMatch = a.name.match(/^(\d+)/);
+        const bMatch = b.name.match(/^(\d+)/);
       const aNum = aMatch ? Number(aMatch[1]) : Number.MAX_SAFE_INTEGER;
       const bNum = bMatch ? Number(bMatch[1]) : Number.MAX_SAFE_INTEGER;
       if (aNum !== bNum) return aNum - bNum;
-      return a.name.localeCompare(b.name);
-    });
-  }
+        return a.name.localeCompare(b.name);
+      });
+    }
+
+    function sortNumericScaleItems(items: ScaleImportedFile[]) {
+      return [...items].sort((a, b) => {
+        const aMatch = a.file.name.match(/^(\d+)/);
+        const bMatch = b.file.name.match(/^(\d+)/);
+        const aNum = aMatch ? Number(aMatch[1]) : Number.MAX_SAFE_INTEGER;
+        const bNum = bMatch ? Number(bMatch[1]) : Number.MAX_SAFE_INTEGER;
+        if (aNum !== bNum) return aNum - bNum;
+        return a.file.name.localeCompare(b.file.name);
+      });
+    }
 
   function sleep(ms: number) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
