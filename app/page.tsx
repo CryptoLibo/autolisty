@@ -123,7 +123,7 @@ type EtsyListingUrlResponse = {
   error?: string;
 };
 
-type AppSection = "single" | "batch";
+type AppSection = "prompt" | "single" | "batch";
 
 const STORAGE_KEYS = {
   activeSection: "autolisty.activeSection",
@@ -134,9 +134,11 @@ const STORAGE_KEYS = {
 const ICON_REV = "20260404";
 
 function readStoredActiveSection(): AppSection {
-  if (typeof window === "undefined") return "single";
+  if (typeof window === "undefined") return "prompt";
   const value = window.localStorage.getItem(STORAGE_KEYS.activeSection);
-  return value === "batch" ? "batch" : "single";
+  if (value === "batch") return "batch";
+  if (value === "single") return "single";
+  return "prompt";
 }
 
 function readStoredProductType(
@@ -795,8 +797,11 @@ function SidebarNavItem({
 export default function Page() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const scaleInputRef = useRef<HTMLInputElement | null>(null);
+  const promptLabInputRef = useRef<HTMLInputElement | null>(null);
   const [activeSection, setActiveSection] = useState<AppSection>(readStoredActiveSection);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [promptLabReferenceFile, setPromptLabReferenceFile] = useState<File | null>(null);
+  const [promptLabReferencePreview, setPromptLabReferencePreview] = useState<string | null>(null);
   const [productType, setProductType] = useState<ProductType>(() =>
     readStoredProductType(STORAGE_KEYS.listingProductType)
   );
@@ -1068,6 +1073,17 @@ export default function Page() {
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEYS.scaleProductType, scaleProductType);
   }, [scaleProductType]);
+
+  useEffect(() => {
+    if (!promptLabReferenceFile) {
+      setPromptLabReferencePreview(null);
+      return;
+    }
+
+    const nextUrl = URL.createObjectURL(promptLabReferenceFile);
+    setPromptLabReferencePreview(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [promptLabReferenceFile]);
 
   useEffect(() => {
     if (!scaleSeoModalJob) return;
@@ -3621,16 +3637,18 @@ export default function Page() {
           <Menu size={18} />
         </div>
         <div className="hidden sm:block">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#f1cc61]">
-            Workspace
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#f1cc61]">
+              Workspace
+            </div>
+            <div className="text-sm font-medium text-neutral-100">
+              {activeSection === "prompt"
+                ? "Prompt Lab"
+                : activeSection === "single"
+                  ? "Listing"
+                  : "Scale"}
+            </div>
           </div>
-          <div className="text-sm font-medium text-neutral-100">
-            {activeSection === "single"
-              ? "Listing"
-              : "Scale"}
-          </div>
-        </div>
-      </button>
+        </button>
 
       {workspaceOpen ? (
         <div className="fixed inset-0 z-50">
@@ -3661,11 +3679,21 @@ export default function Page() {
                 </button>
               </div>
 
-              <div className="space-y-3 overflow-y-auto pr-1">
-                <SidebarNavItem
-                  title="Listing"
-                  subtitle="The current high-touch workflow for one listing at a time."
-                  active={activeSection === "single"}
+                <div className="space-y-3 overflow-y-auto pr-1">
+                  <SidebarNavItem
+                    title="Prompt Lab"
+                    subtitle="Analyze reference art and shape the next Midjourney prompt set."
+                    active={activeSection === "prompt"}
+                    onClick={() => {
+                      setActiveSection("prompt");
+                      setWorkspaceOpen(false);
+                    }}
+                    icon={<Sparkles size={18} />}
+                  />
+                  <SidebarNavItem
+                    title="Listing"
+                    subtitle="The current high-touch workflow for one listing at a time."
+                    active={activeSection === "single"}
                   onClick={() => {
                     setActiveSection("single");
                     setWorkspaceOpen(false);
@@ -3711,7 +3739,166 @@ export default function Page() {
         </div>
 
         <div>
-          {activeSection === "single" ? (
+          {activeSection === "prompt" ? (
+            <div className="space-y-6">
+              <Card
+                title="Prompt Lab"
+                accent
+                right={
+                  <div className="flex items-center gap-3">
+                    <input
+                      ref={promptLabInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        setPromptLabReferenceFile(file);
+                        e.currentTarget.value = "";
+                      }}
+                    />
+                    <Button
+                      variant="primary"
+                      onClick={() => promptLabInputRef.current?.click()}
+                    >
+                      <Upload size={16} />
+                      Upload Reference
+                    </Button>
+                    <Button variant="secondary" disabled>
+                      <Sparkles size={16} />
+                      Analyze Reference
+                    </Button>
+                  </div>
+                }
+              >
+                <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+                  <div className="space-y-6">
+                    <div className="rounded-[28px] border border-[#eeba2b]/15 bg-neutral-950/75 p-5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
+                        Reference
+                      </div>
+                      <div className="mt-4 flex min-h-[460px] items-center justify-center rounded-[24px] border border-dashed border-[#eeba2b]/20 bg-neutral-900/55 p-5">
+                        {promptLabReferencePreview ? (
+                          <img
+                            src={promptLabReferencePreview}
+                            alt="Prompt Lab reference"
+                            className="max-h-[420px] w-auto rounded-[20px] border border-neutral-800 object-contain"
+                          />
+                        ) : (
+                          <div className="max-w-xs text-center">
+                            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 text-[#f1cc61]">
+                              <ImageIcon size={28} />
+                            </div>
+                            <div className="mt-4 text-base font-semibold text-neutral-100">
+                              Add a reference image
+                            </div>
+                            <p className="mt-2 text-sm leading-relaxed text-neutral-400">
+                              Start with one artwork that captures the direction you want the AI to understand.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="grid gap-6 lg:grid-cols-2">
+                      <div className="rounded-[28px] border border-white/8 bg-neutral-950/75 p-5">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
+                          Visual DNA
+                        </div>
+                        <div className="mt-4 space-y-3 text-sm leading-relaxed text-neutral-300">
+                          <p>
+                            The first pass will break the reference into composition, form language,
+                            palette, texture, mood, and commercial strengths.
+                          </p>
+                          <p>
+                            This should become the stable visual backbone that later prompt
+                            variations can inherit without drifting into copies.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="rounded-[28px] border border-white/8 bg-neutral-950/75 p-5">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
+                          Style Brief
+                        </div>
+                        <div className="mt-4 space-y-3 text-sm leading-relaxed text-neutral-300">
+                          <p>
+                            The second layer will convert that analysis into a reusable creative
+                            brief: what to preserve, what to vary, and how to keep the output in the
+                            same aesthetic family.
+                          </p>
+                          <p>
+                            This is where we will keep the prompts focused on pure image generation,
+                            not on product language, mockups, or staged interiors.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[28px] border border-white/8 bg-neutral-950/75 p-5">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
+                            Prompt Set
+                          </div>
+                          <div className="mt-2 text-sm text-neutral-400">
+                            Phase 1 will show the prompt cards here once the analysis pipeline is connected.
+                          </div>
+                        </div>
+                        <div className="rounded-full border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-3 py-1 text-xs font-semibold text-[#f1cc61]">
+                          Target: 4 prompts
+                        </div>
+                      </div>
+
+                      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                        {Array.from({ length: 4 }).map((_, index) => (
+                          <div
+                            key={`prompt-lab-card-${index}`}
+                            className="rounded-[24px] border border-neutral-800 bg-neutral-900/55 p-4"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-sm font-semibold text-neutral-100">
+                                Prompt {index + 1}
+                              </div>
+                              <Button variant="ghost" disabled>
+                                <Copy size={16} />
+                                Copy
+                              </Button>
+                            </div>
+                            <div className="mt-4 min-h-[132px] rounded-2xl border border-white/8 bg-neutral-950/70 p-4 text-sm leading-relaxed text-neutral-500">
+                              Generated prompt variations will appear here after the reference analysis is connected.
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-[28px] border border-[#eeba2b]/15 bg-[#eeba2b]/5 p-5">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
+                            Midjourney Block
+                          </div>
+                          <div className="mt-2 text-sm text-neutral-400">
+                            We will also output one combined block so you can paste the full set directly into Midjourney.
+                          </div>
+                        </div>
+                        <Button variant="secondary" disabled>
+                          <Copy size={16} />
+                          Copy All
+                        </Button>
+                      </div>
+
+                      <div className="mt-5 rounded-[24px] border border-[#eeba2b]/15 bg-neutral-950/70 p-5 text-sm leading-relaxed text-neutral-500">
+                        The combined Midjourney-ready prompt block will appear here after generation.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          ) : activeSection === "single" ? (
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
               <div className="space-y-6">
             <Card
