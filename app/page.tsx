@@ -135,6 +135,11 @@ type PromptLabResult = {
     mood: string;
     variationStrategy: string;
   };
+  subjectIdentity: string;
+  stylingSignals: string;
+  visualContrastLogic: string;
+  commercialHook: string;
+  variationBoundaries: string;
   styleBrief: string;
   promptPrinciples: string[];
   prompts: string[];
@@ -3880,6 +3885,11 @@ export default function Page() {
                                 <div><span className="text-neutral-500">Palette:</span> {promptLabResult.visualDna.palette}</div>
                                 <div><span className="text-neutral-500">Texture:</span> {promptLabResult.visualDna.texture}</div>
                                 <div><span className="text-neutral-500">Mood:</span> {promptLabResult.visualDna.mood}</div>
+                                <div><span className="text-neutral-500">Subject identity:</span> {promptLabResult.subjectIdentity}</div>
+                                <div><span className="text-neutral-500">Styling signals:</span> {promptLabResult.stylingSignals}</div>
+                                <div><span className="text-neutral-500">Visual contrast:</span> {promptLabResult.visualContrastLogic}</div>
+                                <div><span className="text-neutral-500">Commercial hook:</span> {promptLabResult.commercialHook}</div>
+                                <div><span className="text-neutral-500">Variation boundaries:</span> {promptLabResult.variationBoundaries}</div>
                                 <div><span className="text-neutral-500">Variation strategy:</span> {promptLabResult.visualDna.variationStrategy}</div>
                               </div>
                             </>

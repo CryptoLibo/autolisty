@@ -17,6 +17,11 @@ type PromptLabAnalysis = {
     mood: string;
     variation_strategy: string;
   };
+  subject_identity: string;
+  styling_signals: string;
+  visual_contrast_logic: string;
+  commercial_hook: string;
+  variation_boundaries: string;
   style_brief: string;
   prompt_principles: string[];
 };
@@ -88,6 +93,11 @@ Analyze this reference image and return JSON with this exact shape:
     "mood": "",
     "variation_strategy": ""
   },
+  "subject_identity": "",
+  "styling_signals": "",
+  "visual_contrast_logic": "",
+  "commercial_hook": "",
+  "variation_boundaries": "",
   "style_brief": "",
   "prompt_principles": ["", "", "", ""]
 }
@@ -95,6 +105,11 @@ Analyze this reference image and return JSON with this exact shape:
 Rules:
 - Focus on the image itself, not on product or mockup language.
 - Explain what gives the image its visual identity.
+- Subject identity must capture the kind of subject shown and any identity signals that are visually important to the impact of the image.
+- Styling signals must capture details like nails, jewelry, pose, beauty direction, wardrobe fragments, craft cues, or editorial treatment when relevant.
+- Visual contrast logic must explain why the subject, material, palette, lighting, and background work so well together.
+- Commercial hook must explain what makes the image feel desirable, memorable, or strong as a bestseller.
+- Variation boundaries must explain what can change and what should stay structurally important in future variations.
 - The variation strategy must explain how to create new siblings of the design without copying it.
 - Keep the style brief concise but rich enough to guide prompt generation.
 - The prompt principles should be short, practical rules for the next generation pass.
@@ -151,6 +166,8 @@ Rules:
 - Create prompts that can compete visually with strong Etsy bestsellers, not safe or watered-down variations.
 - Avoid explaining the scene in a flat literal way. Write with strong visual direction and taste.
 - Preserve the aesthetic logic of the reference, but change the exact composition, arrangement, and internal relationships enough that the outputs feel like original siblings.
+- If subject identity or styling is part of the commercial hook, do not accidentally erase it from all variations.
+- Variation should be intentional: some prompts may preserve core identity cues closely, while others may explore them more freely, but the set must not forget what made the reference visually powerful.
 `.trim();
 
     const promptResponse = await client.responses.create({
@@ -185,6 +202,11 @@ Rules:
         mood: analysis.visual_dna.mood,
         variationStrategy: analysis.visual_dna.variation_strategy,
       },
+      subjectIdentity: analysis.subject_identity,
+      stylingSignals: analysis.styling_signals,
+      visualContrastLogic: analysis.visual_contrast_logic,
+      commercialHook: analysis.commercial_hook,
+      variationBoundaries: analysis.variation_boundaries,
       styleBrief: analysis.style_brief,
       promptPrinciples: analysis.prompt_principles || [],
       prompts,
