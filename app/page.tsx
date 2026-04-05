@@ -131,6 +131,9 @@ type PromptLabResult = {
   buyerAppeal: string;
   roomFit: string;
   emotionalPromise: string;
+  renderingMode: string;
+  subjectMechanics: string;
+  variationLogic: string;
   visualDna: {
     composition: string;
     formLanguage: string;
@@ -3961,12 +3964,12 @@ export default function Page() {
                               </div>
                               <div className="flex flex-wrap gap-2 pt-1">
                                 {[
+                                  promptLabResult.renderingMode,
                                   promptLabResult.visualDna.composition,
                                   promptLabResult.visualDna.formLanguage,
                                   promptLabResult.visualDna.palette,
-                                  promptLabResult.visualDna.texture,
                                   promptLabResult.visualDna.mood,
-                                  promptLabResult.visualDna.variationStrategy,
+                                  promptLabResult.variationLogic,
                                 ]
                                   .filter(Boolean)
                                   .slice(0, 5)
@@ -3981,6 +3984,8 @@ export default function Page() {
                               </div>
                               <div className="rounded-2xl border border-white/8 bg-neutral-900/45 p-3 text-xs leading-relaxed text-neutral-400">
                                 Keep: {promptLabResult.visualContrastLogic}
+                                <br />
+                                Build logic: {promptLabResult.subjectMechanics}
                               </div>
                             </>
                           ) : (

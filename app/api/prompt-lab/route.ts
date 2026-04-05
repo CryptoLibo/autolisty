@@ -13,6 +13,9 @@ type PromptLabAnalysis = {
   buyer_appeal: string;
   room_fit: string;
   emotional_promise: string;
+  rendering_mode: string;
+  subject_mechanics: string;
+  variation_logic: string;
   visual_dna: {
     composition: string;
     form_language: string;
@@ -98,6 +101,9 @@ Analyze this reference image and return JSON with this exact shape:
   "buyer_appeal": "",
   "room_fit": "",
   "emotional_promise": "",
+  "rendering_mode": "",
+  "subject_mechanics": "",
+  "variation_logic": "",
   "visual_dna": {
     "composition": "",
     "form_language": "",
@@ -121,6 +127,9 @@ Rules:
 - Buyer appeal should explain why a customer would choose it over other designs.
 - Room fit should identify the kind of space where the image naturally belongs.
 - Emotional promise should explain the feeling or aspiration the artwork gives the buyer.
+- Rendering mode should describe how the image feels made: painterly, illustrated, graphic, photographic, semi-real, textured, flat, sculptural, etc.
+- Subject mechanics should explain how the subject physically behaves or is constructed in the image, so future variations remain internally coherent.
+- Variation logic should explain how to vary the image intelligently without breaking its structure, medium logic, or aesthetic identity.
 - Focus on the image itself, not on product or mockup language.
 - Explain what gives the image its visual identity.
 - Subject identity must capture the kind of subject shown and any identity signals that are visually important to the impact of the image.
@@ -187,6 +196,9 @@ Rules:
 - If subject identity or styling is part of the commercial hook, do not accidentally erase it from all variations.
 - Variation should be intentional: some prompts may preserve core identity cues closely, while others may explore them more freely, but the set must not forget what made the reference visually powerful.
 - Let the global intent, buyer appeal, room fit, and emotional promise guide the prompts just as much as the local visual details.
+- Let rendering mode guide the medium and finish. Do not default to realism if the reference feels painterly, graphic, illustrated, or stylized.
+- Respect subject mechanics. If the subject changes, the physical logic, pose, support, interaction, and behavior of the subject must change coherently too.
+- Use variation logic to control how far each prompt can move from the reference without becoming sloppy, repetitive, or structurally wrong.
 `.trim();
 
     const promptResponse = await client.responses.create({
@@ -217,6 +229,9 @@ Rules:
       buyerAppeal: analysis.buyer_appeal,
       roomFit: analysis.room_fit,
       emotionalPromise: analysis.emotional_promise,
+      renderingMode: analysis.rendering_mode,
+      subjectMechanics: analysis.subject_mechanics,
+      variationLogic: analysis.variation_logic,
       visualDna: {
         composition: analysis.visual_dna.composition,
         formLanguage: analysis.visual_dna.form_language,
