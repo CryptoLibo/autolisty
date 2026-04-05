@@ -1163,6 +1163,45 @@ export default function Page() {
     };
   }, [activeSection]);
 
+  useEffect(() => {
+    if (activeSection !== "prompt") return;
+
+    function hasFilePayload(event: DragEvent) {
+      const types = Array.from(event.dataTransfer?.types || []);
+      return types.includes("Files");
+    }
+
+    function handleDragOver(event: DragEvent) {
+      if (!hasFilePayload(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    function handleDrop(event: DragEvent) {
+      if (!hasFilePayload(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      const file = Array.from(event.dataTransfer?.files || []).find((candidate) =>
+        candidate.type.startsWith("image/")
+      ) || null;
+
+      if (!file) return;
+
+      setPromptLabReferenceFile(file);
+      setPromptLabError(null);
+      setPromptLabResult(null);
+    }
+
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("drop", handleDrop);
+
+    return () => {
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("drop", handleDrop);
+    };
+  }, [activeSection]);
+
   function ensureListingId() {
     if (listingIdRef.current) return listingIdRef.current;
     if (listingId) {
@@ -3834,10 +3873,41 @@ export default function Page() {
                       {promptLabLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
                       {promptLabLoading ? "Analyzing..." : "Analyze Reference"}
                     </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setPromptLabReferenceFile(null);
+                        setPromptLabError(null);
+                        setPromptLabResult(null);
+                      }}
+                      disabled={!promptLabReferenceFile && !promptLabResult && !promptLabError}
+                    >
+                      <X size={16} />
+                      Reset
+                    </Button>
                   </div>
                 }
               >
-                <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+                <div
+                  className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]"
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const file = Array.from(e.dataTransfer.files || []).find((candidate) =>
+                      candidate.type.startsWith("image/")
+                    ) || null;
+
+                    if (!file) return;
+
+                    setPromptLabReferenceFile(file);
+                    setPromptLabError(null);
+                    setPromptLabResult(null);
+                  }}
+                >
                   <div className="space-y-6">
                     <div className="rounded-[28px] border border-[#eeba2b]/15 bg-neutral-950/75 p-5">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
@@ -3896,11 +3966,10 @@ export default function Page() {
                                   promptLabResult.visualDna.palette,
                                   promptLabResult.visualDna.texture,
                                   promptLabResult.visualDna.mood,
-                                  promptLabResult.subjectIdentity,
-                                  promptLabResult.stylingSignals,
+                                  promptLabResult.visualDna.variationStrategy,
                                 ]
                                   .filter(Boolean)
-                                  .slice(0, 7)
+                                  .slice(0, 5)
                                   .map((item, index) => (
                                     <span
                                       key={`prompt-lab-dna-${index}`}
