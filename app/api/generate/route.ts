@@ -211,188 +211,257 @@ function buildPrintableWallArtTitle(
   const secondary = cleanText(components.secondary_subject)
   const decorContext = cleanText(components.decor_context)
   const searchIntent = cleanText((components as any).search_intent)
+  const mood = cleanText((components as any).mood)
 
-  const stripStopWords = (value: string) =>
-    uniquePhrases(
+  const bannedTitleWords = new Set([
+    "art",
+    "wall",
+    "print",
+    "digital",
+    "download",
+    "printable",
+    "instant",
+    "serene",
+    "calm",
+    "peaceful",
+    "beautiful",
+    "stunning",
+    "elegant",
+    "gorgeous",
+    "interiors",
+    "interior",
+    "home",
+    "decor",
+  ])
+
+  const weakLeadWords = new Set([
+    "modern",
+    "minimalist",
+    "abstract",
+    "coastal",
+    "kitchen",
+    "bathroom",
+    "boho",
+    "neutral",
+    "botanical",
+  ])
+
+  const lowValueStyleWords = new Set([
+    "modern",
+    "minimalist",
+    "abstract",
+    "serene",
+    "neutral",
+  ])
+
+  const cleanPhrase = (value: string) =>
+    cleanText(
       value
-        .split(/\s+/)
-        .map((word) => normalizeWord(word))
-        .filter(Boolean)
-        .filter(
-          (word) =>
-            ![
-              "art",
-              "wall",
-              "print",
-              "digital",
-              "download",
-              "printable",
-              "modern",
-              "abstract",
-            ].includes(word.toLowerCase())
-        )
+        .replace(/\(([^)]*)\)/g, " ")
+        .replace(/[,:;|/]+/g, " ")
+        .replace(/\b(and|with|for|the|a|an)\b/gi, " ")
+        .replace(/\s+/g, " ")
     )
 
-  const subjectWords = uniquePhrases(
-    [primary, secondary]
+  const buildKeywordPhrase = (value: string, maxWordsInPhrase = 4, allowLeadWeakWord = false) => {
+    const words = cleanPhrase(value)
+      .split(/\s+/)
+      .map((word) => normalizeWord(word))
       .filter(Boolean)
-      .flatMap((value) => value.split(/\s+/).map((word) => normalizeWord(word)))
-      .filter(Boolean)
-  )
+      .filter((word) => !bannedTitleWords.has(word.toLowerCase()))
 
-  const styleWords = uniquePhrases(
-    [style, decorContext, searchIntent]
-      .filter(Boolean)
-      .flatMap((value) => value.split(/\s+/).map((word) => normalizeWord(word)))
-      .filter(Boolean)
-  )
+    let uniqueWords = uniquePhrases(words)
+    const richerWords = uniqueWords.filter((word) => !lowValueStyleWords.has(word.toLowerCase()))
+    if (richerWords.length > 0) {
+      uniqueWords = richerWords
+    }
+    const trimmed = uniqueWords.slice(0, maxWordsInPhrase)
 
-  const prioritizedSubjectWords = uniquePhrases([
-    ...stripStopWords(primary),
-    ...stripStopWords(secondary),
-    ...subjectWords,
-  ])
-  const prioritizedStyleWords = uniquePhrases([
-    ...stripStopWords(style),
-    ...stripStopWords(decorContext),
-    ...stripStopWords(searchIntent),
-    ...styleWords,
-  ])
+    while (
+      trimmed.length > 1 &&
+      (!allowLeadWeakWord && weakLeadWords.has(trimmed[0].toLowerCase()))
+    ) {
+      trimmed.shift()
+    }
 
-  let firstSegment = prioritizedSubjectWords.slice(0, 3)
-  let secondSegment = prioritizedStyleWords.slice(0, 4)
+    while (
+      trimmed.length > 1 &&
+      weakLeadWords.has(trimmed[trimmed.length - 1].toLowerCase())
+    ) {
+      trimmed.pop()
+    }
 
-  while (
-    firstSegment.length > 1 &&
-    ["water", "art", "painting", "decor", "wall"].includes(
-      firstSegment[firstSegment.length - 1].toLowerCase()
-    )
-  ) {
-    firstSegment = firstSegment.slice(0, -1)
+    return trimmed.join(" ")
   }
 
-  if (firstSegment.length === 0) firstSegment = ["Printable"]
-  if (secondSegment.length === 0) secondSegment = ["Modern"]
+  const subjectPhrase = uniquePhrases(
+    [
+      buildKeywordPhrase(primary, 4, true),
+      buildKeywordPhrase(secondary, 3, true),
+      buildKeywordPhrase(searchIntent, 3, true),
+    ].filter(Boolean)
+  )
+    .join(" ")
+    .trim()
 
-  const buildCandidate = (subjectPart: string[], stylePart: string[]) =>
-    `${subjectPart.join(" ")} Print, ${stylePart.join(" ")} Wall Art (${suffix})`
+  const stylePhrase = uniquePhrases(
+    [
+      buildKeywordPhrase(style, 2, true),
+      buildKeywordPhrase(decorContext, 2, false),
+      buildKeywordPhrase(searchIntent, 2, false),
+      buildKeywordPhrase(mood, 1, false),
+    ].filter(Boolean)
+  )
+    .join(" ")
+    .trim()
+
+  let printableSubject = subjectPhrase || buildKeywordPhrase(cleanText(rawTitle), 4, true) || "Abstract"
+  let printableStyle = stylePhrase || "Modern"
+  let decorPhrase = uniquePhrases(
+    [
+      buildKeywordPhrase(decorContext, 2, true),
+      buildKeywordPhrase(searchIntent, 2, true),
+    ].filter(Boolean)
+  )
+    .join(" ")
+    .trim()
+
+  const chooseDecorFormat = (() => {
+    const seed = cleanText(`${primary} ${secondary} ${style} ${decorContext} ${searchIntent}`)
+      .split("")
+      .reduce((sum, char) => sum + char.charCodeAt(0), 0)
+    return !!decorPhrase && seed % 2 === 0
+  })()
+
+  const buildCandidate = (subjectPart: string, stylePart: string, decorPart = "") =>
+    chooseDecorFormat && decorPart
+      ? `${subjectPart} Print, ${decorPart} Decor, ${stylePart} Wall Art (${suffix})`
+      : `${subjectPart} Print, ${stylePart} Wall Art (${suffix})`
       .replace(/\s+/g, " ")
       .replace(/\s+,/g, ",")
       .trim()
 
-  let normalized = buildCandidate(firstSegment, secondSegment)
+  const countWords = (value: string) =>
+    value
+      .replace(/[(),]/g, "")
+      .split(/\s+/)
+      .filter(Boolean).length
 
-  const sourceWords = uniquePhrases(
-    [
-      cleanText(rawTitle),
-      style,
-      primary,
-      secondary,
-      decorContext,
-      "printable",
-      "digital",
-      "download",
-    ]
-      .filter(Boolean)
-      .flatMap((value) => value.split(/\s+/).map((word) => normalizeWord(word)))
-      .filter(Boolean)
-  )
+  const addPhraseIfFits = (segment: "subject" | "style" | "decor", phrase: string) => {
+    const cleanExtra = cleanText(phrase)
+    if (!cleanExtra) return false
 
-  const fixedWords = new Set(
-    ["print", "wall", "art", "digital", "download", ...firstSegment, ...secondSegment].map(
-      (word) => normalizeWord(word).toLowerCase()
-    )
-  )
+    const nextSubject = segment === "subject"
+      ? uniquePhrases(`${printableSubject} ${cleanExtra}`.split(/\s+/).filter(Boolean)).join(" ")
+      : printableSubject
+    const nextStyle = segment === "style"
+      ? uniquePhrases(`${printableStyle} ${cleanExtra}`.split(/\s+/).filter(Boolean)).join(" ")
+      : printableStyle
+    const nextDecor = segment === "decor"
+      ? uniquePhrases(`${decorPhrase} ${cleanExtra}`.split(/\s+/).filter(Boolean)).join(" ")
+      : decorPhrase
 
-  const extras = sourceWords.filter((word) => {
-    const normalizedWord = normalizeWord(word).toLowerCase()
-    if (!normalizedWord) return false
-    if (fixedWords.has(normalizedWord)) return false
-    if (["print", "art", "wall", "digital", "download"].includes(normalizedWord)) {
+    const candidate = buildCandidate(nextSubject, nextStyle, nextDecor)
+    if (countWords(candidate) > maxWords || candidate.length > maxCharacters) {
       return false
     }
+
+    printableSubject = nextSubject
+    printableStyle = nextStyle
+    decorPhrase = nextDecor
+    normalized = candidate
     return true
+  }
+
+  let normalized = buildCandidate(printableSubject, printableStyle, decorPhrase)
+
+  normalized = normalized
+    .split(/\s+/)
+    .map((word) => titleCase(word))
+    .join(" ")
+    .replace(/\s+,/g, ",")
+    .trim()
+
+  const fallbackStyleTerms = uniquePhrases(
+    [
+      buildKeywordPhrase(style, 2, true),
+      buildKeywordPhrase(decorContext, 2, false),
+      buildKeywordPhrase(searchIntent, 2, false),
+      "Modern",
+    ].filter(Boolean)
+  )
+
+  for (const extra of fallbackStyleTerms) {
+    const candidateStyle = uniquePhrases([printableStyle, extra]).join(" ").trim()
+    const candidate = buildCandidate(printableSubject, candidateStyle, decorPhrase)
+    const candidateWords = countWords(candidate)
+    if (candidateWords <= maxWords && candidate.length <= maxCharacters) {
+      printableStyle = candidateStyle
+      normalized = candidate
+    }
+  }
+
+  const subjectExpansionPool = uniquePhrases(
+    [
+      buildKeywordPhrase(secondary, 2, true),
+      buildKeywordPhrase(searchIntent, 2, true),
+      buildKeywordPhrase(cleanText(rawTitle), 2, true),
+    ].filter(Boolean)
+  ).filter((phrase) => {
+    const lower = phrase.toLowerCase()
+    return lower && !printableSubject.toLowerCase().includes(lower)
   })
 
-  const targetWords = productConfig.title_rules?.word_rules?.target_full_word_budget
-    ? maxWords
-    : minWords
+  const styleExpansionPool = uniquePhrases(
+    [
+      buildKeywordPhrase(decorContext, 2, true),
+      buildKeywordPhrase(searchIntent, 2, true),
+      buildKeywordPhrase(style, 2, true),
+      buildKeywordPhrase(mood, 1, false),
+      "Digital",
+    ].filter(Boolean)
+  ).filter((phrase) => {
+    const lower = phrase.toLowerCase()
+    return lower && !printableStyle.toLowerCase().includes(lower)
+  })
 
-  const appendWordIfFits = (segment: "first" | "second", extra: string) => {
-    const candidateFirst = segment === "first" ? [...firstSegment, extra] : firstSegment
-    const candidateSecond = segment === "second" ? [...secondSegment, extra] : secondSegment
-    const candidate = buildCandidate(candidateFirst, candidateSecond)
-    const candidateWords = candidate
-      .replace(/[(),]/g, "")
-      .split(/\s+/)
-      .filter(Boolean).length
+  const decorExpansionPool = uniquePhrases(
+    [
+      buildKeywordPhrase(decorContext, 2, true),
+      buildKeywordPhrase(searchIntent, 2, true),
+      "Home",
+    ].filter(Boolean)
+  ).filter((phrase) => {
+    const lower = phrase.toLowerCase()
+    return lower && !decorPhrase.toLowerCase().includes(lower)
+  })
 
-    if (candidateWords <= maxWords && candidate.length <= maxCharacters) {
-      if (segment === "first") {
-        firstSegment = candidateFirst
-      } else {
-        secondSegment = candidateSecond
-      }
-      normalized = candidate
-      return true
-    }
+  while (countWords(normalized) < minWords) {
+    const currentCount = countWords(normalized)
+    let changed = false
 
-    return false
-  }
-
-  for (const extra of extras) {
-    const currentWordCount = normalized
-      .replace(/[(),]/g, "")
-      .split(/\s+/)
-      .filter(Boolean).length
-
-    if (currentWordCount >= targetWords) break
-
-    if (firstSegment.length <= secondSegment.length) {
-      if (appendWordIfFits("first", extra)) continue
-      appendWordIfFits("second", extra)
-      continue
-    }
-
-    if (appendWordIfFits("second", extra)) continue
-    appendWordIfFits("first", extra)
-  }
-
-  const currentWordCount = normalized
-    .replace(/[(),]/g, "")
-    .split(/\s+/)
-    .filter(Boolean).length
-
-  if (currentWordCount < minWords) {
-    const fillerPool = uniquePhrases([
-      ...prioritizedStyleWords,
-      ...prioritizedSubjectWords,
-      "serene",
-      "bathroom",
-      "coastal",
-      "blue",
-      "teal",
-      "modern",
-      "abstract",
-    ]).filter(
-      (word) =>
-        ![...firstSegment, ...secondSegment].some(
-          (item) => normalizeWord(item).toLowerCase() === normalizeWord(word).toLowerCase()
-        )
-    )
-
-    for (const filler of fillerPool) {
-      const updatedWordCount = normalized
-        .replace(/[(),]/g, "")
-        .split(/\s+/)
-        .filter(Boolean).length
-
-      if (updatedWordCount >= minWords) break
-
-      if (!appendWordIfFits("second", filler)) {
-        appendWordIfFits("first", filler)
+    if (currentCount <= maxWords - 2) {
+      const nextSubjectPhrase = subjectExpansionPool.shift()
+      if (nextSubjectPhrase) {
+        changed = addPhraseIfFits("subject", nextSubjectPhrase)
       }
     }
+
+    if (!changed) {
+      const nextStylePhrase = styleExpansionPool.shift()
+      if (nextStylePhrase) {
+        changed = addPhraseIfFits("style", nextStylePhrase)
+      }
+    }
+
+    if (!changed && chooseDecorFormat) {
+      const nextDecorPhrase = decorExpansionPool.shift()
+      if (nextDecorPhrase) {
+        changed = addPhraseIfFits("decor", nextDecorPhrase)
+      }
+    }
+
+    if (!changed) break
   }
 
   normalized = normalized

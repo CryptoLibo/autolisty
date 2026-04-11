@@ -37,6 +37,85 @@ type PromptLabPromptSet = {
   prompts: string[];
 };
 
+const analysisSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "summary",
+    "global_intent",
+    "buyer_appeal",
+    "room_fit",
+    "emotional_promise",
+    "rendering_mode",
+    "subject_mechanics",
+    "variation_logic",
+    "visual_dna",
+    "subject_identity",
+    "styling_signals",
+    "visual_contrast_logic",
+    "commercial_hook",
+    "variation_boundaries",
+    "style_brief",
+    "prompt_principles",
+  ],
+  properties: {
+    summary: { type: "string" },
+    global_intent: { type: "string" },
+    buyer_appeal: { type: "string" },
+    room_fit: { type: "string" },
+    emotional_promise: { type: "string" },
+    rendering_mode: { type: "string" },
+    subject_mechanics: { type: "string" },
+    variation_logic: { type: "string" },
+    visual_dna: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "composition",
+        "form_language",
+        "palette",
+        "texture",
+        "mood",
+        "variation_strategy",
+      ],
+      properties: {
+        composition: { type: "string" },
+        form_language: { type: "string" },
+        palette: { type: "string" },
+        texture: { type: "string" },
+        mood: { type: "string" },
+        variation_strategy: { type: "string" },
+      },
+    },
+    subject_identity: { type: "string" },
+    styling_signals: { type: "string" },
+    visual_contrast_logic: { type: "string" },
+    commercial_hook: { type: "string" },
+    variation_boundaries: { type: "string" },
+    style_brief: { type: "string" },
+    prompt_principles: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 4,
+      maxItems: 4,
+    },
+  },
+} as const;
+
+const promptSetSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["prompts"],
+  properties: {
+    prompts: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 4,
+      maxItems: 4,
+    },
+  },
+} as const;
+
 function extractJson<T>(raw: string): T {
   const normalized = String(raw || "").trim();
   const fenceMatch = normalized.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
@@ -145,6 +224,14 @@ Rules:
     const analysisResponse = await client.responses.create({
       model: "gpt-4o",
       temperature: 0.3,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "prompt_lab_analysis",
+          strict: true,
+          schema: analysisSchema,
+        },
+      },
       input: [
         {
           role: "system",
@@ -204,6 +291,14 @@ Rules:
     const promptResponse = await client.responses.create({
       model: "gpt-4o",
       temperature: 0.65,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "prompt_lab_prompt_set",
+          strict: true,
+          schema: promptSetSchema,
+        },
+      },
       input: [
         {
           role: "system",
