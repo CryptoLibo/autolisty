@@ -938,6 +938,22 @@ export async function POST(req: Request) {
         ),
       }))
     )
+    const responseContent = [
+      { type: "input_text" as const, text: userPrompt },
+      { type: "input_text" as const, text: "PRIMARY DESIGN IMAGE" },
+      { type: "input_image" as const, image_url: designDataUrl, detail: "auto" as const },
+      ...mockupInputs.flatMap((img: any) => [
+        {
+          type: "input_text" as const,
+          text: `LISTING IMAGE position=${img.position} id=${img.id}`,
+        },
+        {
+          type: "input_image" as const,
+          image_url: img.dataUrl,
+          detail: "auto" as const,
+        },
+      ]),
+    ]
 
     const systemPrompt = `
 You are an elite Etsy SEO strategist working across multiple digital Etsy products.
@@ -1048,22 +1064,7 @@ Return JSON in this exact shape:
         },
         {
           role: "user",
-          content: [
-            { type: "input_text", text: userPrompt },
-            { type: "input_text", text: "PRIMARY DESIGN IMAGE" },
-            { type: "input_image", image_url: designDataUrl, detail: "auto" },
-            ...mockupInputs.flatMap((img: any) => [
-              {
-                type: "input_text",
-                text: `LISTING IMAGE position=${img.position} id=${img.id}`,
-              },
-              {
-                type: "input_image",
-                image_url: img.dataUrl,
-                detail: "auto",
-              },
-            ]),
-          ],
+          content: responseContent,
         },
       ],
     })
