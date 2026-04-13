@@ -9,6 +9,9 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 })
 
+const REMOTE_IMAGE_TIMEOUT_MS = 30000
+const REMOTE_IMAGE_MAX_RETRIES = 2
+
 type ProductConfig = {
   product_name?: string
   title_rules?: {
@@ -62,6 +65,56 @@ type ResolvedProductConfig = ProductConfig & {
 
 function cleanText(value: unknown) {
   return String(value || "").replace(/\s+/g, " ").trim()
+}
+
+function toDataUrl(buffer: Buffer, mimeType: string) {
+  return `data:${mimeType};base64,${buffer.toString("base64")}`
+}
+
+async function fetchRemoteImageAsDataUrl(url: string, label: string) {
+  const targetUrl = cleanText(url)
+
+  if (!targetUrl) {
+    throw new Error(`Missing image URL for ${label}.`)
+  }
+
+  let lastError: unknown = null
+
+  for (let attempt = 1; attempt <= REMOTE_IMAGE_MAX_RETRIES; attempt += 1) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REMOTE_IMAGE_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(targetUrl, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        throw new Error(`${response.status} while downloading ${targetUrl}`)
+      }
+
+      const arrayBuffer = await response.arrayBuffer()
+      const contentType = response.headers.get("content-type") || "image/jpeg"
+      return toDataUrl(Buffer.from(arrayBuffer), contentType)
+    } catch (error: any) {
+      lastError = error
+
+      if (attempt >= REMOTE_IMAGE_MAX_RETRIES) {
+        if (error?.name === "AbortError") {
+          throw new Error(`Timeout while downloading ${targetUrl}`)
+        }
+
+        throw new Error(error?.message || `Failed downloading ${label}`)
+      }
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  throw new Error(
+    lastError instanceof Error ? lastError.message : `Failed downloading ${label}`
+  )
 }
 
 function resolveProductConfig(productConfig: ProductConfig): ResolvedProductConfig {
@@ -874,6 +927,18 @@ export async function POST(req: Request) {
     )
     const descriptionTemplate = fs.readFileSync(templatePath, "utf-8")
 
+    const designDataUrl = await fetchRemoteImageAsDataUrl(designUrl, "primary design image")
+    const mockupInputs = await Promise.all(
+      mockups.map(async (img: any) => ({
+        id: img.id,
+        position: img.position,
+        dataUrl: await fetchRemoteImageAsDataUrl(
+          img.url,
+          `mockup ${img.position || img.id || "image"}`
+        ),
+      }))
+    )
+
     const systemPrompt = `
 You are an elite Etsy SEO strategist working across multiple digital Etsy products.
 
@@ -986,15 +1051,16 @@ Return JSON in this exact shape:
           content: [
             { type: "input_text", text: userPrompt },
             { type: "input_text", text: "PRIMARY DESIGN IMAGE" },
-            { type: "input_image", image_url: designUrl },
-            ...mockups.flatMap((img: any) => [
+            { type: "input_image", image_url: designDataUrl, detail: "auto" },
+            ...mockupInputs.flatMap((img: any) => [
               {
                 type: "input_text",
                 text: `LISTING IMAGE position=${img.position} id=${img.id}`,
               },
               {
                 type: "input_image",
-                image_url: img.url,
+                image_url: img.dataUrl,
+                detail: "auto",
               },
             ]),
           ],
