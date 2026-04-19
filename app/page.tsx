@@ -948,7 +948,8 @@ export default function Page() {
   const scaleImportLocked = scaleJobs.some(
     (job) => !!job.listingId || hasReachedScaleStage(job.status, "uploaded") || job.status === "uploading"
   );
-  const scaleCanImport = !scaleImportLocked;
+  const scaleConnectionsReady = !!etsyAuth?.connected && !!pinterestAuth?.connected;
+  const scaleCanImport = !scaleImportLocked && scaleConnectionsReady;
   const scaleCanUpload = scaleImportComplete && !scaleUploadComplete;
   const scaleCanGenerateSeo = scaleUploadComplete && !scaleSeoComplete;
   const scaleCanGeneratePdf = scaleSeoComplete && !scalePdfComplete;
@@ -1553,6 +1554,14 @@ export default function Page() {
     items?: DataTransferItemList | null
   ) {
     if (files.length === 0 && !items?.length) return;
+
+    if (!etsyAuth?.connected || !pinterestAuth?.connected) {
+      setScaleMessageTone("error");
+      setScaleMessage(
+        "Connect both Etsy and Pinterest before importing listings into Scale."
+      );
+      return;
+    }
 
     const scaleSessionLocked = scaleJobs.some(
       (job) => !!job.listingId || hasReachedScaleStage(job.status, "uploaded") || job.status === "uploading"
@@ -4944,11 +4953,16 @@ export default function Page() {
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                           <Button
                             variant={
-                              scaleImportComplete ? "success" : "primary"
+                              scaleImportComplete
+                                ? "success"
+                                : scaleCanImport
+                                  ? "primary"
+                                  : "secondary"
                             }
                             onClick={() => scaleInputRef.current?.click()}
                             disabled={
-                              scaleBusy && !scaleImporting
+                              !scaleCanImport ||
+                              (scaleBusy && !scaleImporting)
                             }
                           >
                             {scaleImporting ? (
