@@ -198,7 +198,17 @@ type ScaleJobStatus =
   | "pinterest_complete"
   | "publishing_pinterest"
   | "published"
-  | "failed";
+  | "failed"
+  | "skipped";
+
+type ScaleFailedStage =
+  | "upload"
+  | "seo"
+  | "pdf"
+  | "etsy"
+  | "etsy_url"
+  | "pinterest"
+  | "publish";
 
 type ScaleUploadedMockup = {
   id: string;
@@ -235,6 +245,7 @@ type ScaleJob = {
   status: ScaleJobStatus;
   stepLabel?: string;
   errorMessage?: string | null;
+  failedStage?: ScaleFailedStage | null;
   designUrl?: string;
   mockupsUploaded?: ScaleUploadedMockup[];
   uploadedDeliverableFieldIds?: string[];
@@ -337,6 +348,7 @@ function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
         status: issues.length === 0 ? "ready" : "needs_attention",
         stepLabel: issues.length === 0 ? "Ready" : "Needs attention",
         errorMessage: null,
+        failedStage: null,
         midjourneyPrompt: "",
         designUrl: undefined,
         mockupsUploaded: [],
@@ -371,6 +383,7 @@ function hasReachedScaleStage(
     publishing_pinterest: 11,
     published: 12,
     failed: 0,
+    skipped: 0,
   };
 
   const target: Record<typeof stage, number> = {
@@ -918,20 +931,22 @@ export default function Page() {
     () => getProductOption(scaleProductType).delivery.fields,
     [scaleProductType]
   );
+  const scaleActiveJobs = scaleJobs.filter((job) => job.status !== "skipped");
   const scaleHasJobs = scaleJobs.length > 0;
+  const scaleHasActiveJobs = scaleActiveJobs.length > 0;
   const scaleImportComplete = scaleHasJobs;
   const scaleUploadComplete =
-    scaleHasJobs && scaleJobs.every((job) => hasReachedScaleStage(job.status, "uploaded"));
+    scaleHasActiveJobs && scaleActiveJobs.every((job) => hasReachedScaleStage(job.status, "uploaded"));
   const scaleSeoComplete =
-    scaleHasJobs && scaleJobs.every((job) => hasReachedScaleStage(job.status, "seo"));
+    scaleHasActiveJobs && scaleActiveJobs.every((job) => hasReachedScaleStage(job.status, "seo"));
   const scalePdfComplete =
-    scaleHasJobs && scaleJobs.every((job) => hasReachedScaleStage(job.status, "pdf"));
+    scaleHasActiveJobs && scaleActiveJobs.every((job) => hasReachedScaleStage(job.status, "pdf"));
   const scaleEtsyComplete =
-    scaleHasJobs && scaleJobs.every((job) => hasReachedScaleStage(job.status, "etsy"));
+    scaleHasActiveJobs && scaleActiveJobs.every((job) => hasReachedScaleStage(job.status, "etsy"));
   const scalePinterestComplete =
-    scaleHasJobs && scaleJobs.every((job) => hasReachedScaleStage(job.status, "pinterest"));
+    scaleHasActiveJobs && scaleActiveJobs.every((job) => hasReachedScaleStage(job.status, "pinterest"));
   const scalePublishedComplete =
-    scaleHasJobs && scaleJobs.every((job) => hasReachedScaleStage(job.status, "published"));
+    scaleHasActiveJobs && scaleActiveJobs.every((job) => hasReachedScaleStage(job.status, "published"));
   const scaleSeoModalJob =
     scaleJobs.find((job) => job.id === scaleSeoModalJobId) || null;
   const scaleBusy =
@@ -950,19 +965,19 @@ export default function Page() {
   );
   const scaleConnectionsReady = !!etsyAuth?.connected && !!pinterestAuth?.connected;
   const scaleCanImport = !scaleImportLocked && scaleConnectionsReady;
-  const scaleCanUpload = scaleImportComplete && !scaleUploadComplete;
+  const scaleCanUpload = scaleHasActiveJobs && scaleImportComplete && !scaleUploadComplete;
   const scaleCanGenerateSeo = scaleUploadComplete && !scaleSeoComplete;
   const scaleCanGeneratePdf = scaleSeoComplete && !scalePdfComplete;
   const scaleCanSyncEtsy = scalePdfComplete && !scaleEtsyComplete;
   const scaleHasEtsyLinks =
-    scaleHasJobs && scaleJobs.every((job) => !!job.pinterestLink.trim());
+    scaleHasActiveJobs && scaleActiveJobs.every((job) => !!job.pinterestLink.trim());
   const scaleCanFetchEtsyUrls = scaleEtsyComplete && !scaleHasEtsyLinks;
   const scaleCanGeneratePinterest =
     (scaleEtsyComplete || scalePdfComplete) && scaleHasEtsyLinks && !scalePinterestComplete;
   const scaleHasPublishReadyJobs =
-    scaleHasJobs &&
+    scaleHasActiveJobs &&
     !!selectedPinterestBoardId &&
-    scaleJobs.every(
+    scaleActiveJobs.every(
       (job) =>
         !!job.pinterestLink.trim() &&
         !!job.pinterestPins?.length &&
@@ -1692,6 +1707,7 @@ export default function Page() {
       status: "ready",
       stepLabel: "Ready to upload again",
       errorMessage: null,
+      failedStage: null,
       designUrl: undefined,
       mockupsUploaded: undefined,
       uploadedDeliverableFieldIds: [],
@@ -1700,6 +1716,134 @@ export default function Page() {
       etsyResult: null,
       pinterestPins: undefined,
     };
+  }
+
+  function inferScaleJobStatus(job: ScaleJob): ScaleJobStatus {
+    if (job.pinterestPins?.length && job.pinterestPins.every((pin) => !!pin.publishedPinId)) {
+      return "published";
+    }
+
+    if (
+      job.pinterestPins?.length &&
+      job.pinterestPins.every((pin) => !!pin.title && !!pin.description)
+    ) {
+      return "pinterest_complete";
+    }
+
+    if (job.etsyResult?.ok) return "etsy_complete";
+    if (job.deliveryPdfUrl) return "pdf_complete";
+    if (job.seoResult) return "seo_complete";
+    if (job.listingId && job.designUrl && job.mockupsUploaded?.length) return "uploaded";
+    return job.issues.length === 0 ? "ready" : "needs_attention";
+  }
+
+  function getScaleRetryLabel(job: ScaleJob) {
+    switch (job.failedStage) {
+      case "upload":
+        return "Retry upload";
+      case "seo":
+        return "Retry SEO";
+      case "pdf":
+        return "Retry PDF";
+      case "etsy":
+        return "Retry Etsy";
+      case "etsy_url":
+        return "Retry Etsy URL";
+      case "pinterest":
+        return "Retry Pinterest copy";
+      case "publish":
+        return "Retry publish";
+      default:
+        return "Retry step";
+    }
+  }
+
+  function skipScaleJob(jobId: string) {
+    updateScaleJob(jobId, (job) => ({
+      ...job,
+      status: "skipped",
+      stepLabel: "Skipped",
+      errorMessage: null,
+      failedStage: null,
+    }));
+    setScaleMessage("Listing skipped. It will not block the remaining Scale jobs.");
+  }
+
+  function reactivateScaleJob(jobId: string) {
+    updateScaleJob(jobId, (job) => ({
+      ...job,
+      status: inferScaleJobStatus(job),
+      stepLabel: "Reactivated",
+      errorMessage: null,
+      failedStage: null,
+    }));
+    setScaleMessage("Listing reactivated in the Scale session.");
+  }
+
+  async function retryFailedScaleJob(job: ScaleJob) {
+    if (job.status !== "failed" || !job.failedStage) {
+      setScaleMessage("This listing does not have a failed step to retry.");
+      return;
+    }
+
+    try {
+      switch (job.failedStage) {
+        case "upload":
+          setScaleUploading(true);
+          setScaleMessage(`Retrying upload for ${job.folderName}...`);
+          await uploadScaleJob(job);
+          break;
+        case "seo":
+          setScaleSeoLoading(true);
+          setScaleMessage(`Retrying SEO for ${job.folderName}...`);
+          await generateSeoForScaleJob(job);
+          break;
+        case "pdf":
+          setScalePdfLoading(true);
+          setScaleMessage(`Retrying PDF for ${job.folderName}...`);
+          await generatePdfForScaleJob(job);
+          break;
+        case "etsy":
+          setScaleEtsyLoading(true);
+          setScaleMessage(`Retrying Etsy sync for ${job.folderName}...`);
+          await syncEtsyForScaleJob(job);
+          break;
+        case "etsy_url":
+          setScaleEtsyUrlLoading(true);
+          setScaleMessage(`Retrying Etsy URL fetch for ${job.folderName}...`);
+          await fetchPublishedEtsyUrlForScaleJob(job);
+          break;
+        case "pinterest":
+          setScalePinterestLoading(true);
+          setScaleMessage(`Retrying Pinterest copy for ${job.folderName}...`);
+          await generatePinterestForScaleJob(job);
+          break;
+        case "publish":
+          setScalePinterestPublishing(true);
+          setScaleMessage(`Retrying Pinterest publish for ${job.folderName}...`);
+          await publishPinterestForScaleJob(job);
+          break;
+      }
+
+      setScaleMessage(`${job.folderName} is aligned again. Continue with the main Scale buttons when all active jobs match.`);
+    } catch (error: any) {
+      updateScaleJob(job.id, (current) => ({
+        ...current,
+        status: "failed",
+        stepLabel: current.stepLabel || "Retry failed",
+        errorMessage: error?.message || "Retry failed.",
+        failedStage: job.failedStage,
+      }));
+      setScaleMessage(error?.message || `Retry failed for ${job.folderName}.`);
+    } finally {
+      setScaleUploading(false);
+      setScaleSeoLoading(false);
+      setScalePdfLoading(false);
+      setScaleEtsyLoading(false);
+      setScaleEtsyUrlLoading(false);
+      setScalePinterestLoading(false);
+      setScalePinterestPublishing(false);
+    }
   }
 
   async function deleteScaleListingAssets(listingIds: string[]) {
@@ -1745,6 +1889,7 @@ export default function Page() {
         status: "failed",
         stepLabel: "Delete failed",
         errorMessage: error?.message || "Failed to delete R2 assets for this listing.",
+        failedStage: null,
       }));
       setScaleMessage(error?.message || "Failed to delete listing assets.");
     } finally {
@@ -1949,6 +2094,7 @@ export default function Page() {
       status: "uploading",
       stepLabel: "Uploading",
       errorMessage: null,
+      failedStage: null,
     }));
 
     const designExt =
@@ -2058,17 +2204,18 @@ export default function Page() {
       listingId: listingJobId,
       status: "uploaded",
       stepLabel: "Upload complete",
-        errorMessage: null,
-        designUrl: uploadedDesign.url,
-        mockupsUploaded: uploadedMockups,
-        uploadedDeliverableFieldIds,
-        pinterestPins: uploadedPins,
-      }));
-    }
+      errorMessage: null,
+      failedStage: null,
+      designUrl: uploadedDesign.url,
+      mockupsUploaded: uploadedMockups,
+      uploadedDeliverableFieldIds,
+      pinterestPins: uploadedPins,
+    }));
+  }
 
   async function uploadScaleJobs() {
     const eligible = scaleJobs.filter(
-      (job) => job.status === "ready" || job.status === "failed"
+      (job) => job.status === "ready"
     );
 
     if (eligible.length === 0) {
@@ -2093,6 +2240,7 @@ export default function Page() {
           status: "failed",
           stepLabel: "Upload failed",
           errorMessage: error?.message || "Scale upload failed",
+          failedStage: "upload",
         }));
       }
     });
@@ -2119,6 +2267,7 @@ export default function Page() {
       status: "generating_seo",
       stepLabel: "Generating SEO",
       errorMessage: null,
+      failedStage: null,
     }));
 
       const payload = {
@@ -2158,6 +2307,7 @@ export default function Page() {
       status: "seo_complete",
       stepLabel: "SEO complete",
       errorMessage: null,
+      failedStage: null,
       seoResult: data,
       mockupsUploaded: (current.mockupsUploaded || []).map((item) => ({
         ...item,
@@ -2169,7 +2319,7 @@ export default function Page() {
   async function generateScaleSeoJobs() {
     const eligible = scaleJobs.filter(
       (job) =>
-        (job.status === "uploaded" || job.status === "failed") &&
+        job.status === "uploaded" &&
         !!job.designUrl &&
         !!job.mockupsUploaded?.length &&
         !!job.midjourneyPrompt.trim()
@@ -2196,6 +2346,7 @@ export default function Page() {
           status: "failed",
           stepLabel: "SEO failed",
           errorMessage: error?.message || "SEO generation failed",
+          failedStage: "seo",
         }));
       }
     });
@@ -2230,8 +2381,9 @@ export default function Page() {
       updateScaleJob(job.id, (current) => ({
         ...current,
         status: "generating_pdf",
-      stepLabel: "Generating PDF",
-      errorMessage: null,
+        stepLabel: "Generating PDF",
+        errorMessage: null,
+        failedStage: null,
     }));
 
       const res = await fetch("/api/generate/delivery", {
@@ -2252,6 +2404,7 @@ export default function Page() {
       status: "pdf_complete",
       stepLabel: "PDF complete",
       errorMessage: null,
+      failedStage: null,
       deliveryPdfUrl: data.url,
     }));
   }
@@ -2260,7 +2413,7 @@ export default function Page() {
       const requiredDeliverables = getRequiredScaleDeliverableFieldIds();
       const eligible = scaleJobs.filter(
         (job) =>
-          (job.status === "seo_complete" || job.status === "failed") &&
+          job.status === "seo_complete" &&
           !!job.listingId &&
           !!job.seoResult &&
           requiredDeliverables.every((fieldId) =>
@@ -2289,6 +2442,7 @@ export default function Page() {
           status: "failed",
           stepLabel: "PDF failed",
           errorMessage: error?.message || "PDF generation failed",
+          failedStage: "pdf",
         }));
       }
     });
@@ -2315,6 +2469,7 @@ export default function Page() {
       status: "syncing_etsy",
       stepLabel: "Syncing Etsy",
       errorMessage: null,
+      failedStage: null,
     }));
 
     const res = await fetch("/api/etsy/sync", {
@@ -2349,6 +2504,7 @@ export default function Page() {
       status: "etsy_complete",
       stepLabel: "Etsy synced",
       errorMessage: null,
+      failedStage: null,
       etsyResult: data,
     }));
   }
@@ -2361,7 +2517,7 @@ export default function Page() {
 
     const eligible = scaleJobs.filter(
       (job) =>
-        (job.status === "pdf_complete" || job.status === "failed") &&
+        job.status === "pdf_complete" &&
         !!job.seoResult &&
         !!job.deliveryPdfUrl &&
         !!job.etsyDraftListingId.trim()
@@ -2388,6 +2544,7 @@ export default function Page() {
           status: "failed",
           stepLabel: "Etsy failed",
           errorMessage: error?.message || "Etsy sync failed",
+          failedStage: "etsy",
         }));
       }
     });
@@ -2423,16 +2580,18 @@ export default function Page() {
 
     updateScaleJob(job.id, (current) => ({
       ...current,
+      status: current.status === "failed" ? "etsy_complete" : current.status,
       pinterestLink: data.listingUrl || current.pinterestLink,
       stepLabel: data.listingUrl ? "Published Etsy URL loaded" : current.stepLabel,
       errorMessage: null,
+      failedStage: null,
     }));
   }
 
   async function fetchScalePublishedEtsyUrls() {
     const eligible = scaleJobs.filter(
       (job) =>
-        (job.status === "etsy_complete" || job.status === "failed") &&
+        job.status === "etsy_complete" &&
         !!job.etsyDraftListingId.trim()
     );
 
@@ -2458,6 +2617,7 @@ export default function Page() {
           status: "failed",
           stepLabel: "Published Etsy URL failed",
           errorMessage: error?.message || "Failed to fetch Etsy listing URL.",
+          failedStage: "etsy_url",
         }));
       }
     });
@@ -2484,6 +2644,7 @@ export default function Page() {
       status: "generating_pinterest",
       stepLabel: "Generating Pinterest",
       errorMessage: null,
+      failedStage: null,
     }));
 
     const res = await fetch("/api/generate/pinterest", {
@@ -2524,6 +2685,7 @@ export default function Page() {
       status: "pinterest_complete",
       stepLabel: "Pinterest ready",
       errorMessage: null,
+      failedStage: null,
       pinterestPins: (current.pinterestPins || []).map((item) => ({
         ...item,
         title: pinMap.get(item.id)?.title || item.title,
@@ -2536,8 +2698,7 @@ export default function Page() {
     const eligible = scaleJobs.filter(
       (job) =>
         (job.status === "etsy_complete" ||
-          job.status === "pdf_complete" ||
-          job.status === "failed") &&
+          job.status === "pdf_complete") &&
         !!job.seoResult &&
         !!job.pinterestPins?.length &&
         !!job.pinterestLink.trim()
@@ -2564,6 +2725,7 @@ export default function Page() {
           status: "failed",
           stepLabel: "Pinterest failed",
           errorMessage: error?.message || "Pinterest generation failed",
+          failedStage: "pinterest",
         }));
       }
     });
@@ -2586,10 +2748,21 @@ export default function Page() {
     }
 
     const readyPins = (job.pinterestPins || []).filter(
-      (pin) => pin.url && pin.title && pin.description
+      (pin) => pin.url && pin.title && pin.description && !pin.publishedPinId
     );
 
     if (readyPins.length === 0) {
+      if (job.pinterestPins?.length && job.pinterestPins.every((pin) => !!pin.publishedPinId)) {
+        updateScaleJob(job.id, (current) => ({
+          ...current,
+          status: "published",
+          stepLabel: "Pinterest published",
+          errorMessage: null,
+          failedStage: null,
+        }));
+        return;
+      }
+
       throw new Error("Generate Pinterest copy for this listing before publishing.");
     }
 
@@ -2598,6 +2771,7 @@ export default function Page() {
       status: "publishing_pinterest",
       stepLabel: "Publishing Pinterest",
       errorMessage: null,
+      failedStage: null,
     }));
 
     const res = await fetch("/api/pinterest/publish", {
@@ -2635,16 +2809,16 @@ export default function Page() {
 
     const resultMap = new Map((data.results || []).map((item) => [item.id, item]));
     const hasFailure = (data.results || []).some((item) => !item.ok);
-
-    if (hasFailure) {
-      throw new Error("One or more Pinterest pins failed to publish.");
-    }
+    const successfulIds = new Set(
+      (data.results || []).filter((item) => item.ok).map((item) => item.id)
+    );
 
     updateScaleJob(job.id, (current) => ({
       ...current,
-      status: "published",
-      stepLabel: "Pinterest published",
-      errorMessage: null,
+      status: hasFailure ? "failed" : "published",
+      stepLabel: hasFailure ? "Pinterest publish failed" : "Pinterest published",
+      errorMessage: hasFailure ? "One or more Pinterest pins failed to publish." : null,
+      failedStage: hasFailure ? "publish" : null,
       pinterestPins: (current.pinterestPins || []).map((pin) => ({
         ...pin,
         publishedPinId: resultMap.get(pin.id)?.pinId || pin.publishedPinId,
@@ -2652,6 +2826,15 @@ export default function Page() {
         publishError: resultMap.get(pin.id)?.error || null,
       })),
     }));
+
+    if (hasFailure) {
+      const publishedCount = successfulIds.size;
+      throw new Error(
+        publishedCount > 0
+          ? `${publishedCount} Pinterest pins published, but one or more pins failed. Retry will only publish pending pins.`
+          : "One or more Pinterest pins failed to publish."
+      );
+    }
   }
 
   async function publishScalePinterestJobs() {
@@ -2667,6 +2850,7 @@ export default function Page() {
 
     const eligible = scaleJobs.filter(
       (job) =>
+        job.status === "pinterest_complete" &&
         !!job.pinterestLink.trim() &&
         !!job.pinterestPins?.length &&
         job.pinterestPins.every((pin) => !!pin.title && !!pin.description)
@@ -2693,6 +2877,7 @@ export default function Page() {
           status: "failed",
           stepLabel: "Pinterest publish failed",
           errorMessage: error?.message || "Pinterest publish failed",
+          failedStage: "publish",
         }));
       }
     });
@@ -4995,9 +5180,7 @@ export default function Page() {
                             disabled={
                               !scaleCanUpload ||
                               scaleBusy ||
-                              scaleJobs.every(
-                                    (job) => job.status !== "ready" && job.status !== "failed"
-                                  )
+                              scaleActiveJobs.every((job) => job.status !== "ready")
                             }
                             >
                               {scaleUploading ? (
@@ -5031,9 +5214,9 @@ export default function Page() {
                             disabled={
                               !scaleCanGenerateSeo ||
                               scaleBusy ||
-                              scaleJobs.every(
+                              scaleActiveJobs.every(
                                     (job) =>
-                                      !(job.status === "uploaded" || job.status === "failed") ||
+                                      job.status !== "uploaded" ||
                                       !job.designUrl ||
                                     !job.mockupsUploaded?.length ||
                                     !job.midjourneyPrompt.trim()
@@ -5070,9 +5253,9 @@ export default function Page() {
                             disabled={
                               !scaleCanGeneratePdf ||
                               scaleBusy ||
-                              scaleJobs.every(
+                              scaleActiveJobs.every(
                                     (job) =>
-                                      !(job.status === "seo_complete" || job.status === "failed") ||
+                                      job.status !== "seo_complete" ||
                                       !job.listingId ||
                                     !job.seoResult ||
                                     !getRequiredScaleDeliverableFieldIds().every((fieldId) =>
@@ -5115,9 +5298,9 @@ export default function Page() {
                               !scaleCanSyncEtsy ||
                               scaleBusy ||
                               !etsyAuth?.connected ||
-                              scaleJobs.every(
+                              scaleActiveJobs.every(
                                     (job) =>
-                                      !(job.status === "pdf_complete" || job.status === "failed") ||
+                                      job.status !== "pdf_complete" ||
                                     !job.seoResult ||
                                     !job.deliveryPdfUrl ||
                                     !job.etsyDraftListingId.trim()
@@ -5155,9 +5338,9 @@ export default function Page() {
                             disabled={
                               !scaleCanFetchEtsyUrls ||
                               scaleBusy ||
-                              scaleJobs.every(
+                              scaleActiveJobs.every(
                                 (job) =>
-                                  !(job.status === "etsy_complete" || job.status === "failed") ||
+                                  job.status !== "etsy_complete" ||
                                   !job.etsyDraftListingId.trim()
                               )
                             }
@@ -5192,12 +5375,11 @@ export default function Page() {
                             disabled={
                               !scaleCanGeneratePinterest ||
                               scaleBusy ||
-                              scaleJobs.every(
+                              scaleActiveJobs.every(
                                     (job) =>
                                       !(
                                         job.status === "etsy_complete" ||
-                                        job.status === "pdf_complete" ||
-                                        job.status === "failed"
+                                        job.status === "pdf_complete"
                                       ) ||
                                       !job.seoResult ||
                                       !job.pinterestPins?.length ||
@@ -5507,6 +5689,8 @@ export default function Page() {
                                           "inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
                                           job.status === "published"
                                             ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                                          : job.status === "skipped"
+                                            ? "border-neutral-700 bg-neutral-900/70 text-neutral-300"
                                           : job.status === "generating_pdf" ||
                                                 job.status === "generating_seo" ||
                                                 job.status === "generating_pinterest" ||
@@ -5531,6 +5715,8 @@ export default function Page() {
                                       >
                                         {job.status === "published"
                                           ? "Complete"
+                                          : job.status === "skipped"
+                                            ? "Skipped"
                                           : job.status === "publishing_pinterest"
                                             ? "Publishing Pinterest"
                                           : job.status === "pinterest_complete"
@@ -5564,6 +5750,35 @@ export default function Page() {
                                         <Eye size={16} />
                                         View SEO
                                       </Button>
+                                      {job.status === "failed" ? (
+                                        <>
+                                          {job.failedStage ? (
+                                            <Button
+                                              variant="primary"
+                                              onClick={() => void retryFailedScaleJob(job)}
+                                              disabled={scaleBusy}
+                                            >
+                                              {getScaleRetryLabel(job)}
+                                            </Button>
+                                          ) : null}
+                                          <Button
+                                            variant="secondary"
+                                            onClick={() => skipScaleJob(job.id)}
+                                            disabled={scaleBusy}
+                                          >
+                                            Skip listing
+                                          </Button>
+                                        </>
+                                      ) : null}
+                                      {job.status === "skipped" ? (
+                                        <Button
+                                          variant="secondary"
+                                          onClick={() => reactivateScaleJob(job.id)}
+                                          disabled={scaleBusy}
+                                        >
+                                          Reactivate
+                                        </Button>
+                                      ) : null}
                                       <Button
                                         variant="ghost"
                                         onClick={() => void clearScaleJobUploads(job.id)}
@@ -5656,7 +5871,11 @@ export default function Page() {
                                   />
                                 </div>
 
-                                {job.errorMessage ? (
+                                {job.status === "skipped" ? (
+                                  <div className="mt-4 rounded-2xl border border-neutral-700 bg-neutral-900/50 p-4 text-sm text-neutral-300">
+                                    This listing is skipped and will not block the remaining Scale jobs.
+                                  </div>
+                                ) : job.errorMessage ? (
                                   <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
                                     {job.errorMessage}
                                   </div>
