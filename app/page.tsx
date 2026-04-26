@@ -149,6 +149,14 @@ type PromptLabResult = {
   variationBoundaries: string;
   styleBrief: string;
   promptPrinciples: string[];
+  promptDetails?: Array<{
+    role: string;
+    prompt: string;
+    variationStrategy: string;
+    seoSignals: string[];
+    keptFromReference: string[];
+    changedFromReference: string[];
+  }>;
   prompts: string[];
   midjourneyBlock: string;
 };
@@ -846,6 +854,9 @@ export default function Page() {
   const [promptLabLoading, setPromptLabLoading] = useState(false);
   const [promptLabError, setPromptLabError] = useState<string | null>(null);
   const [promptLabResult, setPromptLabResult] = useState<PromptLabResult | null>(null);
+  const [promptLabProductType, setPromptLabProductType] = useState<ProductType>(() =>
+    readStoredProductType(STORAGE_KEYS.listingProductType)
+  );
   const [productType, setProductType] = useState<ProductType>(() =>
     readStoredProductType(STORAGE_KEYS.listingProductType)
   );
@@ -2930,6 +2941,7 @@ export default function Page() {
     try {
       const formData = new FormData();
       formData.append("file", promptLabReferenceFile);
+      formData.append("productType", promptLabProductType);
 
       const res = await fetch("/api/prompt-lab", {
         method: "POST",
@@ -4064,8 +4076,24 @@ export default function Page() {
                         setPromptLabError(null);
                         setPromptLabResult(null);
                         e.currentTarget.value = "";
+                        }}
+                      />
+                    <select
+                      value={promptLabProductType}
+                      onChange={(e) => {
+                        setPromptLabProductType(e.target.value as ProductType);
+                        setPromptLabResult(null);
+                        setPromptLabError(null);
                       }}
-                    />
+                      disabled={promptLabLoading}
+                      className="rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                    >
+                      {PRODUCT_OPTIONS.map((product) => (
+                        <option key={product.value} value={product.value}>
+                          {product.label}
+                        </option>
+                      ))}
+                    </select>
                     <Button
                       variant="primary"
                       onClick={() => promptLabInputRef.current?.click()}
@@ -4248,14 +4276,17 @@ export default function Page() {
                       </div>
 
                       <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                        {(promptLabResult?.prompts || Array.from({ length: 4 }).map(() => "")).map((prompt, index) => (
+                        {(promptLabResult?.prompts || Array.from({ length: 4 }).map(() => "")).map((prompt, index) => {
+                          const detail = promptLabResult?.promptDetails?.[index];
+
+                          return (
                           <div
                             key={`prompt-lab-card-${index}`}
                             className="rounded-[24px] border border-neutral-800 bg-neutral-900/55 p-4"
                           >
                             <div className="flex items-center justify-between gap-3">
                               <div className="text-sm font-semibold text-neutral-100">
-                                Prompt {index + 1}
+                                {detail?.role || `Prompt ${index + 1}`}
                               </div>
                               <Button
                                 variant="ghost"
@@ -4269,8 +4300,26 @@ export default function Page() {
                             <div className="mt-4 min-h-[132px] rounded-2xl border border-white/8 bg-neutral-950/70 p-4 text-sm leading-relaxed text-neutral-500">
                               {prompt || "Generated prompt variations will appear here after the reference analysis is connected."}
                             </div>
+                            {detail ? (
+                              <div className="mt-4 space-y-3">
+                                <div className="rounded-2xl border border-white/8 bg-neutral-950/50 p-3 text-xs leading-relaxed text-neutral-400">
+                                  {detail.variationStrategy}
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {detail.seoSignals.slice(0, 6).map((signal, signalIndex) => (
+                                    <span
+                                      key={`prompt-${index}-signal-${signalIndex}`}
+                                      className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5 text-xs text-neutral-300"
+                                    >
+                                      {signal}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
 

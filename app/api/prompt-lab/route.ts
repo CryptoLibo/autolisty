@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { ProductType } from "@/lib/products";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -34,7 +35,14 @@ type PromptLabAnalysis = {
 };
 
 type PromptLabPromptSet = {
-  prompts: string[];
+  prompts: Array<{
+    role: string;
+    prompt: string;
+    variation_strategy: string;
+    seo_signals: string[];
+    kept_from_reference: string[];
+    changed_from_reference: string[];
+  }>;
 };
 
 const analysisSchema = {
@@ -109,7 +117,41 @@ const promptSetSchema = {
   properties: {
     prompts: {
       type: "array",
-      items: { type: "string" },
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "role",
+          "prompt",
+          "variation_strategy",
+          "seo_signals",
+          "kept_from_reference",
+          "changed_from_reference",
+        ],
+        properties: {
+          role: { type: "string" },
+          prompt: { type: "string" },
+          variation_strategy: { type: "string" },
+          seo_signals: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 4,
+            maxItems: 8,
+          },
+          kept_from_reference: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 3,
+            maxItems: 6,
+          },
+          changed_from_reference: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 3,
+            maxItems: 6,
+          },
+        },
+      },
       minItems: 4,
       maxItems: 4,
     },
@@ -150,10 +192,30 @@ function buildMidjourneyPermutationBlock(prompts: string[]) {
   return `{${prompts.map(escapePermutationPrompt).join(", ")}}`;
 }
 
+function getProductCreativeContext(productType: ProductType) {
+  if (productType === "printable_wall_art") {
+    return [
+      "The final image should read as standalone decorative artwork.",
+      "Favor strong central or poster-like compositions, clear subject identity, and rich searchable visual nouns.",
+      "Vertical-friendly composition is useful, but do not mention aspect ratios or product usage in the prompt.",
+    ].join(" ");
+  }
+
+  return [
+    "The final image should read as immersive horizontal decorative artwork.",
+    "Favor balanced wide compositions, atmospheric scene depth, and strong visual impact from a distance.",
+    "Avoid product, device, screen, room, staged, or mockup language in the prompt.",
+  ].join(" ");
+}
+
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
+    const rawProductType = String(formData.get("productType") || "frame_tv_art");
+    const productType: ProductType =
+      rawProductType === "printable_wall_art" ? "printable_wall_art" : "frame_tv_art";
+    const productCreativeContext = getProductCreativeContext(productType);
 
     if (!(file instanceof File)) {
       return Response.json({ error: "Reference image is required." }, { status: 400 });
@@ -167,6 +229,8 @@ export async function POST(request: Request) {
 You are an elite visual direction strategist for generative image workflows.
 
 Your job is to study a reference image and extract the visual DNA that makes it commercially compelling, while avoiding direct imitation.
+
+You are not creating product mockups. You are analyzing the artwork itself.
 
 Return ONLY valid JSON.
 `.trim();
@@ -219,6 +283,8 @@ Rules:
 - The variation strategy must explain how to create new siblings of the design without copying it.
 - Keep the style brief concise but rich enough to guide prompt generation.
 - The prompt principles should be short, practical rules for the next generation pass.
+- Capture SEO-useful visual language in the analysis: concrete subject nouns, style, palette, mood, setting, season, material, and composition.
+- Do not use product words such as wall art, printable, poster, frame tv, gallery wall, interior decor, mockup, staged, room, screen, device, or product display.
 `.trim();
 
     const analysisResponse = await client.responses.create({
@@ -254,6 +320,8 @@ You are an expert Midjourney prompt director.
 
 Generate new original prompts that preserve the visual language of the reference analysis, but create different compositions and different internal shape relationships.
 
+The prompts must be production-ready Midjourney prompts for original artwork. They must also carry enough descriptive information for downstream SEO analysis.
+
 Return ONLY valid JSON.
 `.trim();
 
@@ -263,18 +331,31 @@ Using the analysis below, generate exactly 4 Midjourney prompts.
 Analysis:
 ${JSON.stringify(analysis, null, 2)}
 
+Silent product composition context:
+${productCreativeContext}
+
 Return JSON with this exact shape:
 
 {
-  "prompts": ["", "", "", ""]
+  "prompts": [
+    {
+      "role": "Closest Commercial Sibling",
+      "prompt": "",
+      "variation_strategy": "",
+      "seo_signals": ["", "", "", ""],
+      "kept_from_reference": ["", "", ""],
+      "changed_from_reference": ["", "", ""]
+    }
+  ]
 }
 
 Rules:
 - Each prompt must describe only the image to be generated.
-- Avoid product or usage words such as wall art, printable, poster, frame tv, gallery wall, interior decor, mockup, staged, room, frame, or collectible.
+- Never include product or usage words such as wall art, printable, poster, frame tv, gallery wall, interior decor, mockup, staged, room, screen, device, display, or collectible.
+- Do not include Midjourney parameters, aspect ratios, stylize values, seeds, quality values, chaos values, or negative parameter syntax.
 - Keep prompts rich in visual direction, but do not overburden them with negatives.
-- Each prompt should feel like a distinct sibling of the same visual family.
-- Favor composition, form rhythm, texture, palette, and mood.
+- Each prompt should feel like a distinct sibling of the same visual family, not four near-duplicates.
+- Favor concrete subject nouns, composition, form rhythm, texture, palette, mood, season, setting, and medium.
 - Do not drift into generic product photography or simplistic studio-object shots unless the reference truly works that way.
 - If the reference has richness, tension, ornament, or visual sophistication, preserve that level of ambition in the new prompts.
 - Create prompts that can compete visually with strong Etsy bestsellers, not safe or watered-down variations.
@@ -286,6 +367,13 @@ Rules:
 - Let rendering mode guide the medium and finish. Do not default to realism if the reference feels painterly, graphic, illustrated, or stylized.
 - Respect subject mechanics. If the subject changes, the physical logic, pose, support, interaction, and behavior of the subject must change coherently too.
 - Use variation logic to control how far each prompt can move from the reference without becoming sloppy, repetitive, or structurally wrong.
+- Use these exact 4 roles, in this order:
+  1. Closest Commercial Sibling: keep the strongest reference appeal, change subject details and arrangement enough to be original.
+  2. Subject Expansion: keep the visual DNA, introduce a different but commercially related main subject.
+  3. Scene Expansion: keep the style and emotional promise, change the setting, environment, or narrative context.
+  4. Seasonal Trend Expansion: keep the identity, introduce a seasonal, cultural, or trend-aware angle when visually appropriate.
+- Each prompt must include enough searchable visual signals for SEO later, but those signals must be natural image description, not keyword stuffing.
+- Before returning, internally reject and rewrite any prompt that sounds like a mockup, product listing, generic caption, direct copy, or weak variation.
 `.trim();
 
     const promptResponse = await client.responses.create({
@@ -315,7 +403,23 @@ Rules:
     });
 
     const promptSet = extractJson<PromptLabPromptSet>(promptResponse.output_text || "");
-    const prompts = (promptSet.prompts || []).map((prompt) => String(prompt || "").trim()).filter(Boolean);
+    const promptDetails = (promptSet.prompts || [])
+      .map((item) => ({
+        role: String(item?.role || "").trim(),
+        prompt: String(item?.prompt || "").trim(),
+        variationStrategy: String(item?.variation_strategy || "").trim(),
+        seoSignals: Array.isArray(item?.seo_signals)
+          ? item.seo_signals.map((signal) => String(signal || "").trim()).filter(Boolean)
+          : [],
+        keptFromReference: Array.isArray(item?.kept_from_reference)
+          ? item.kept_from_reference.map((signal) => String(signal || "").trim()).filter(Boolean)
+          : [],
+        changedFromReference: Array.isArray(item?.changed_from_reference)
+          ? item.changed_from_reference.map((signal) => String(signal || "").trim()).filter(Boolean)
+          : [],
+      }))
+      .filter((item) => item.prompt);
+    const prompts = promptDetails.map((item) => item.prompt);
     const midjourneyBlock = buildMidjourneyPermutationBlock(prompts);
 
     return Response.json({
@@ -342,6 +446,7 @@ Rules:
       variationBoundaries: analysis.variation_boundaries,
       styleBrief: analysis.style_brief,
       promptPrinciples: analysis.prompt_principles || [],
+      promptDetails,
       prompts,
       midjourneyBlock,
     });
