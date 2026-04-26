@@ -63,6 +63,14 @@ type ResolvedProductConfig = ProductConfig & {
   }
 }
 
+type SeoKnowledge = {
+  product_type?: string
+  title_tag_examples?: Array<{
+    title?: string
+    tags?: string[]
+  }>
+}
+
 function cleanText(value: unknown) {
   return String(value || "").replace(/\s+/g, " ").trim()
 }
@@ -141,6 +149,34 @@ function resolveProductConfig(productConfig: ProductConfig): ResolvedProductConf
         max_characters: productConfig.image_rules?.alt_text?.max_characters ?? 250,
       },
     },
+  }
+}
+
+function loadSeoKnowledge(productType: string): SeoKnowledge {
+  const knowledgePath = path.join(process.cwd(), "seo_knowledge", `${productType}.json`)
+
+  if (!fs.existsSync(knowledgePath)) {
+    return {
+      product_type: productType,
+      title_tag_examples: [],
+    }
+  }
+
+  const parsed = JSON.parse(fs.readFileSync(knowledgePath, "utf-8")) as SeoKnowledge
+  const examples = Array.isArray(parsed.title_tag_examples)
+    ? parsed.title_tag_examples
+        .map((example) => ({
+          title: cleanText(example?.title),
+          tags: Array.isArray(example?.tags)
+            ? example.tags.map((tag) => cleanText(tag)).filter(Boolean)
+            : [],
+        }))
+        .filter((example) => example.title || example.tags.length > 0)
+    : []
+
+  return {
+    product_type: cleanText(parsed.product_type) || productType,
+    title_tag_examples: examples,
   }
 }
 
@@ -843,7 +879,7 @@ Return JSON in this exact shape:
 `
 
   const response = await client.responses.create({
-    model: "gpt-4o",
+    model: "gpt-5.4-mini",
     temperature: 0.2,
     input: [
       {
@@ -919,6 +955,7 @@ export async function POST(req: Request) {
     const configPath = path.join(process.cwd(), "product_configs", `${productType}.json`)
     const rawProductConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")) as ProductConfig
     const productConfig = resolveProductConfig(rawProductConfig)
+    const seoKnowledge = loadSeoKnowledge(productType)
 
     const templatePath = path.join(
       process.cwd(),
@@ -959,8 +996,12 @@ ANALYSIS PRINCIPLES
 TITLE STRATEGY
 - Build a title that feels intentional, searchable, and coherent.
 - Follow the title rules from product_config exactly.
+- Use seo_market_reference_examples only as market guidance for title shape, phrase flow, and title-to-tag relationship.
+- Do not copy reference titles or tags verbatim unless the phrase is a normal generic Etsy search phrase.
+- Let the reference examples improve the natural connection between keyword clusters, so the title reads like a human searchable phrase rather than disconnected keywords.
 - Use the strongest subject, style, and decor context discovered from the image plus prompt.
 - Avoid stuffing disconnected words together.
+- Avoid awkward phrases such as "Printable Print", repeated product nouns, or keyword chunks with no connector.
 - Prefer a strong search phrase cluster over decorative adjectives.
 - If the product rules require a full word budget, use as much of that allowed budget as possible without breaking coherence.
 - For printable wall art, think in 3 clear blocks: subject cluster ending in "Print", style/decor cluster ending in "Wall Art", and a final "(Digital Download)" suffix.
@@ -975,6 +1016,8 @@ DESCRIPTION KEYWORDS STRATEGY
 TAG STRATEGY
 - Generate exactly 13 tags.
 - Follow the product configuration.
+- Use seo_market_reference_examples to understand which tag phrases naturally belong with successful titles in this product type.
+- Do not copy an entire reference tag set; adapt the tag mix to the current artwork, title, and search intent.
 - Keep the current good balance across product, style, subject, decor, and digital format.
 
 ALT TEXT STRATEGY
@@ -995,6 +1038,9 @@ OUTPUT
     const userPrompt = `
 product_config:
 ${JSON.stringify(productConfig)}
+
+seo_market_reference_examples:
+${JSON.stringify(seoKnowledge)}
 
 description_template:
 ${descriptionTemplate}
@@ -1055,7 +1101,7 @@ Return JSON in this exact shape:
     ]
 
     const response = await client.responses.create({
-      model: "gpt-4o",
+      model: "gpt-5.4-mini",
       temperature: 0.2,
       input: [
         {

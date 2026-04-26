@@ -78,7 +78,7 @@ Return JSON:
 `
 
   const response = await client.responses.create({
-    model: "gpt-4o",
+    model: "gpt-5.4-mini",
     temperature: 0.6,
     input: [
       {

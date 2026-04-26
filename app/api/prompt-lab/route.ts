@@ -222,7 +222,7 @@ Rules:
 `.trim();
 
     const analysisResponse = await client.responses.create({
-      model: "gpt-4o",
+      model: "gpt-5.4-mini",
       temperature: 0.3,
       text: {
         format: {
@@ -289,7 +289,7 @@ Rules:
 `.trim();
 
     const promptResponse = await client.responses.create({
-      model: "gpt-4o",
+      model: "gpt-5.4-mini",
       temperature: 0.65,
       text: {
         format: {

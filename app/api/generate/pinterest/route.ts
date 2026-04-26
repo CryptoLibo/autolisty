@@ -96,7 +96,7 @@ Return JSON in this exact shape:
 `
 
     const response = await client.responses.create({
-      model: "gpt-4o",
+      model: "gpt-5.4-mini",
       temperature: 0.4,
       input: [
         {
