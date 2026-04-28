@@ -228,6 +228,7 @@ function titleCase(input: string) {
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
     })
     .join(" ")
+    .replace(/\(digital download\)/gi, "(Digital Download)")
 }
 
 function dedupeWordRoots(words: string[]) {
@@ -286,6 +287,78 @@ function getProductTerms(productConfig: ProductConfig) {
   }
 }
 
+const PRINTABLE_FORMAT_TERMS = [
+  "printable wall art",
+  "instant download wall art",
+  "digital wall art",
+  "digital download",
+  "instant download",
+  "printable art",
+  "wall art",
+  "wall decor",
+  "home decor",
+  "printable",
+  "digital",
+  "download",
+  "print",
+]
+
+function stripPrintableFormatTerms(value: string) {
+  let output = cleanText(value)
+
+  for (const term of PRINTABLE_FORMAT_TERMS) {
+    output = output.replace(new RegExp(`\\b${escapeRegex(term)}\\b`, "gi"), " ")
+  }
+
+  return cleanText(output.replace(/\s+/g, " "))
+}
+
+function wordRoot(word: string) {
+  return normalizeWord(word)
+    .toLowerCase()
+    .replace(/'s$/i, "")
+    .replace(/ies$/i, "y")
+    .replace(/s$/i, "")
+}
+
+function cleanSearchPhrase(value: string, maxWords = 4) {
+  const words = stripPrintableFormatTerms(value)
+    .replace(/\(([^)]*)\)/g, " ")
+    .replace(/[,:;|/]+/g, " ")
+    .replace(/\b(and|with|for|the|a|an|of|in|at)\b/gi, " ")
+    .split(/\s+/)
+    .map((word) => normalizeWord(word))
+    .filter(Boolean)
+
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const word of words) {
+    const root = wordRoot(word)
+    if (!root || seen.has(root)) continue
+    seen.add(root)
+    result.push(word)
+    if (result.length >= maxWords) break
+  }
+
+  return cleanText(result.join(" "))
+}
+
+function firstSearchPhrase(values: unknown[], maxWords = 4): string {
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      const nested: string = firstSearchPhrase(value, maxWords)
+      if (nested) return nested
+      continue
+    }
+
+    const phrase = cleanSearchPhrase(String(value || ""), maxWords)
+    if (phrase.split(/\s+/).filter(Boolean).length >= 2) return phrase
+  }
+
+  return ""
+}
+
 function buildPrintableWallArtTitle(
   rawTitle: unknown,
   components: Record<string, unknown>,
@@ -302,263 +375,106 @@ function buildPrintableWallArtTitle(
   const searchIntent = cleanText((components as any).search_intent)
   const mood = cleanText((components as any).mood)
 
-  const bannedTitleWords = new Set([
-    "art",
-    "wall",
-    "print",
-    "digital",
-    "download",
-    "printable",
-    "instant",
-    "serene",
-    "calm",
-    "peaceful",
-    "beautiful",
-    "stunning",
-    "elegant",
-    "gorgeous",
-    "interiors",
-    "interior",
-    "home",
-    "decor",
-  ])
-
-  const weakLeadWords = new Set([
-    "modern",
-    "minimalist",
-    "abstract",
-    "coastal",
-    "kitchen",
-    "bathroom",
-    "boho",
-    "neutral",
-    "botanical",
-  ])
-
-  const lowValueStyleWords = new Set([
-    "modern",
-    "minimalist",
-    "abstract",
-    "serene",
-    "neutral",
-  ])
-
-  const cleanPhrase = (value: string) =>
-    cleanText(
-      value
-        .replace(/\(([^)]*)\)/g, " ")
-        .replace(/[,:;|/]+/g, " ")
-        .replace(/\b(and|with|for|the|a|an)\b/gi, " ")
-        .replace(/\s+/g, " ")
-    )
-
-  const buildKeywordPhrase = (value: string, maxWordsInPhrase = 4, allowLeadWeakWord = false) => {
-    const words = cleanPhrase(value)
-      .split(/\s+/)
-      .map((word) => normalizeWord(word))
-      .filter(Boolean)
-      .filter((word) => !bannedTitleWords.has(word.toLowerCase()))
-
-    let uniqueWords = uniquePhrases(words)
-    const richerWords = uniqueWords.filter((word) => !lowValueStyleWords.has(word.toLowerCase()))
-    if (richerWords.length > 0) {
-      uniqueWords = richerWords
-    }
-    const trimmed = uniqueWords.slice(0, maxWordsInPhrase)
-
-    while (
-      trimmed.length > 1 &&
-      (!allowLeadWeakWord && weakLeadWords.has(trimmed[0].toLowerCase()))
-    ) {
-      trimmed.shift()
-    }
-
-    while (
-      trimmed.length > 1 &&
-      weakLeadWords.has(trimmed[trimmed.length - 1].toLowerCase())
-    ) {
-      trimmed.pop()
-    }
-
-    return trimmed.join(" ")
-  }
-
-  const subjectPhrase = uniquePhrases(
-    [
-      buildKeywordPhrase(primary, 4, true),
-      buildKeywordPhrase(secondary, 3, true),
-      buildKeywordPhrase(searchIntent, 3, true),
-    ].filter(Boolean)
-  )
-    .join(" ")
-    .trim()
-
-  const stylePhrase = uniquePhrases(
-    [
-      buildKeywordPhrase(style, 2, true),
-      buildKeywordPhrase(decorContext, 2, false),
-      buildKeywordPhrase(searchIntent, 2, false),
-      buildKeywordPhrase(mood, 1, false),
-    ].filter(Boolean)
-  )
-    .join(" ")
-    .trim()
-
-  let printableSubject = subjectPhrase || buildKeywordPhrase(cleanText(rawTitle), 4, true) || "Abstract"
-  let printableStyle = stylePhrase || "Modern"
-  let decorPhrase = uniquePhrases(
-    [
-      buildKeywordPhrase(decorContext, 2, true),
-      buildKeywordPhrase(searchIntent, 2, true),
-    ].filter(Boolean)
-  )
-    .join(" ")
-    .trim()
-
-  const chooseDecorFormat = (() => {
-    const seed = cleanText(`${primary} ${secondary} ${style} ${decorContext} ${searchIntent}`)
-      .split("")
-      .reduce((sum, char) => sum + char.charCodeAt(0), 0)
-    return !!decorPhrase && seed % 2 === 0
-  })()
-
-  const buildCandidate = (subjectPart: string, stylePart: string, decorPart = "") =>
-    chooseDecorFormat && decorPart
-      ? `${subjectPart} Print, ${decorPart} Decor, ${stylePart} Wall Art (${suffix})`
-      : `${subjectPart} Print, ${stylePart} Wall Art (${suffix})`
-      .replace(/\s+/g, " ")
-      .replace(/\s+,/g, ",")
-      .trim()
-
   const countWords = (value: string) =>
     value
       .replace(/[(),]/g, "")
       .split(/\s+/)
       .filter(Boolean).length
 
-  const addPhraseIfFits = (segment: "subject" | "style" | "decor", phrase: string) => {
-    const cleanExtra = cleanText(phrase)
-    if (!cleanExtra) return false
+  const searchPhrases = Array.isArray((components as any).search_phrases)
+    ? ((components as any).search_phrases as unknown[])
+    : []
+  const rawLead = cleanText(rawTitle).split(",")[0] || cleanText(rawTitle)
+  const subject = firstSearchPhrase(
+    [
+      (components as any).search_core,
+      (components as any).subject_phrase,
+      primary,
+      searchPhrases,
+      searchIntent,
+      rawLead,
+    ],
+    3
+  ) || "Botanical"
+  const styleBlock = firstSearchPhrase(
+    [
+      (components as any).style_phrase,
+      [style, decorContext].filter(Boolean).join(" "),
+      style,
+      searchPhrases,
+    ],
+    3
+  ) || "Modern Botanical"
+  const decorBlock = firstSearchPhrase(
+    [
+      (components as any).decor_phrase,
+      [mood, decorContext].filter(Boolean).join(" "),
+      searchIntent,
+      secondary,
+      searchPhrases,
+    ],
+    3
+  ) || "Nature Decor"
 
-    const nextSubject = segment === "subject"
-      ? uniquePhrases(`${printableSubject} ${cleanExtra}`.split(/\s+/).filter(Boolean)).join(" ")
-      : printableSubject
-    const nextStyle = segment === "style"
-      ? uniquePhrases(`${printableStyle} ${cleanExtra}`.split(/\s+/).filter(Boolean)).join(" ")
-      : printableStyle
-    const nextDecor = segment === "decor"
-      ? uniquePhrases(`${decorPhrase} ${cleanExtra}`.split(/\s+/).filter(Boolean)).join(" ")
-      : decorPhrase
+  const removeTitleLabelWords = (words: string[]) =>
+    words.filter((word) => {
+      const root = wordRoot(word)
+      return !["print", "wall", "art", "decor", "digital", "download", "printable", "instant"].includes(root)
+    })
 
-    const candidate = buildCandidate(nextSubject, nextStyle, nextDecor)
-    if (countWords(candidate) > maxWords || candidate.length > maxCharacters) {
-      return false
-    }
+  let subjectWords = removeTitleLabelWords(subject.split(/\s+/).filter(Boolean))
+  let styleWords = removeTitleLabelWords(styleBlock.split(/\s+/).filter(Boolean))
+  let decorWords = removeTitleLabelWords(decorBlock.split(/\s+/).filter(Boolean))
 
-    printableSubject = nextSubject
-    printableStyle = nextStyle
-    decorPhrase = nextDecor
-    normalized = candidate
-    return true
+  if (subjectWords.length === 0) subjectWords = ["Botanical"]
+  if (styleWords.length === 0) styleWords = ["Modern", "Botanical"]
+  if (decorWords.length === 0) decorWords = ["Nature"]
+
+  const buildCandidate = () =>
+    `${subjectWords.join(" ")} Print, ${styleWords.join(" ")} Wall Art, ${decorWords.join(" ")} Decor (${suffix})`
+      .replace(/\s+/g, " ")
+      .replace(/\s+,/g, ",")
+      .trim()
+
+  let normalized = buildCandidate()
+
+  while (countWords(normalized) > maxWords && decorWords.length > 2) {
+    decorWords = decorWords.slice(0, -1)
+    normalized = buildCandidate()
   }
 
-  let normalized = buildCandidate(printableSubject, printableStyle, decorPhrase)
+  while (countWords(normalized) > maxWords && styleWords.length > 2) {
+    styleWords = styleWords.slice(0, -1)
+    normalized = buildCandidate()
+  }
 
-  normalized = normalized
-    .split(/\s+/)
-    .map((word) => titleCase(word))
-    .join(" ")
-    .replace(/\s+,/g, ",")
-    .trim()
+  while (countWords(normalized) > maxWords && subjectWords.length > 2) {
+    subjectWords = subjectWords.slice(0, -1)
+    normalized = buildCandidate()
+  }
 
-  const fallbackStyleTerms = uniquePhrases(
-    [
-      buildKeywordPhrase(style, 2, true),
-      buildKeywordPhrase(decorContext, 2, false),
-      buildKeywordPhrase(searchIntent, 2, false),
-      "Modern",
-    ].filter(Boolean)
-  )
+  const expansionPool = [
+    firstSearchPhrase([secondary], 2),
+    firstSearchPhrase([searchIntent], 2),
+    firstSearchPhrase([mood], 1),
+  ].filter(Boolean)
 
-  for (const extra of fallbackStyleTerms) {
-    const candidateStyle = uniquePhrases([printableStyle, extra]).join(" ").trim()
-    const candidate = buildCandidate(printableSubject, candidateStyle, decorPhrase)
-    const candidateWords = countWords(candidate)
-    if (candidateWords <= maxWords && candidate.length <= maxCharacters) {
-      printableStyle = candidateStyle
+  while (countWords(normalized) < minWords && expansionPool.length > 0) {
+    const extra = expansionPool.shift()
+    if (!extra) continue
+    const nextDecorWords = uniquePhrases([...decorWords, ...extra.split(/\s+/)]).slice(0, 3)
+    const candidate = `${subjectWords.join(" ")} Print, ${styleWords.join(" ")} Wall Art, ${nextDecorWords.join(" ")} Decor (${suffix})`
+      .replace(/\s+/g, " ")
+      .replace(/\s+,/g, ",")
+      .trim()
+
+    if (countWords(candidate) <= maxWords && candidate.length <= maxCharacters) {
+      decorWords = nextDecorWords
       normalized = candidate
     }
   }
 
-  const subjectExpansionPool = uniquePhrases(
-    [
-      buildKeywordPhrase(secondary, 2, true),
-      buildKeywordPhrase(searchIntent, 2, true),
-      buildKeywordPhrase(cleanText(rawTitle), 2, true),
-    ].filter(Boolean)
-  ).filter((phrase) => {
-    const lower = phrase.toLowerCase()
-    return lower && !printableSubject.toLowerCase().includes(lower)
-  })
-
-  const styleExpansionPool = uniquePhrases(
-    [
-      buildKeywordPhrase(decorContext, 2, true),
-      buildKeywordPhrase(searchIntent, 2, true),
-      buildKeywordPhrase(style, 2, true),
-      buildKeywordPhrase(mood, 1, false),
-      "Digital",
-    ].filter(Boolean)
-  ).filter((phrase) => {
-    const lower = phrase.toLowerCase()
-    return lower && !printableStyle.toLowerCase().includes(lower)
-  })
-
-  const decorExpansionPool = uniquePhrases(
-    [
-      buildKeywordPhrase(decorContext, 2, true),
-      buildKeywordPhrase(searchIntent, 2, true),
-      "Home",
-    ].filter(Boolean)
-  ).filter((phrase) => {
-    const lower = phrase.toLowerCase()
-    return lower && !decorPhrase.toLowerCase().includes(lower)
-  })
-
-  while (countWords(normalized) < minWords) {
-    const currentCount = countWords(normalized)
-    let changed = false
-
-    if (currentCount <= maxWords - 2) {
-      const nextSubjectPhrase = subjectExpansionPool.shift()
-      if (nextSubjectPhrase) {
-        changed = addPhraseIfFits("subject", nextSubjectPhrase)
-      }
-    }
-
-    if (!changed) {
-      const nextStylePhrase = styleExpansionPool.shift()
-      if (nextStylePhrase) {
-        changed = addPhraseIfFits("style", nextStylePhrase)
-      }
-    }
-
-    if (!changed && chooseDecorFormat) {
-      const nextDecorPhrase = decorExpansionPool.shift()
-      if (nextDecorPhrase) {
-        changed = addPhraseIfFits("decor", nextDecorPhrase)
-      }
-    }
-
-    if (!changed) break
-  }
-
-  normalized = normalized
-    .split(/\s+/)
-    .map((word) => titleCase(word))
-    .join(" ")
-    .replace(/\s+,/g, ",")
-    .trim()
+  normalized = titleCase(normalized).replace(/\s+,/g, ",").trim()
 
   if (normalized.length > maxCharacters) {
     return normalized.slice(0, maxCharacters).replace(/\s+\S*$/, "").trim()
@@ -749,27 +665,59 @@ function normalizeKeywords5(
     ? analysis.search_phrases.map((item) => cleanText(item))
     : []
 
-  const fallback = [
-    ...titlePhrases,
-    ...searchPhrases,
+  const keywordCoreSources = [
+    cleanText((analysis as any).search_core),
+    ...requested.map((item) => cleanText(item)),
     cleanText(analysis.search_intent),
-    cleanText(analysis.primary_subject) && `${cleanText(analysis.primary_subject)} artwork`,
-    cleanText(analysis.style) && `${cleanText(analysis.style)} wall art`,
+    ...searchPhrases,
+    cleanText(analysis.primary_subject),
+    cleanText(analysis.secondary_subject),
+    cleanText(titlePhrases[0]),
+  ].filter(Boolean) as string[]
+
+  const keywordSupportSources = [
+    ...requested.map((item) => cleanText(item)),
+    ...searchPhrases,
+    cleanText(analysis.primary_subject),
+    cleanText(analysis.secondary_subject),
+    cleanText(analysis.style) && `${cleanText(analysis.style)} decor`,
     cleanText(analysis.decor_context) && `${cleanText(analysis.decor_context)} decor`,
+    cleanText(analysis.mood) && `${cleanText(analysis.mood)} decor`,
+    cleanText(titlePhrases[0]),
+    cleanText(titlePhrases[1]),
     ...(productConfig.normalization_rules?.keyword_fallback_phrases || []),
   ].filter(Boolean) as string[]
 
-  const normalized = uniquePhrases(
-    [...requested.map((item) => cleanText(item)), ...fallback].filter(
-      (phrase) => {
+  const mainKeyword =
+    firstSearchPhrase(keywordCoreSources, 4) ||
+    firstSearchPhrase(keywordSupportSources, 4) ||
+    "Printable Artwork"
+
+  const supportKeywords = uniquePhrases(
+    keywordSupportSources
+      .map((phrase) => cleanSearchPhrase(phrase, 4))
+      .filter((phrase) => {
         const words = phrase.split(" ").filter(Boolean)
         return words.length >= 2 && words.length <= 4
-      }
-    )
-  ).slice(0, 5)
+      })
+  ).filter((phrase) => phrase.toLowerCase() !== mainKeyword.toLowerCase())
 
-  if (titlePhrases[0] && !normalized.some((item) => item.toLowerCase() === titlePhrases[0].toLowerCase())) {
-    return uniquePhrases([titlePhrases[0], ...normalized]).slice(0, 5)
+  const normalized = uniquePhrases([mainKeyword, ...supportKeywords]).slice(0, 5)
+
+  const finalFallbacks = [
+    "nature artwork",
+    "botanical decor",
+    "gallery wall artwork",
+    "home accent art",
+    "statement artwork",
+  ]
+
+  while (normalized.length < 5) {
+    const fallback = cleanSearchPhrase(finalFallbacks[normalized.length % finalFallbacks.length], 4)
+    if (!fallback || normalized.some((item) => item.toLowerCase() === fallback.toLowerCase())) {
+      break
+    }
+    normalized.push(fallback)
   }
 
   return normalized
@@ -1005,11 +953,16 @@ TITLE STRATEGY
 - Prefer a strong search phrase cluster over decorative adjectives.
 - If the product rules require a full word budget, use as much of that allowed budget as possible without breaking coherence.
 - For printable wall art, think in 3 clear blocks: subject cluster ending in "Print", style/decor cluster ending in "Wall Art", and a final "(Digital Download)" suffix.
+- For printable wall art, build title_components as buyer-search phrases, not loose words:
+  1. search_core / subject_phrase = the strongest 2-4 word visual search phrase without product terms.
+  2. style_phrase = the art style or visual category that makes the piece searchable.
+  3. decor_phrase = the decor mood, room fit, or buyer intent without repeating the product term.
+- The title should read like: "[meaningful subject phrase] Print, [style phrase] Wall Art, [decor phrase] Decor (Digital Download)" while staying inside the product_config word and character limits.
 
 DESCRIPTION KEYWORDS STRATEGY
 - Generate exactly 5 keyword phrases.
 - These phrases must strengthen the existing description template.
-- KEYWORD_1 must be the strongest Etsy search phrase for this listing, even if it is long-tail.
+- KEYWORD_1 must be the strongest Etsy search phrase for this listing, even if it is long-tail, but it must not include format/product terms already provided by the template such as "print", "wall art", "printable", "digital download", or "instant download".
 - Each keyword must have a distinct role and should not feel generic or repetitive.
 - Keywords must fit the template naturally.
 
@@ -1068,6 +1021,10 @@ Return JSON in this exact shape:
     "search_phrases": []
   },
   "title_components": {
+    "search_core": "",
+    "subject_phrase": "",
+    "style_phrase": "",
+    "decor_phrase": "",
     "style": "",
     "primary_subject": "",
     "secondary_subject": "",
@@ -1125,13 +1082,17 @@ Return JSON in this exact shape:
 
     const parsed = JSON.parse(raw.slice(start, end + 1))
     const analysis = parsed.analysis && typeof parsed.analysis === "object" ? parsed.analysis : {}
+    const titleComponents =
+      parsed.title_components && typeof parsed.title_components === "object"
+        ? { ...analysis, ...parsed.title_components }
+        : analysis
     const titleBase =
       cleanText(parsed.title) || buildTitleFromComponents(parsed.title_components || {}, productConfig)
 
     const title = normalizeTitle(
       titleBase,
       productConfig,
-      parsed.title_components || {},
+      titleComponents,
       productConfig?.title_rules?.word_rules?.min_words ?? 13,
       productConfig?.title_rules?.word_rules?.max_words ?? 15,
       productConfig?.title_rules?.word_rules?.max_characters ?? 140
@@ -1141,7 +1102,7 @@ Return JSON in this exact shape:
       productConfig.tag_rules.max_tags,
       productConfig.tag_rules.max_characters
     )
-    const keywords5 = normalizeKeywords5(parsed.description_keywords_5, analysis, productConfig, title)
+    const keywords5 = normalizeKeywords5(parsed.description_keywords_5, titleComponents, productConfig, title)
     const description = appendListingId(
       fillTemplate(descriptionTemplate, keywords5),
       listingId
@@ -1174,7 +1135,7 @@ Return JSON in this exact shape:
     const polishedTitle = normalizeTitle(
       polished.title,
       productConfig,
-      parsed.title_components || {},
+      titleComponents,
       productConfig?.title_rules?.word_rules?.min_words ?? 13,
       productConfig?.title_rules?.word_rules?.max_words ?? 15,
       productConfig?.title_rules?.word_rules?.max_characters ?? 140
