@@ -105,6 +105,9 @@ type PinterestAuthStatus = {
   error?: string;
 };
 
+const SCALE_CONNECTION_REQUIRED_MESSAGE =
+  "Connect both Etsy and Pinterest before importing listings into Scale.";
+
 type EtsySyncResponse = {
   ok?: boolean;
   shopId?: number;
@@ -1063,6 +1066,13 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
+    if (scaleConnectionsReady && scaleMessage === SCALE_CONNECTION_REQUIRED_MESSAGE) {
+      setScaleMessage(null);
+      setScaleMessageTone("info");
+    }
+  }, [scaleConnectionsReady, scaleMessage]);
+
+  useEffect(() => {
     if (!scaleSeoModalJob) {
       setScaleSeoModalDesignUrl(null);
       setScaleSeoModalMockupUrls([]);
@@ -1583,9 +1593,7 @@ export default function Page() {
 
     if (!etsyAuth?.connected || !pinterestAuth?.connected) {
       setScaleMessageTone("error");
-      setScaleMessage(
-        "Connect both Etsy and Pinterest before importing listings into Scale."
-      );
+      setScaleMessage(SCALE_CONNECTION_REQUIRED_MESSAGE);
       return;
     }
 
