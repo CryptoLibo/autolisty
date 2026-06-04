@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { ProductType } from "@/lib/products";
+import { normalizeProductType, ProductType } from "@/lib/products";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -193,11 +193,27 @@ function buildMidjourneyPermutationBlock(prompts: string[]) {
 }
 
 function getProductCreativeContext(productType: ProductType) {
-  if (productType === "printable_wall_art") {
+  if (productType === "vertical_wall_art") {
     return [
       "The final image should read as standalone decorative artwork.",
-      "Favor strong central or poster-like compositions, clear subject identity, and rich searchable visual nouns.",
-      "Vertical-friendly composition is useful, but do not mention aspect ratios or product usage in the prompt.",
+      "Favor strong vertical compositions, clear subject identity, and rich searchable visual nouns.",
+      "Do not mention aspect ratios or product usage in the prompt.",
+    ].join(" ");
+  }
+
+  if (productType === "horizontal_wall_art") {
+    return [
+      "The final image should read as standalone decorative artwork with a naturally wide visual flow.",
+      "Favor balanced horizontal scene depth, strong left-to-right composition, and visual impact from a distance.",
+      "Do not mention aspect ratios or product usage in the prompt.",
+    ].join(" ");
+  }
+
+  if (productType === "nursery_wall_art") {
+    return [
+      "The final image should read as standalone decorative artwork suited to soft, gentle, child-friendly visual worlds.",
+      "Favor calm subjects, warm charm, soft palettes, whimsical detail, and clear searchable visual nouns.",
+      "Avoid words that would make the model create a nursery room, framed product, staged scene, or mockup.",
     ].join(" ");
   }
 
@@ -213,8 +229,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get("file");
     const rawProductType = String(formData.get("productType") || "frame_tv_art");
-    const productType: ProductType =
-      rawProductType === "printable_wall_art" ? "printable_wall_art" : "frame_tv_art";
+    const productType = normalizeProductType(rawProductType);
     const productCreativeContext = getProductCreativeContext(productType);
 
     if (!(file instanceof File)) {

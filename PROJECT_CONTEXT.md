@@ -141,7 +141,13 @@ Configured product types live in `lib/products.ts` and `product_configs`.
 Current product types:
 
 - `frame_tv_art`
-- `printable_wall_art`
+- `vertical_wall_art`
+- `horizontal_wall_art`
+- `nursery_wall_art`
+
+Legacy note:
+
+- `printable_wall_art` is normalized to `vertical_wall_art` for older browser/session state.
 
 Each product has its own:
 
@@ -190,13 +196,22 @@ Frame TV Art deliverables:
 - One final artwork image.
 - Optional instructions PDF.
 
-Printable Wall Art deliverables:
+Vertical Wall Art and Nursery Wall Art deliverables:
 
 - Image files named so the app can identify ratios:
   - `2x3` or `2-3`
   - `3x4` or `3-4`
   - `4x5` or `4-5`
   - `11x14` or `11-14`
+  - `ISO`
+
+Horizontal Wall Art deliverables:
+
+- Image files named so the app can identify ratios:
+  - `3x2` or `3-2`
+  - `4x3` or `4-3`
+  - `5x4` or `5-4`
+  - `14x11` or `14-11`
   - `ISO`
 
 Do not change these recognition rules casually because they are part of the working production workflow.
@@ -209,6 +224,7 @@ Current templates:
 
 - `templates/frame_tv_delivery.pdf`
 - `templates/print_art_delivery.pdf`
+- `templates/horizontal_art_delivery.pdf`
 
 Generation flow:
 
@@ -248,4 +264,3 @@ For future Codex work:
 - Preserve the private single-account assumption unless the user asks for multi-account support.
 - If Node/npm are available locally, run `npm run lint` or `npm run build` when relevant.
 - If local validation is not possible, say so clearly and keep the change easy to review before push/deploy.
-

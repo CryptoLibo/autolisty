@@ -6,6 +6,8 @@ import { generateListingId } from "@/lib/utils/generateListingId";
 import {
   DeliveryField,
   getProductOption,
+  isRatioWallArtProduct,
+  normalizeProductType,
   PRODUCT_OPTIONS,
   ProductType,
 } from "@/lib/products";
@@ -185,7 +187,7 @@ function readStoredProductType(
 ): ProductType {
   if (typeof window === "undefined") return "frame_tv_art";
   const value = window.localStorage.getItem(key);
-  return value === "printable_wall_art" ? "printable_wall_art" : "frame_tv_art";
+  return normalizeProductType(value);
 }
 
 type ScaleImportedFile = {
@@ -2039,7 +2041,7 @@ export default function Page() {
         ]
         : deliverableCandidates
             .map((file) => {
-              const field = classifyPrintableDeliverableField(file, scaleFields);
+              const field = classifyRatioDeliverableField(file, scaleFields);
               return field ? { file, field } : null;
             })
           .filter((item): item is { file: File; field: DeliveryField } => !!item)
@@ -2051,7 +2053,7 @@ export default function Page() {
   }
 
   function getRequiredScaleDeliverableFieldIds() {
-    return scaleProductType === "printable_wall_art"
+    return isRatioWallArtProduct(scaleProductType)
       ? scaleDeliveryFields.map((field) => field.id)
       : ["design"];
   }
@@ -3097,7 +3099,7 @@ export default function Page() {
     );
   }
 
-  function classifyPrintableDeliverableField(
+  function classifyRatioDeliverableField(
     file: File,
     fields: DeliveryField[] = activeDeliveryFields
   ): DeliveryField | null {
@@ -3106,14 +3108,26 @@ export default function Page() {
     if (/(^|[^0-9])2[-_x ]?3([^0-9]|$)/.test(normalizedName)) {
       return fields.find((field) => field.id === "ratio_2_3") || null;
     }
+    if (/(^|[^0-9])3[-_x ]?2([^0-9]|$)/.test(normalizedName)) {
+      return fields.find((field) => field.id === "ratio_3_2") || null;
+    }
     if (/(^|[^0-9])3[-_x ]?4([^0-9]|$)/.test(normalizedName)) {
       return fields.find((field) => field.id === "ratio_3_4") || null;
+    }
+    if (/(^|[^0-9])4[-_x ]?3([^0-9]|$)/.test(normalizedName)) {
+      return fields.find((field) => field.id === "ratio_4_3") || null;
     }
     if (/(^|[^0-9])4[-_x ]?5([^0-9]|$)/.test(normalizedName)) {
       return fields.find((field) => field.id === "ratio_4_5") || null;
     }
+    if (/(^|[^0-9])5[-_x ]?4([^0-9]|$)/.test(normalizedName)) {
+      return fields.find((field) => field.id === "ratio_5_4") || null;
+    }
     if (/11[-_x ]?14/.test(normalizedName)) {
       return fields.find((field) => field.id === "ratio_11_14") || null;
+    }
+    if (/14[-_x ]?11/.test(normalizedName)) {
+      return fields.find((field) => field.id === "ratio_14_11") || null;
     }
     if (/iso/.test(normalizedName)) {
       return fields.find((field) => field.id === "ratio_iso") || null;
@@ -3140,42 +3154,42 @@ export default function Page() {
       (file) => file.type === "application/pdf"
     );
 
-    const printableMatches = deliverableImages.filter((file) =>
-      classifyPrintableDeliverableField(file, printableFields)
+    const ratioMatches = deliverableImages.filter((file) =>
+      classifyRatioDeliverableField(file, printableFields)
     );
 
-    const looksLikePrintable =
-      printableMatches.length >= 3 ||
-      printableMatches.length === deliverableImages.length && deliverableImages.length > 0;
+    const looksLikeRatioWallArt =
+      ratioMatches.length >= 3 ||
+      ratioMatches.length === deliverableImages.length && deliverableImages.length > 0;
 
     const looksLikeFrameTv =
-      deliverableImages.length === 1 && printableMatches.length === 0;
+      deliverableImages.length === 1 && ratioMatches.length === 0;
 
-    if (currentProductType === "frame_tv_art" && looksLikePrintable) {
+    if (currentProductType === "frame_tv_art" && looksLikeRatioWallArt) {
       return {
         ok: false,
         message:
-          "The selected product is Frame TV Art, but the imported final files look like Printable Wall Art ratios. Switch the product type and try again.",
+          "The selected product is Frame TV Art, but the imported final files look like Wall Art ratio files. Switch the product type and try again.",
       };
     }
 
-    if (currentProductType === "printable_wall_art" && looksLikeFrameTv) {
+    if (isRatioWallArtProduct(currentProductType) && looksLikeFrameTv) {
       return {
         ok: false,
         message:
-          "The selected product is Printable Wall Art, but the imported final files look like a single Frame TV Art deliverable. Switch the product type and try again.",
+          "The selected product is a Wall Art ratio product, but the imported final files look like a single Frame TV Art deliverable. Switch the product type and try again.",
       };
     }
 
     if (
-      currentProductType === "printable_wall_art" &&
+      isRatioWallArtProduct(currentProductType) &&
       deliverableImages.length > 0 &&
-      printableMatches.length === 0
+      ratioMatches.length === 0
     ) {
       return {
         ok: false,
         message:
-          "The imported final files do not match the expected Printable Wall Art ratio naming. Use names such as 2x3, 3x4, 4x5, 11x14, and ISO.",
+          "The imported final files do not match the expected Wall Art ratio naming. Use the ratio names required by the selected product.",
       };
     }
 
@@ -3190,23 +3204,23 @@ export default function Page() {
       };
     }
 
-    if (currentProductType === "printable_wall_art" && deliverablePdfs.length > 0) {
+    if (isRatioWallArtProduct(currentProductType) && deliverablePdfs.length > 0) {
       return {
         ok: false,
         message:
-          "Printable Wall Art imports should only include image ratio files inside Diseños Finales.",
+          "Wall Art ratio imports should only include image ratio files inside Diseños Finales.",
       };
     }
 
     if (
-      currentProductType === "printable_wall_art" &&
-      printableMatches.length > 0 &&
-      printableMatches.length < printableFields.length
+      isRatioWallArtProduct(currentProductType) &&
+      ratioMatches.length > 0 &&
+      ratioMatches.length < printableFields.length
     ) {
       return {
         ok: false,
         message:
-          "The Printable Wall Art folder is missing one or more ratio files. Include 2x3, 3x4, 4x5, 11x14, and ISO before importing.",
+          "The Wall Art folder is missing one or more ratio files required by the selected product.",
       };
     }
 
@@ -3393,7 +3407,7 @@ export default function Page() {
               ].filter((item) => !!item.field)
             : deliverableCandidates
                 .map((file) => {
-                  const field = classifyPrintableDeliverableField(file);
+                  const field = classifyRatioDeliverableField(file);
                   return field ? { file, field } : null;
                 })
                 .filter(

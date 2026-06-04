@@ -33,16 +33,61 @@ function setAnnotationRect(annotation: any, rect: [number, number, number, numbe
   annotation.set(PDFName.of("Rect"), rectArray)
 }
 
-const DELIVERY_LAYOUTS: Record<
-  ProductType,
+type DeliveryLayout = {
+  templateFile: string
+  links: Array<{
+    rect: [number, number, number, number]
+    url: (listingId: string) => string
+  }>
+}
+
+const verticalWallArtLinks: DeliveryLayout["links"] = [
   {
-    templateFile: string
-    links: Array<{
-      rect: [number, number, number, number]
-      url: (listingId: string) => string
-    }>
-  }
-> = {
+    rect: [42, 350, 196, 392],
+    url: (listingId) => `https://download.autolisty.com/printable/2-3/${listingId}`,
+  },
+  {
+    rect: [362, 350, 516, 392],
+    url: (listingId) => `https://download.autolisty.com/printable/3-4/${listingId}`,
+  },
+  {
+    rect: [160, 257, 389, 301],
+    url: (listingId) => `https://download.autolisty.com/printable/4-5/${listingId}`,
+  },
+  {
+    rect: [41, 151, 198, 194],
+    url: (listingId) => `https://download.autolisty.com/printable/11-14/${listingId}`,
+  },
+  {
+    rect: [377, 151, 534, 194],
+    url: (listingId) => `https://download.autolisty.com/printable/iso/${listingId}`,
+  },
+]
+
+const horizontalWallArtLinks: DeliveryLayout["links"] = [
+  {
+    rect: [42, 350, 196, 392],
+    url: (listingId) => `https://download.autolisty.com/printable/3-2/${listingId}`,
+  },
+  {
+    rect: [362, 350, 516, 392],
+    url: (listingId) => `https://download.autolisty.com/printable/4-3/${listingId}`,
+  },
+  {
+    rect: [160, 257, 389, 301],
+    url: (listingId) => `https://download.autolisty.com/printable/5-4/${listingId}`,
+  },
+  {
+    rect: [41, 151, 198, 194],
+    url: (listingId) => `https://download.autolisty.com/printable/14-11/${listingId}`,
+  },
+  {
+    rect: [377, 151, 534, 194],
+    url: (listingId) => `https://download.autolisty.com/printable/7-5-iso/${listingId}`,
+  },
+]
+
+const DELIVERY_LAYOUTS: Record<ProductType, DeliveryLayout> = {
   frame_tv_art: {
     templateFile: "frame_tv_delivery.pdf",
     links: [
@@ -56,30 +101,17 @@ const DELIVERY_LAYOUTS: Record<
       },
     ],
   },
-  printable_wall_art: {
+  vertical_wall_art: {
     templateFile: "print_art_delivery.pdf",
-    links: [
-      {
-        rect: [42, 350, 196, 392],
-        url: (listingId) => `https://download.autolisty.com/printable/2-3/${listingId}`,
-      },
-      {
-        rect: [362, 350, 516, 392],
-        url: (listingId) => `https://download.autolisty.com/printable/3-4/${listingId}`,
-      },
-      {
-        rect: [160, 257, 389, 301],
-        url: (listingId) => `https://download.autolisty.com/printable/4-5/${listingId}`,
-      },
-      {
-        rect: [41, 151, 198, 194],
-        url: (listingId) => `https://download.autolisty.com/printable/11-14/${listingId}`,
-      },
-      {
-        rect: [377, 151, 534, 194],
-        url: (listingId) => `https://download.autolisty.com/printable/iso/${listingId}`,
-      },
-    ],
+    links: verticalWallArtLinks,
+  },
+  horizontal_wall_art: {
+    templateFile: "horizontal_art_delivery.pdf",
+    links: horizontalWallArtLinks,
+  },
+  nursery_wall_art: {
+    templateFile: "print_art_delivery.pdf",
+    links: verticalWallArtLinks,
   },
 }
 

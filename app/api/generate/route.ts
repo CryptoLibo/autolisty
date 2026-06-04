@@ -1,6 +1,7 @@
 import OpenAI from "openai"
 import fs from "fs"
 import path from "path"
+import { normalizeProductType } from "@/lib/products"
 
 export const runtime = "nodejs"
 export const maxDuration = 180
@@ -287,8 +288,11 @@ function getProductTerms(productConfig: ProductConfig) {
   }
 }
 
-const PRINTABLE_FORMAT_TERMS = [
+const WALL_ART_FORMAT_TERMS = [
   "printable wall art",
+  "vertical wall art",
+  "horizontal wall art",
+  "nursery wall art",
   "instant download wall art",
   "digital wall art",
   "digital download",
@@ -303,10 +307,10 @@ const PRINTABLE_FORMAT_TERMS = [
   "print",
 ]
 
-function stripPrintableFormatTerms(value: string) {
+function stripWallArtFormatTerms(value: string) {
   let output = cleanText(value)
 
-  for (const term of PRINTABLE_FORMAT_TERMS) {
+  for (const term of WALL_ART_FORMAT_TERMS) {
     output = output.replace(new RegExp(`\\b${escapeRegex(term)}\\b`, "gi"), " ")
   }
 
@@ -322,7 +326,7 @@ function wordRoot(word: string) {
 }
 
 function cleanSearchPhrase(value: string, maxWords = 4) {
-  const words = stripPrintableFormatTerms(value)
+  const words = stripWallArtFormatTerms(value)
     .replace(/\(([^)]*)\)/g, " ")
     .replace(/[,:;|/]+/g, " ")
     .replace(/\b(and|with|for|the|a|an|of|in|at)\b/gi, " ")
@@ -781,7 +785,7 @@ YOUR TITLE GOAL
 - Remove awkward redundancy and clumsy wording.
 - Do not turn the title into a completely new title.
 - Preserve the product type and overall keyword intent.
-- For printable wall art, avoid redundant constructions such as "Printable Print".
+- For wall art ratio products, avoid redundant constructions such as "Printable Print" or repeated product nouns.
 - Keep the title commercially strong, polished, and natural.
 
 YOUR GOAL
@@ -898,7 +902,8 @@ export async function POST(req: Request) {
   try {
     const body = await req.json()
 
-    const { productType, designUrl, mockups = [], midjourneyPrompt, listingId } = body
+    const { designUrl, mockups = [], midjourneyPrompt, listingId } = body
+    const productType = normalizeProductType(body.productType)
 
     const configPath = path.join(process.cwd(), "product_configs", `${productType}.json`)
     const rawProductConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")) as ProductConfig
@@ -952,8 +957,8 @@ TITLE STRATEGY
 - Avoid awkward phrases such as "Printable Print", repeated product nouns, or keyword chunks with no connector.
 - Prefer a strong search phrase cluster over decorative adjectives.
 - If the product rules require a full word budget, use as much of that allowed budget as possible without breaking coherence.
-- For printable wall art, think in 3 clear blocks: subject cluster ending in "Print", style/decor cluster ending in "Wall Art", and a final "(Digital Download)" suffix.
-- For printable wall art, build title_components as buyer-search phrases, not loose words:
+- For wall art ratio products, think in 3 clear blocks: subject cluster ending in "Print", style/decor cluster ending in "Wall Art", and a final "(Digital Download)" suffix.
+- For wall art ratio products, build title_components as buyer-search phrases, not loose words:
   1. search_core / subject_phrase = the strongest 2-4 word visual search phrase without product terms.
   2. style_phrase = the art style or visual category that makes the piece searchable.
   3. decor_phrase = the decor mood, room fit, or buyer intent without repeating the product term.

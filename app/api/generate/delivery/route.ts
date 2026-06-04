@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server"
 import { generateDeliveryPdf } from "@/lib/r2/generateDeliveryPdf"
 import { uploadDeliveryPdf } from "@/lib/r2/uploadDeliveryPdf"
-import { ProductType } from "@/lib/products"
+import { normalizeProductType } from "@/lib/products"
 
 export async function POST(req: Request) {
-  const { listingId, productType } = (await req.json()) as {
+  const { listingId, productType: rawProductType } = (await req.json()) as {
     listingId: string
-    productType: ProductType
+    productType: string
   }
+  const productType = normalizeProductType(rawProductType)
 
   const pdfBytes = await generateDeliveryPdf(productType, listingId)
 
