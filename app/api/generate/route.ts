@@ -16,6 +16,8 @@ const REMOTE_IMAGE_MAX_RETRIES = 2
 type ProductConfig = {
   product_name?: string
   title_rules?: {
+    mandatory_terms?: string[]
+    seo_priorities?: Record<string, unknown>
     word_rules?: {
       min_words?: number
       max_words?: number
@@ -154,31 +156,44 @@ function resolveProductConfig(productConfig: ProductConfig): ResolvedProductConf
 }
 
 function loadSeoKnowledge(productType: string): SeoKnowledge {
-  const knowledgePath = path.join(process.cwd(), "seo_knowledge", `${productType}.json`)
+  const loadFromFile = (type: string): SeoKnowledge => {
+    const knowledgePath = path.join(process.cwd(), "seo_knowledge", `${type}.json`)
 
-  if (!fs.existsSync(knowledgePath)) {
+    if (!fs.existsSync(knowledgePath)) {
+      return {
+        product_type: type,
+        title_tag_examples: [],
+      }
+    }
+
+    const parsed = JSON.parse(fs.readFileSync(knowledgePath, "utf-8")) as SeoKnowledge
+    const examples = Array.isArray(parsed.title_tag_examples)
+      ? parsed.title_tag_examples
+          .map((example) => ({
+            title: cleanText(example?.title),
+            tags: Array.isArray(example?.tags)
+              ? example.tags.map((tag) => cleanText(tag)).filter(Boolean)
+              : [],
+          }))
+          .filter((example) => example.title || example.tags.length > 0)
+      : []
+
     return {
-      product_type: productType,
-      title_tag_examples: [],
+      product_type: cleanText(parsed.product_type) || type,
+      title_tag_examples: examples,
     }
   }
 
-  const parsed = JSON.parse(fs.readFileSync(knowledgePath, "utf-8")) as SeoKnowledge
-  const examples = Array.isArray(parsed.title_tag_examples)
-    ? parsed.title_tag_examples
-        .map((example) => ({
-          title: cleanText(example?.title),
-          tags: Array.isArray(example?.tags)
-            ? example.tags.map((tag) => cleanText(tag)).filter(Boolean)
-            : [],
-        }))
-        .filter((example) => example.title || example.tags.length > 0)
-    : []
+  const knowledge = loadFromFile(productType)
 
-  return {
-    product_type: cleanText(parsed.product_type) || productType,
-    title_tag_examples: examples,
+  if (productType === "horizontal_wall_art" && knowledge.title_tag_examples?.length === 0) {
+    return {
+      ...knowledge,
+      title_tag_examples: loadFromFile("vertical_wall_art").title_tag_examples || [],
+    }
   }
+
+  return knowledge
 }
 
 function normalizeWord(value: string) {
@@ -433,6 +448,19 @@ function buildPrintableWallArtTitle(
   if (subjectWords.length === 0) subjectWords = ["Botanical"]
   if (styleWords.length === 0) styleWords = ["Modern", "Botanical"]
   if (decorWords.length === 0) decorWords = ["Nature"]
+
+  const requiresNurseryIntent =
+    Boolean(productConfig.title_rules?.seo_priorities?.include_nursery_intent_once) ||
+    (productConfig.title_rules?.mandatory_terms || []).some((term) =>
+      /\b(nursery|baby|kids|playroom|child)\b/i.test(term)
+    )
+  const hasNurseryIntent = decorWords.some((word) =>
+    ["nursery", "baby", "kid", "kids", "playroom", "child"].includes(wordRoot(word))
+  )
+
+  if (requiresNurseryIntent && !hasNurseryIntent) {
+    decorWords = ["Nursery", ...decorWords].slice(0, 3)
+  }
 
   const buildCandidate = () =>
     `${subjectWords.join(" ")} Print, ${styleWords.join(" ")} Wall Art, ${decorWords.join(" ")} Decor (${suffix})`
@@ -964,10 +992,16 @@ TITLE STRATEGY
   3. decor_phrase = the decor mood, room fit, or buyer intent without repeating the product term.
 - The title should read like: "[meaningful subject phrase] Print, [style phrase] Wall Art, [decor phrase] Decor (Digital Download)" while staying inside the product_config word and character limits.
 
+PRODUCT-SPECIFIC SEO INTENT
+- For horizontal_wall_art, treat the product as standard wall art for SEO. Do not mention horizontal, wide, orientation, ratio, dimensions, or landscape as a product orientation in the title, tags, or description keywords. Use landscape only when the artwork is genuinely a landscape scene.
+- For nursery_wall_art, keep the same wall art title structure, but make the buyer intent nursery-specific. Include nursery, baby room, kids room, or playroom intent naturally once in the title, preferably in the decor phrase, and avoid repeating nursery/baby/kids roots across the title.
+- For nursery_wall_art, tags and description keywords should acknowledge the nursery niche without becoming repetitive. Use nursery intent as one part of the SEO mix, then keep the rest focused on subject, style, mood, color, and decor context.
+
 DESCRIPTION KEYWORDS STRATEGY
 - Generate exactly 5 keyword phrases.
 - These phrases must strengthen the existing description template.
 - KEYWORD_1 must be the strongest Etsy search phrase for this listing, even if it is long-tail, but it must not include format/product terms already provided by the template such as "print", "wall art", "printable", "digital download", or "instant download".
+- For nursery_wall_art, KEYWORD_1 should usually carry the strongest nursery-relevant buyer intent while still avoiding repeated product terms from the template.
 - Each keyword must have a distinct role and should not feel generic or repetitive.
 - Keywords must fit the template naturally.
 
@@ -977,6 +1011,8 @@ TAG STRATEGY
 - Use seo_market_reference_examples to understand which tag phrases naturally belong with successful titles in this product type.
 - Do not copy an entire reference tag set; adapt the tag mix to the current artwork, title, and search intent.
 - Keep the current good balance across product, style, subject, decor, and digital format.
+- For horizontal_wall_art, do not create orientation tags such as "horizontal art" or "wide wall art"; keep tags about the artwork and buyer search intent.
+- For nursery_wall_art, include only a small number of nursery/baby/kids-room intent tags, then prioritize subject and style tags that fit the design.
 
 ALT TEXT STRATEGY
 - Analyze each mockup independently.

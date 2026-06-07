@@ -3,7 +3,7 @@
   "product_type": "digital",
   "title_rules": {
     "capitalization": "title_case",
-    "mandatory_terms": ["Print", "Wall Art", "Digital Download"],
+    "mandatory_terms": ["Print", "Wall Art", "Nursery Decor", "Digital Download"],
     "allow_variations": ["Print", "Wall Art"],
     "structure": [
       "SUBJECT",
@@ -28,7 +28,9 @@
       "prefer_concrete_subjects_over_generic_adjectives": true,
       "require_semantic_coherence": true,
       "decor_context_must_support_the_art": true,
-      "prefer_nursery_relevant_language": true
+      "prefer_nursery_relevant_language": true,
+      "include_nursery_intent_once": true,
+      "avoid_repeating_nursery_baby_kids_roots": true
     }
   },
   "normalization_rules": {

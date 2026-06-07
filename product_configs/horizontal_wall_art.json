@@ -1,5 +1,5 @@
 {
-  "product_name": "Horizontal Wall Art",
+  "product_name": "Wall Art",
   "product_type": "digital",
   "title_rules": {
     "capitalization": "title_case",
@@ -27,18 +27,16 @@
       "lead_with_searchable_language": true,
       "prefer_concrete_subjects_over_generic_adjectives": true,
       "require_semantic_coherence": true,
-      "decor_context_must_support_the_art": true,
-      "prefer_horizontal_scene_language": true
+      "decor_context_must_support_the_art": true
     }
   },
   "normalization_rules": {
     "primary_product_term": "Wall Art",
-    "alternate_product_terms": ["Print", "Horizontal Wall Art", "Landscape Wall Art", "Digital Wall Art"],
+    "alternate_product_terms": ["Print", "Digital Wall Art"],
     "title_suffix": "Digital Download",
     "title_format": "print_wall_art_commas",
     "keyword_fallback_phrases": [
-      "horizontal wall art",
-      "landscape wall art",
+      "gallery wall artwork",
       "digital wall art"
     ]
   },
