@@ -21,11 +21,11 @@ WHAT YOU'LL RECEIVE
 
 You'll receive 5 high-resolution JPG/PNG files at 300 DPI, prepared in multiple horizontal aspect ratios:
 
-- 3:2 Ratio
-- 4:3 Ratio
-- 5:4 Ratio
-- 7:5 ISO Ratio
-- 14:11 Ratio
+- 3:2 Ratio - 12x8, 18x12, 24x16, 30x20, 36x24
+- 4:3 Ratio - 12x9, 16x12, 20x15, 24x18
+- 5:4 Ratio - 10x8, 15x12, 20x16, 25x20, 30x24
+- ISO Size - A4, A3, A2, A1
+- 14:11 Ratio - 14x11
 
 All files are optimized for sharp, high-quality printing at any supported size.
 
