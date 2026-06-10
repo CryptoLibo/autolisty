@@ -128,6 +128,43 @@ type EtsyListingUrlResponse = {
   error?: string;
 };
 
+type EtsyAttributeInspectionProperty = {
+  propertyId: number | null;
+  displayName: string;
+  supportsAttributes: boolean;
+  supportsVariations: boolean;
+  isRequired: boolean;
+  isMultivalued: boolean;
+  maxValuesAllowed: number | null;
+  possibleValues: Array<{
+    valueId: number | null;
+    name: string;
+    scaleId: number | null;
+  }>;
+  selected: {
+    valueIds: number[];
+    values: string[];
+    scaleId: number | null;
+    scaleName: string;
+  } | null;
+  targetStatus: "tracked" | "available" | "ignored";
+};
+
+type EtsyAttributeInspectionResponse = {
+  ok?: boolean;
+  shopId?: number;
+  listingId?: string;
+  listing?: {
+    title: string;
+    state: string;
+    taxonomyId: number;
+    url: string;
+  };
+  trackedProperties?: EtsyAttributeInspectionProperty[];
+  properties?: EtsyAttributeInspectionProperty[];
+  error?: string;
+};
+
 type AppSection = "prompt" | "single" | "batch";
 
 type PromptLabResult = {
@@ -926,6 +963,11 @@ export default function Page() {
   const [etsyUrlLoading, setEtsyUrlLoading] = useState(false);
   const [etsyMessage, setEtsyMessage] = useState<string | null>(null);
   const [etsyDraftListingId, setEtsyDraftListingId] = useState("");
+  const [etsyAttributeListingId, setEtsyAttributeListingId] = useState("");
+  const [etsyAttributeLoading, setEtsyAttributeLoading] = useState(false);
+  const [etsyAttributeMessage, setEtsyAttributeMessage] = useState<string | null>(null);
+  const [etsyAttributeInspection, setEtsyAttributeInspection] =
+    useState<EtsyAttributeInspectionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SeoResult | null>(null);
 
@@ -3967,6 +4009,44 @@ export default function Page() {
     }
   }
 
+  async function inspectEtsyAttributes() {
+    const listingId = (etsyAttributeListingId || etsyDraftListingId).trim();
+    if (!listingId) {
+      setEtsyAttributeMessage("Enter an Etsy listing ID to inspect attributes.");
+      return;
+    }
+
+    setEtsyAttributeLoading(true);
+    setEtsyAttributeMessage(null);
+    setEtsyAttributeInspection(null);
+
+    try {
+      const response = await fetch("/api/etsy/attributes/inspect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ listingId }),
+      });
+
+      const data = (await response.json()) as EtsyAttributeInspectionResponse;
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || "Failed to inspect Etsy attributes.");
+      }
+
+      setEtsyAttributeInspection(data);
+      setEtsyAttributeListingId(listingId);
+      setEtsyAttributeMessage(
+        `Loaded ${data.trackedProperties?.length || 0} tracked attributes for listing ${listingId}.`
+      );
+    } catch (error: any) {
+      setEtsyAttributeMessage(error?.message || "Failed to inspect Etsy attributes.");
+    } finally {
+      setEtsyAttributeLoading(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#0b0f14] text-neutral-100">
       <button
@@ -5034,6 +5114,132 @@ export default function Page() {
                     No Etsy account connected yet.
                   </div>
                 )}
+              </div>
+            </Card>
+
+            <Card title="Etsy Attributes" accent>
+              <div className="space-y-4 text-sm text-neutral-400">
+                <div className="space-y-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                    Listing ID
+                  </div>
+                  <input
+                    value={etsyAttributeListingId}
+                    onChange={(e) => setEtsyAttributeListingId(e.target.value)}
+                    placeholder={etsyDraftListingId || "Enter an Etsy listing ID"}
+                    className="w-full rounded-2xl border border-neutral-800 bg-neutral-950/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      variant="secondary"
+                      onClick={() => void inspectEtsyAttributes()}
+                      disabled={etsyAttributeLoading || !etsyAuth?.connected}
+                    >
+                      {etsyAttributeLoading ? (
+                        <>
+                          <Loader2 className="animate-spin" size={16} />
+                          Inspecting...
+                        </>
+                      ) : (
+                        <>
+                          <Eye size={16} />
+                          Inspect Attributes
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                {etsyAttributeMessage ? (
+                  <div className="rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 p-4 text-sm text-[#f1cc61]">
+                    {etsyAttributeMessage}
+                  </div>
+                ) : null}
+
+                {etsyAttributeInspection?.listing ? (
+                  <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4">
+                    <div className="text-sm font-medium text-neutral-100">
+                      {etsyAttributeInspection.listing.title || "Untitled listing"}
+                    </div>
+                    <div className="mt-2 grid gap-2 text-xs text-neutral-400 sm:grid-cols-3">
+                      <div>State: {etsyAttributeInspection.listing.state || "unknown"}</div>
+                      <div>Taxonomy: {etsyAttributeInspection.listing.taxonomyId}</div>
+                      <div>Shop: {etsyAttributeInspection.shopId || "unknown"}</div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {etsyAttributeInspection?.trackedProperties?.length ? (
+                  <div className="space-y-3">
+                    {etsyAttributeInspection.trackedProperties.map((property) => (
+                      <div
+                        key={`${property.propertyId}-${property.displayName}`}
+                        className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4"
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-neutral-100">
+                              {property.displayName}
+                            </div>
+                            <div className="mt-1 text-xs text-neutral-500">
+                              ID {property.propertyId || "n/a"} ·{" "}
+                              {property.isMultivalued ? "Multiple" : "Single"} · Max{" "}
+                              {property.maxValuesAllowed || 1}
+                            </div>
+                          </div>
+                          <div className="rounded-full border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-3 py-1 text-xs font-semibold text-[#f1cc61]">
+                            {property.possibleValues.length} options
+                          </div>
+                        </div>
+
+                        <div className="mt-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-500">
+                            Selected
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {(property.selected?.values || []).length ? (
+                              property.selected?.values.map((value) => (
+                                <span
+                                  key={`${property.propertyId}-${value}`}
+                                  className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200"
+                                >
+                                  {value}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-neutral-500">No selected value</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="mt-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-500">
+                            Options preview
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {property.possibleValues.slice(0, 12).map((value) => (
+                              <span
+                                key={`${property.propertyId}-${value.valueId}-${value.name}`}
+                                className="rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs text-neutral-300"
+                              >
+                                {value.name}
+                              </span>
+                            ))}
+                            {property.possibleValues.length > 12 ? (
+                              <span className="rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs text-neutral-500">
+                                +{property.possibleValues.length - 12} more
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : etsyAttributeInspection ? (
+                  <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm text-neutral-300">
+                    No tracked attributes were returned for this taxonomy.
+                  </div>
+                ) : null}
               </div>
             </Card>
 
