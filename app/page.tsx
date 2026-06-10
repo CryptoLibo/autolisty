@@ -70,6 +70,13 @@ type SeoResult = {
   description_keywords_5: string[];
   description_final: string;
   tags_13: string[];
+  etsy_attributes?: Array<{
+    propertyId: number;
+    displayName: string;
+    valueIds: number[];
+    values: string[];
+    scaleId: number | null;
+  }>;
   media: Array<{
     id: string;
     order?: number;
@@ -115,6 +122,7 @@ type EtsySyncResponse = {
   shopId?: number;
   listingId?: string;
   listingUrl?: string | null;
+  updatedAttributes?: number;
   uploadedImages?: number;
   uploadedFiles?: number;
   error?: string;
@@ -975,6 +983,8 @@ export default function Page() {
     !!designFile &&
     !!designR2Url &&
     midjourneyPrompt.trim().length > 0 &&
+    etsyDraftListingId.trim().length > 0 &&
+    !!etsyAuth?.connected &&
     mockups.every((m) => !!m.r2Url) &&
     !loading &&
     !uploading;
@@ -2325,6 +2335,10 @@ export default function Page() {
       throw new Error("Add the Midjourney prompt for this listing first.");
     }
 
+    if (!job.etsyDraftListingId.trim()) {
+      throw new Error("Enter the Etsy draft listing ID for this listing before generating SEO.");
+    }
+
     updateScaleJob(job.id, (current) => ({
       ...current,
       status: "generating_seo",
@@ -2336,6 +2350,7 @@ export default function Page() {
       const payload = {
         listingId: job.listingId,
         productType: scaleProductType,
+        draftListingId: job.etsyDraftListingId.trim(),
         designUrl: job.designUrl,
         midjourneyPrompt: job.midjourneyPrompt,
         mockups: job.mockupsUploaded.map((item) => ({
@@ -2380,16 +2395,23 @@ export default function Page() {
   }
 
   async function generateScaleSeoJobs() {
+    if (!etsyAuth?.connected) {
+      setScaleMessage("Connect Etsy before generating SEO so Autolisty can load draft attributes.");
+      setScaleMessageTone("error");
+      return;
+    }
+
     const eligible = scaleJobs.filter(
       (job) =>
         job.status === "uploaded" &&
         !!job.designUrl &&
         !!job.mockupsUploaded?.length &&
-        !!job.midjourneyPrompt.trim()
+        !!job.midjourneyPrompt.trim() &&
+        !!job.etsyDraftListingId.trim()
     );
 
     if (eligible.length === 0) {
-      setScaleMessage("No uploaded Scale jobs are ready for SEO yet.");
+      setScaleMessage("No uploaded Scale jobs are ready for SEO yet. Add the prompt and Etsy draft ID first.");
       return;
     }
 
@@ -2545,6 +2567,7 @@ export default function Page() {
         title: job.seoResult.title,
         description: job.seoResult.description_final,
         tags: job.seoResult.tags_13,
+        etsyAttributes: job.seoResult.etsy_attributes || [],
         mockups: (job.mockupsUploaded || []).map((item) => ({
           url: item.url,
           altText: item.altText,
@@ -3574,6 +3597,7 @@ export default function Page() {
       const payload = {
         listingId: id,
         productType,
+        draftListingId: etsyDraftListingId.trim(),
         designUrl: designR2Url,
         midjourneyPrompt,
         mockups: mockups
@@ -3944,6 +3968,7 @@ export default function Page() {
           title: result.title,
           description: result.description_final,
           tags: result.tags_13,
+          etsyAttributes: result.etsy_attributes || [],
           mockups: mockups
             .filter((item): item is MediaItem & { r2Url: string } => !!item.r2Url)
             .map((item, index) => ({
@@ -5079,8 +5104,9 @@ export default function Page() {
                         className="w-full rounded-2xl border border-neutral-800 bg-neutral-950/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
                       />
                       <div className="text-xs text-neutral-500">
-                        Sync sends title, tags, description, mockup images with alt
-                        text, and the final delivery PDF to this draft.
+                        SEO generation uses this draft to load Etsy attributes. Sync sends title,
+                        tags, description, selected attributes, mockup images with alt text, and
+                        the final delivery PDF to this draft.
                       </div>
                     </div>
 
@@ -5182,8 +5208,8 @@ export default function Page() {
                               {property.displayName}
                             </div>
                             <div className="mt-1 text-xs text-neutral-500">
-                              ID {property.propertyId || "n/a"} ·{" "}
-                              {property.isMultivalued ? "Multiple" : "Single"} · Max{" "}
+                              ID {property.propertyId || "n/a"} -{" "}
+                              {property.isMultivalued ? "Multiple" : "Single"} - Max{" "}
                               {property.maxValuesAllowed || 1}
                             </div>
                           </div>
@@ -5274,14 +5300,15 @@ export default function Page() {
               <div className="space-y-3 text-sm text-neutral-400">
                 <p>
                   Generate listing SEO from the main artwork and its Midjourney
-                  prompt. If mockups are uploaded, the app also maps alt text to
-                  each image.
+                  prompt. The Etsy draft ID is required so Autolisty can load
+                  valid attribute options for that listing category.
                 </p>
                 <ul className="space-y-2 text-sm text-neutral-500">
-                  <li>• prompt-aware Etsy title</li>
-                  <li>• stronger description keywords</li>
-                  <li>• structured Etsy tags</li>
-                  <li>• alt text mapped to each mockup</li>
+                  <li>- prompt-aware Etsy title</li>
+                  <li>- stronger description keywords</li>
+                  <li>- structured Etsy tags</li>
+                  <li>- selected Etsy attributes from valid draft options</li>
+                  <li>- alt text mapped to each mockup</li>
                 </ul>
               </div>
             </Card>
@@ -5341,6 +5368,36 @@ export default function Page() {
                       ))}
                     </div>
                   </OutputBlock>
+
+                  {result.etsy_attributes?.length ? (
+                    <OutputBlock
+                      title="Attributes"
+                      subtitle="Selected from Etsy options"
+                    >
+                      <div className="space-y-3">
+                        {result.etsy_attributes.map((attribute) => (
+                          <div
+                            key={`${attribute.propertyId}-${attribute.displayName}`}
+                            className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4"
+                          >
+                            <div className="text-sm font-semibold text-neutral-100">
+                              {attribute.displayName}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {attribute.values.map((value) => (
+                                <span
+                                  key={`${attribute.propertyId}-${value}`}
+                                  className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200"
+                                >
+                                  {value}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </OutputBlock>
+                  ) : null}
 
                   <OutputBlock
                     title="Description"

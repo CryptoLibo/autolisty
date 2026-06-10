@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { ETSY_AUTH_COOKIE, EtsyTokenPayload } from "@/lib/etsy/auth";
 import { ensureFreshToken } from "@/lib/etsy/client";
+import { updateListingProperty } from "@/lib/etsy/attributes";
 import {
   deleteListingFile,
   deleteListingImage,
@@ -28,6 +29,14 @@ type EtsyExistingImage = {
 
 type EtsyExistingFile = {
   listing_file_id?: number;
+};
+
+type EtsyAttributeSelection = {
+  propertyId?: number;
+  displayName?: string;
+  valueIds?: number[];
+  values?: string[];
+  scaleId?: number | null;
 };
 
 function getFilenameFromUrl(url: string, fallback: string) {
@@ -81,6 +90,7 @@ export async function POST(req: Request) {
       title?: string;
       description?: string;
       tags?: string[];
+      etsyAttributes?: EtsyAttributeSelection[];
       mockups?: SyncMockup[];
       deliveryPdfUrl?: string;
       deliveryPdfFilename?: string;
@@ -94,6 +104,26 @@ export async function POST(req: Request) {
       : [];
     const mockups = Array.isArray(body.mockups)
       ? body.mockups.filter((item) => item?.url)
+      : [];
+    const etsyAttributes = Array.isArray(body.etsyAttributes)
+      ? body.etsyAttributes
+          .map((attribute) => ({
+            propertyId: Number(attribute.propertyId),
+            valueIds: Array.isArray(attribute.valueIds)
+              ? attribute.valueIds.map((valueId) => Number(valueId)).filter((valueId) => Number.isInteger(valueId) && valueId > 0)
+              : [],
+            values: Array.isArray(attribute.values)
+              ? attribute.values.map((value) => String(value || "").trim()).filter(Boolean)
+              : [],
+            scaleId: attribute.scaleId ? Number(attribute.scaleId) : null,
+          }))
+          .filter(
+            (attribute) =>
+              Number.isInteger(attribute.propertyId) &&
+              attribute.propertyId > 0 &&
+              attribute.valueIds.length > 0 &&
+              attribute.values.length > 0
+          )
       : [];
     const deliveryPdfUrl = String(body.deliveryPdfUrl || "").trim();
     const deliveryPdfFilename = String(body.deliveryPdfFilename || "").trim() || "delivery.pdf";
@@ -163,6 +193,25 @@ export async function POST(req: Request) {
       });
     } catch (error) {
       throw wrapStepError("Failed while updating Etsy listing text", error);
+    }
+
+    for (const attribute of etsyAttributes) {
+      try {
+        await updateListingProperty({
+          token,
+          shopId,
+          listingId: draftListingId,
+          propertyId: attribute.propertyId,
+          valueIds: attribute.valueIds,
+          values: attribute.values,
+          scaleId: attribute.scaleId,
+        });
+      } catch (error) {
+        throw wrapStepError(
+          `Failed while updating Etsy attribute ${attribute.propertyId}`,
+          error
+        );
+      }
     }
 
     let existingImages: EtsyExistingImage[] = [];
@@ -256,6 +305,7 @@ export async function POST(req: Request) {
         listing?.url ||
         listing?.listing_url ||
         null,
+      updatedAttributes: etsyAttributes.length,
       uploadedImages: mockups.length,
       uploadedFiles: 1,
     });

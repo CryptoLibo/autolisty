@@ -1,6 +1,11 @@
 import OpenAI from "openai"
 import fs from "fs"
 import path from "path"
+import { cookies } from "next/headers"
+import { ETSY_AUTH_COOKIE, EtsyTokenPayload } from "@/lib/etsy/auth"
+import { ensureFreshToken } from "@/lib/etsy/client"
+import { getSellerTaxonomyProperties } from "@/lib/etsy/attributes"
+import { getPrimaryShop, getShopListing } from "@/lib/etsy/listings"
 import { normalizeProductType } from "@/lib/products"
 
 export const runtime = "nodejs"
@@ -74,8 +79,125 @@ type SeoKnowledge = {
   }>
 }
 
+type EtsyAttributePromptOption = {
+  property_id: number
+  display_name: string
+  max_values: number
+  is_multivalued: boolean
+  options: Array<{
+    value_id: number
+    name: string
+    scale_id: number | null
+  }>
+}
+
+type EtsyAttributeSelection = {
+  propertyId: number
+  displayName: string
+  valueIds: number[]
+  values: string[]
+  scaleId: number | null
+}
+
+const ETSY_DYNAMIC_ATTRIBUTE_NAMES = new Set([
+  "primary color",
+  "secondary color",
+  "home style",
+  "room",
+  "subject",
+])
+
 function cleanText(value: unknown) {
   return String(value || "").replace(/\s+/g, " ").trim()
+}
+
+function normalizeAttributeName(value: unknown) {
+  return cleanText(value).toLowerCase()
+}
+
+function shouldGenerateEtsyAttribute(productType: string, displayName: string) {
+  const normalized = normalizeAttributeName(displayName)
+  if (!ETSY_DYNAMIC_ATTRIBUTE_NAMES.has(normalized)) return false
+  if (productType === "nursery_wall_art" && normalized === "room") return false
+  return true
+}
+
+async function loadEtsyAttributeOptionsForDraft({
+  draftListingId,
+  productType,
+}: {
+  draftListingId: string
+  productType: string
+}): Promise<EtsyAttributePromptOption[]> {
+  const listingId = cleanText(draftListingId)
+  if (!/^\d+$/.test(listingId)) {
+    throw new Error("Enter a valid numeric Etsy draft listing ID before generating SEO.")
+  }
+
+  try {
+    const cookieStore = await cookies()
+    const raw = cookieStore.get(ETSY_AUTH_COOKIE)?.value
+    if (!raw) throw new Error("Etsy is not connected.")
+
+    const parsed = JSON.parse(raw) as EtsyTokenPayload
+    const token = await ensureFreshToken(parsed)
+
+    if (token.access_token !== parsed.access_token || token.expires_at !== parsed.expires_at) {
+      cookieStore.set(ETSY_AUTH_COOKIE, JSON.stringify(token), {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 90,
+      })
+    }
+
+    const shop = await getPrimaryShop(token)
+    const shopId = Number(shop.shop_id)
+    const listing = await getShopListing(token, shopId, listingId)
+    const taxonomyId = Number(listing?.taxonomy_id)
+    if (!Number.isInteger(taxonomyId) || taxonomyId <= 0) {
+      throw new Error("Etsy did not return a valid taxonomy_id for this draft.")
+    }
+
+    const properties = await getSellerTaxonomyProperties(token, taxonomyId)
+
+    return properties
+      .filter((property) => {
+        const displayName = cleanText(property.display_name || property.name)
+        return property.supports_attributes && shouldGenerateEtsyAttribute(productType, displayName)
+      })
+      .map((property) => {
+        const options = Array.isArray(property.possible_values)
+          ? property.possible_values
+              .map((value) => ({
+                value_id: Number(value.value_id),
+                name: cleanText(value.name),
+                scale_id: value.scale_id ? Number(value.scale_id) : null,
+              }))
+              .filter((value) => Number.isInteger(value.value_id) && value.value_id > 0 && value.name)
+          : []
+
+        return {
+          property_id: Number(property.property_id),
+          display_name: cleanText(property.display_name || property.name),
+          max_values: property.is_multivalued
+            ? Math.max(1, Number(property.max_values_allowed || 1))
+            : 1,
+          is_multivalued: Boolean(property.is_multivalued),
+          options,
+        }
+      })
+      .filter(
+        (property) =>
+          Number.isInteger(property.property_id) &&
+          property.property_id > 0 &&
+          property.display_name &&
+          property.options.length > 0
+      )
+  } catch (error: any) {
+    throw new Error(error?.message || "Failed to load Etsy attribute options for this draft.")
+  }
 }
 
 function toDataUrl(buffer: Buffer, mimeType: string) {
@@ -755,6 +877,61 @@ function normalizeKeywords5(
   return normalized
 }
 
+function normalizeEtsyAttributeSelections(
+  rawSelections: unknown,
+  optionSets: EtsyAttributePromptOption[]
+): EtsyAttributeSelection[] {
+  if (!Array.isArray(rawSelections) || optionSets.length === 0) return []
+
+  const optionSetById = new Map(optionSets.map((optionSet) => [optionSet.property_id, optionSet]))
+  const optionSetByName = new Map(
+    optionSets.map((optionSet) => [normalizeAttributeName(optionSet.display_name), optionSet])
+  )
+  const result: EtsyAttributeSelection[] = []
+
+  for (const rawSelection of rawSelections) {
+    if (!rawSelection || typeof rawSelection !== "object") continue
+    const selection = rawSelection as Record<string, unknown>
+    const propertyId = Number(selection.property_id || selection.propertyId)
+    const displayName = cleanText(selection.display_name || selection.displayName)
+    const optionSet =
+      (Number.isInteger(propertyId) ? optionSetById.get(propertyId) : null) ||
+      optionSetByName.get(normalizeAttributeName(displayName))
+
+    if (!optionSet) continue
+
+    const requestedValues = Array.isArray(selection.values)
+      ? selection.values.map((value) => cleanText(value)).filter(Boolean)
+      : []
+    const optionsByName = new Map(
+      optionSet.options.map((option) => [normalizeAttributeName(option.name), option])
+    )
+    const selectedOptions = uniquePhrases(requestedValues)
+      .map((value) => optionsByName.get(normalizeAttributeName(value)))
+      .filter((option): option is EtsyAttributePromptOption["options"][number] => Boolean(option))
+      .slice(0, optionSet.max_values)
+
+    if (selectedOptions.length === 0) continue
+
+    const scaleIds = uniquePhrases(
+      selectedOptions
+        .map((option) => (option.scale_id ? String(option.scale_id) : ""))
+        .filter(Boolean)
+    )
+    const scaleId = scaleIds.length === 1 ? Number(scaleIds[0]) : null
+
+    result.push({
+      propertyId: optionSet.property_id,
+      displayName: optionSet.display_name,
+      valueIds: selectedOptions.map((option) => option.value_id),
+      values: selectedOptions.map((option) => option.name),
+      scaleId,
+    })
+  }
+
+  return result
+}
+
 function fillTemplate(template: string, keywords5: string[]) {
   let output = template
 
@@ -931,6 +1108,7 @@ export async function POST(req: Request) {
     const body = await req.json()
 
     const { designUrl, mockups = [], midjourneyPrompt, listingId } = body
+    const draftListingId = cleanText(body.draftListingId)
     const productType = normalizeProductType(body.productType)
 
     const configPath = path.join(process.cwd(), "product_configs", `${productType}.json`)
@@ -944,6 +1122,13 @@ export async function POST(req: Request) {
       productConfig.description_rules.template_file
     )
     const descriptionTemplate = fs.readFileSync(templatePath, "utf-8")
+    const etsyAttributeOptions = await loadEtsyAttributeOptionsForDraft({
+      draftListingId,
+      productType,
+    })
+    if (etsyAttributeOptions.length === 0) {
+      throw new Error("No dynamic Etsy attribute options were found for this draft category.")
+    }
 
     const designDataUrl = await fetchRemoteImageAsDataUrl(designUrl, "primary design image")
     const mockupInputs = await Promise.all(
@@ -1014,6 +1199,16 @@ TAG STRATEGY
 - For horizontal_wall_art, do not create orientation tags such as "horizontal art" or "wide wall art"; keep tags about the artwork and buyer search intent.
 - For nursery_wall_art, include only a small number of nursery/baby/kids-room intent tags, then prioritize subject and style tags that fit the design.
 
+ETSY ATTRIBUTE STRATEGY
+- If etsy_attribute_options is empty, return an empty etsy_attributes array.
+- If etsy_attribute_options contains properties, choose values only from the exact option names provided for each property.
+- Never invent an Etsy attribute value and never return a value that is not listed in etsy_attribute_options.
+- Choose the best Primary color and Secondary color from the actual dominant/supporting colors in the artwork, not from mockup props.
+- Choose Home Style from the visual style and buyer decor intent of the artwork.
+- Choose Subject from what is actually represented in the artwork. Use up to the allowed maximum and prefer the most specific valid subjects.
+- Choose Room only when the property is included in etsy_attribute_options. For nursery_wall_art, Room is normally fixed in the draft and should not be generated.
+- Skip any attribute when none of the available options fit confidently.
+
 ALT TEXT STRATEGY
 - Analyze each mockup independently.
 - Describe what is actually visible in that image first.
@@ -1038,6 +1233,9 @@ ${JSON.stringify(seoKnowledge)}
 
 description_template:
 ${descriptionTemplate}
+
+etsy_attribute_options:
+${JSON.stringify(etsyAttributeOptions)}
 
 midjourney_prompt:
 ${midjourneyPrompt}
@@ -1076,6 +1274,9 @@ Return JSON in this exact shape:
   "description_keywords_5": [],
   "description_final": "",
   "tags_13": [],
+  "etsy_attributes": [
+    { "property_id": 0, "display_name": "", "values": [] }
+  ],
   "media": [
     { "id": "", "position": 0, "alt_text": "" }
   ]
@@ -1148,6 +1349,10 @@ Return JSON in this exact shape:
       fillTemplate(descriptionTemplate, keywords5),
       listingId
     )
+    const etsyAttributes = normalizeEtsyAttributeSelections(
+      parsed.etsy_attributes,
+      etsyAttributeOptions
+    )
 
     const parsedMedia = Array.isArray(parsed.media) ? parsed.media : []
     const mediaDrafts = mockups.map((img: any, index: number) => {
@@ -1187,6 +1392,7 @@ Return JSON in this exact shape:
       description_keywords_5: keywords5,
       description_final: description,
       tags_13: tags,
+      etsy_attributes: etsyAttributes,
       media: polished.media,
     }
 

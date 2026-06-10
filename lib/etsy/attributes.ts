@@ -80,3 +80,64 @@ export async function getListingProperties(
   const data = await response.json();
   return (Array.isArray(data.results) ? data.results : []) as EtsyListingProperty[];
 }
+
+export async function updateListingProperty({
+  token,
+  shopId,
+  listingId,
+  propertyId,
+  valueIds,
+  values,
+  scaleId,
+}: {
+  token: EtsyTokenPayload;
+  shopId: number;
+  listingId: string;
+  propertyId: number;
+  valueIds: number[];
+  values: string[];
+  scaleId?: number | null;
+}) {
+  async function send(useArraySyntax: boolean) {
+    const body = new URLSearchParams();
+
+    for (const valueId of valueIds) {
+      body.append(useArraySyntax ? "value_ids[]" : "value_ids", String(valueId));
+    }
+
+    for (const value of values) {
+      body.append(useArraySyntax ? "values[]" : "values", value);
+    }
+
+    if (scaleId) {
+      body.set("scale_id", String(scaleId));
+    }
+
+    return await etsyFetch(
+      `/application/shops/${shopId}/listings/${listingId}/properties/${propertyId}`,
+      token,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body,
+      }
+    );
+  }
+
+  const attempts = [true, false];
+  let lastError = `Failed to update Etsy property ${propertyId}.`;
+
+  for (const useArraySyntax of attempts) {
+    const response = await send(useArraySyntax);
+
+    if (response.ok) {
+      return await response.json();
+    }
+
+    lastError = await parseEtsyError(response, lastError);
+  }
+
+  throw new Error(lastError);
+}
