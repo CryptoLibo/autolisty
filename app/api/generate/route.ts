@@ -804,6 +804,255 @@ function uniquePhrases(values: string[]) {
   return result
 }
 
+const ATTRIBUTE_STOP_WORDS = new Set([
+  "and",
+  "art",
+  "decor",
+  "digital",
+  "download",
+  "for",
+  "home",
+  "in",
+  "nursery",
+  "of",
+  "print",
+  "printable",
+  "room",
+  "the",
+  "wall",
+  "with",
+])
+
+const ATTRIBUTE_SYNONYM_GROUPS = [
+  ["animal", "animals", "zebra", "lion", "tiger", "bear", "bunny", "rabbit", "dog", "cat", "fox", "giraffe", "elephant", "dinosaur", "dragon", "bird", "fish", "whale"],
+  ["beach", "coastal", "tropical", "ocean", "sea", "surf", "surfboard", "palm", "island"],
+  ["fantasy", "sci", "dragon", "dinosaur", "magic", "mythical", "storybook"],
+  ["flower", "flowers", "floral", "botanical", "blossom", "lotus", "cherry"],
+  ["landscape", "scenery", "mountain", "river", "lake", "forest", "jungle", "lagoon", "garden", "nature"],
+  ["celestial", "sun", "moon", "star", "stars", "rainbow", "cloud", "clouds", "sky"],
+  ["minimalist", "minimal", "simple", "clean", "neutral"],
+  ["contemporary", "modern", "abstract", "geometric", "graphic"],
+  ["rustic", "farmhouse", "country", "vintage", "primitive"],
+  ["bohemian", "boho", "eclectic"],
+]
+
+const HOME_STYLE_OPTION_BOOSTS: Array<{
+  optionWords: string[]
+  evidenceWords: string[]
+  boost: number
+}> = [
+  {
+    optionWords: ["coastal", "tropical"],
+    evidenceWords: ["beach", "coastal", "tropical", "ocean", "sea", "surf", "surfboard", "palm", "island"],
+    boost: 12,
+  },
+  {
+    optionWords: ["minimalist"],
+    evidenceWords: ["minimalist", "minimal", "simple", "clean", "neutral", "airy"],
+    boost: 8,
+  },
+  {
+    optionWords: ["contemporary"],
+    evidenceWords: ["contemporary", "modern", "abstract", "geometric", "graphic"],
+    boost: 8,
+  },
+  {
+    optionWords: ["country", "farmhouse"],
+    evidenceWords: ["country", "farmhouse", "rustic", "vintage", "cottage"],
+    boost: 8,
+  },
+  {
+    optionWords: ["rustic", "primitive"],
+    evidenceWords: ["rustic", "primitive", "folk", "vintage", "weathered", "handmade"],
+    boost: 8,
+  },
+  {
+    optionWords: ["bohemian", "eclectic"],
+    evidenceWords: ["bohemian", "boho", "eclectic", "macrame", "mandala"],
+    boost: 6,
+  },
+]
+
+const SUBJECT_FALLBACK_PRIORITY = [
+  "Animal",
+  "Beach & tropical",
+  "Fantasy & Sci Fi",
+  "Flowers",
+  "Landscape & scenery",
+  "Nature",
+  "Celestial & astrology",
+  "Kids & baby",
+  "Abstract & geometric",
+  "Architecture & cityscape",
+  "Educational",
+]
+
+function flattenAttributeEvidence(values: unknown[]): string[] {
+  const result: string[] = []
+
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      result.push(...flattenAttributeEvidence(value))
+      continue
+    }
+
+    if (value && typeof value === "object") {
+      result.push(
+        ...flattenAttributeEvidence(
+          Object.values(value as Record<string, unknown>)
+        )
+      )
+      continue
+    }
+
+    const cleaned = cleanText(value)
+    if (cleaned) result.push(cleaned)
+  }
+
+  return result
+}
+
+function tokenizeAttributeText(values: unknown[]) {
+  const tokens = new Set<string>()
+  const sources = flattenAttributeEvidence(values)
+
+  for (const source of sources) {
+    const words = source
+      .toLowerCase()
+      .replace(/&/g, " ")
+      .replace(/[^\w\s-]/g, " ")
+      .split(/\s+/)
+      .map((word) => wordRoot(word))
+      .filter((word) => word && !ATTRIBUTE_STOP_WORDS.has(word))
+
+    for (const word of words) {
+      tokens.add(word)
+      for (const group of ATTRIBUTE_SYNONYM_GROUPS) {
+        if (group.includes(word)) {
+          group.map(wordRoot).forEach((synonym) => tokens.add(synonym))
+        }
+      }
+    }
+  }
+
+  return tokens
+}
+
+function optionWordRoots(optionName: string) {
+  return optionName
+    .toLowerCase()
+    .replace(/&/g, " ")
+    .replace(/[^\w\s-]/g, " ")
+    .split(/\s+/)
+    .map((word) => wordRoot(word))
+    .filter((word) => word && !ATTRIBUTE_STOP_WORDS.has(word))
+}
+
+function scoreAttributeOption(optionName: string, evidenceTokens: Set<string>) {
+  const optionWords = optionWordRoots(optionName)
+  let score = 0
+
+  for (const word of optionWords) {
+    if (evidenceTokens.has(word)) score += 4
+    for (const token of evidenceTokens) {
+      if (word.length > 3 && token.includes(word)) score += 1
+      if (token.length > 3 && word.includes(token)) score += 1
+    }
+  }
+
+  for (const group of ATTRIBUTE_SYNONYM_GROUPS) {
+    const optionMatches = optionWords.some((word) => group.map(wordRoot).includes(word))
+    const evidenceMatches = group.map(wordRoot).some((word) => evidenceTokens.has(word))
+    if (optionMatches && evidenceMatches) score += 6
+  }
+
+  return score
+}
+
+function fallbackPriorityScore(optionName: string) {
+  const normalized = normalizeAttributeName(optionName)
+  const index = SUBJECT_FALLBACK_PRIORITY.findIndex(
+    (item) => normalizeAttributeName(item) === normalized
+  )
+  return index === -1 ? 0 : SUBJECT_FALLBACK_PRIORITY.length - index
+}
+
+function fillSubjectOptions(
+  selectedOptions: EtsyAttributePromptOption["options"],
+  optionSet: EtsyAttributePromptOption,
+  evidenceTokens: Set<string>
+) {
+  const targetCount = Math.min(3, optionSet.max_values, optionSet.options.length)
+  if (targetCount <= selectedOptions.length) return selectedOptions.slice(0, targetCount)
+
+  const selectedIds = new Set(selectedOptions.map((option) => option.value_id))
+  const ranked = optionSet.options
+    .filter((option) => !selectedIds.has(option.value_id))
+    .map((option, index) => ({
+      option,
+      index,
+      score:
+        scoreAttributeOption(option.name, evidenceTokens) * 10 +
+        fallbackPriorityScore(option.name),
+    }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+
+  const filled = [...selectedOptions]
+  for (const candidate of ranked) {
+    if (filled.length >= targetCount) break
+    filled.push(candidate.option)
+  }
+
+  return filled
+}
+
+function refineHomeStyleOption(
+  selectedOptions: EtsyAttributePromptOption["options"],
+  optionSet: EtsyAttributePromptOption,
+  evidenceTokens: Set<string>
+) {
+  if (selectedOptions.length === 0) return selectedOptions
+  const selected = selectedOptions[0]
+  const selectedName = normalizeAttributeName(selected.name)
+
+  const ranked = optionSet.options
+    .map((option, index) => {
+      let score = scoreAttributeOption(option.name, evidenceTokens) * 10
+      const optionWords = optionWordRoots(option.name)
+
+      for (const boost of HOME_STYLE_OPTION_BOOSTS) {
+        const optionMatches = boost.optionWords
+          .map(wordRoot)
+          .some((word) => optionWords.includes(word))
+        const evidenceMatches = boost.evidenceWords
+          .map(wordRoot)
+          .some((word) => evidenceTokens.has(word))
+        if (optionMatches && evidenceMatches) score += boost.boost
+      }
+
+      return { option, index, score }
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+
+  const best = ranked[0]
+  if (!best || best.score <= 0) return selectedOptions
+
+  const selectedScore =
+    ranked.find((entry) => entry.option.value_id === selected.value_id)?.score || 0
+
+  if (
+    selectedName === "bohemian & eclectic" &&
+    normalizeAttributeName(best.option.name) !== selectedName &&
+    best.score >= selectedScore
+  ) {
+    return [best.option]
+  }
+
+  if (best.score >= selectedScore + 12) return [best.option]
+
+  return selectedOptions
+}
+
 function normalizeKeywords5(
   list: unknown,
   analysis: Record<string, unknown>,
@@ -879,10 +1128,15 @@ function normalizeKeywords5(
 
 function normalizeEtsyAttributeSelections(
   rawSelections: unknown,
-  optionSets: EtsyAttributePromptOption[]
+  optionSets: EtsyAttributePromptOption[],
+  evidence: unknown[] = []
 ): EtsyAttributeSelection[] {
   if (!Array.isArray(rawSelections) || optionSets.length === 0) return []
 
+  const evidenceTokens = tokenizeAttributeText([
+    ...flattenAttributeEvidence(evidence),
+    ...flattenAttributeEvidence(rawSelections),
+  ])
   const optionSetById = new Map(optionSets.map((optionSet) => [optionSet.property_id, optionSet]))
   const optionSetByName = new Map(
     optionSets.map((optionSet) => [normalizeAttributeName(optionSet.display_name), optionSet])
@@ -911,10 +1165,18 @@ function normalizeEtsyAttributeSelections(
       .filter((option): option is EtsyAttributePromptOption["options"][number] => Boolean(option))
       .slice(0, optionSet.max_values)
 
-    if (selectedOptions.length === 0) continue
+    const normalizedDisplayName = normalizeAttributeName(optionSet.display_name)
+    const finalOptions =
+      normalizedDisplayName === "subject"
+        ? fillSubjectOptions(selectedOptions, optionSet, evidenceTokens)
+        : normalizedDisplayName === "home style"
+          ? refineHomeStyleOption(selectedOptions, optionSet, evidenceTokens)
+          : selectedOptions
+
+    if (finalOptions.length === 0) continue
 
     const scaleIds = uniquePhrases(
-      selectedOptions
+      finalOptions
         .map((option) => (option.scale_id ? String(option.scale_id) : ""))
         .filter(Boolean)
     )
@@ -923,10 +1185,37 @@ function normalizeEtsyAttributeSelections(
     result.push({
       propertyId: optionSet.property_id,
       displayName: optionSet.display_name,
-      valueIds: selectedOptions.map((option) => option.value_id),
-      values: selectedOptions.map((option) => option.name),
+      valueIds: finalOptions.map((option) => option.value_id),
+      values: finalOptions.map((option) => option.name),
       scaleId,
     })
+  }
+
+  const subjectOptionSet = optionSets.find(
+    (optionSet) => normalizeAttributeName(optionSet.display_name) === "subject"
+  )
+  const hasSubject = result.some(
+    (selection) => normalizeAttributeName(selection.displayName) === "subject"
+  )
+
+  if (subjectOptionSet && !hasSubject) {
+    const finalOptions = fillSubjectOptions([], subjectOptionSet, evidenceTokens)
+    if (finalOptions.length > 0) {
+      const scaleIds = uniquePhrases(
+        finalOptions
+          .map((option) => (option.scale_id ? String(option.scale_id) : ""))
+          .filter(Boolean)
+      )
+      const scaleId = scaleIds.length === 1 ? Number(scaleIds[0]) : null
+
+      result.push({
+        propertyId: subjectOptionSet.property_id,
+        displayName: subjectOptionSet.display_name,
+        valueIds: finalOptions.map((option) => option.value_id),
+        values: finalOptions.map((option) => option.name),
+        scaleId,
+      })
+    }
   }
 
   return result
@@ -1204,10 +1493,10 @@ ETSY ATTRIBUTE STRATEGY
 - If etsy_attribute_options contains properties, choose values only from the exact option names provided for each property.
 - Never invent an Etsy attribute value and never return a value that is not listed in etsy_attribute_options.
 - Choose the best Primary color and Secondary color from the actual dominant/supporting colors in the artwork, not from mockup props.
-- Choose Home Style from the visual style and buyer decor intent of the artwork.
-- Choose Subject from what is actually represented in the artwork. Use up to the allowed maximum and prefer the most specific valid subjects.
+- Choose Home Style from the actual visual style, subject matter, and buyer decor intent of the artwork. Do not default to "Bohemian & eclectic"; use it only when the design is genuinely boho or eclectic. If the artwork clearly has beach, ocean, surf, palm, island, or tropical cues, prefer "Coastal & tropical" when available. If it is clean/simple, consider "Minimalist" or "Contemporary" when available. If it is rustic, vintage, farmhouse, folk, or primitive, choose the closest available style instead of bohemian.
+- Choose Subject from what is actually represented in the artwork. If Subject is available, select exactly 3 valid Subject values whenever Etsy allows 3. Pick the most specific subject first, then broader supporting subjects, then the closest meaningful fallback from the provided options. Never return fewer than 3 Subject values unless fewer than 3 options are provided.
 - Choose Room only when the property is included in etsy_attribute_options. For nursery_wall_art, Room is normally fixed in the draft and should not be generated.
-- Skip any attribute when none of the available options fit confidently.
+- Skip any attribute when none of the available options fit confidently, except Subject, which must still receive the closest 3 valid options when available.
 
 ALT TEXT STRATEGY
 - Analyze each mockup independently.
@@ -1351,7 +1640,15 @@ Return JSON in this exact shape:
     )
     const etsyAttributes = normalizeEtsyAttributeSelections(
       parsed.etsy_attributes,
-      etsyAttributeOptions
+      etsyAttributeOptions,
+      [
+        midjourneyPrompt,
+        title,
+        tags,
+        keywords5,
+        analysis,
+        titleComponents,
+      ]
     )
 
     const parsedMedia = Array.isArray(parsed.media) ? parsed.media : []
