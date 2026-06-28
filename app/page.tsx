@@ -1869,7 +1869,7 @@ export default function Page() {
         case "seo":
           setScaleSeoLoading(true);
           setScaleMessage(`Retrying SEO for ${job.folderName}...`);
-          await generateSeoForScaleJob(job);
+          await runScaleJobWithRateLimitRetry(job, "SEO", () => generateSeoForScaleJob(job));
           break;
         case "pdf":
           setScalePdfLoading(true);
@@ -1879,12 +1879,12 @@ export default function Page() {
         case "etsy":
           setScaleEtsyLoading(true);
           setScaleMessage(`Retrying Etsy sync for ${job.folderName}...`);
-          await syncEtsyForScaleJob(job);
+          await runScaleJobWithRateLimitRetry(job, "Etsy sync", () => syncEtsyForScaleJob(job));
           break;
         case "etsy_url":
           setScaleEtsyUrlLoading(true);
           setScaleMessage(`Retrying Etsy URL fetch for ${job.folderName}...`);
-          await fetchPublishedEtsyUrlForScaleJob(job);
+          await runScaleJobWithRateLimitRetry(job, "Etsy URL", () => fetchPublishedEtsyUrlForScaleJob(job));
           break;
         case "pinterest":
           setScalePinterestLoading(true);
@@ -2127,7 +2127,72 @@ export default function Page() {
     await Promise.all(runners);
   }
 
-    async function uploadScaleJob(job: ScaleJob) {
+  async function runWithPacedConcurrency<T>(
+    items: T[],
+    limit: number,
+    startDelayMs: number,
+    worker: (item: T) => Promise<void>
+  ) {
+    const queue = [...items];
+    let nextStart: Promise<void> = Promise.resolve();
+
+    const waitForTurn = async () => {
+      const turn = nextStart;
+      nextStart = nextStart.then(() => sleep(startDelayMs));
+      await turn;
+    };
+
+    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (queue.length > 0) {
+        const item = queue.shift();
+        if (!item) return;
+        await waitForTurn();
+        await worker(item);
+      }
+    });
+
+    await Promise.all(runners);
+  }
+
+  function getErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : String(error || "");
+  }
+
+  function isRateLimitError(error: unknown) {
+    return /429|rate.?limit|too many requests|quota|temporarily unavailable/i.test(
+      getErrorMessage(error)
+    );
+  }
+
+  async function runScaleJobWithRateLimitRetry(
+    job: ScaleJob,
+    label: string,
+    task: () => Promise<void>
+  ) {
+    const waits = [8000, 16000];
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt <= waits.length; attempt += 1) {
+      try {
+        await task();
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt >= waits.length || !isRateLimitError(error)) break;
+
+        updateScaleJob(job.id, (current) => ({
+          ...current,
+          stepLabel: `${label} waiting`,
+          errorMessage: `Rate limit detected. Retrying in ${Math.round(waits[attempt] / 1000)}s...`,
+        }));
+        await sleep(waits[attempt]);
+      }
+    }
+
+    throw lastError;
+  }
+
+  async function uploadScaleJob(job: ScaleJob) {
       const listingJobId = job.listingId || generateListingId();
       const {
         designCandidate,
@@ -2416,13 +2481,13 @@ export default function Page() {
     }
 
     setScaleSeoLoading(true);
-    setScaleMessage(`Generating SEO for ${eligible.length} listing jobs...`);
+    setScaleMessage(`Generating SEO for ${eligible.length} listing jobs with paced processing...`);
     let completedCount = 0;
     let failedCount = 0;
 
-    await runWithConcurrency(eligible, 3, async (job) => {
+    await runWithPacedConcurrency(eligible, 2, 1800, async (job) => {
       try {
-        await generateSeoForScaleJob(job);
+        await runScaleJobWithRateLimitRetry(job, "SEO", () => generateSeoForScaleJob(job));
         completedCount += 1;
       } catch (error: any) {
         failedCount += 1;
@@ -2615,13 +2680,13 @@ export default function Page() {
     }
 
     setScaleEtsyLoading(true);
-    setScaleMessage(`Syncing ${eligible.length} listing jobs to Etsy...`);
+    setScaleMessage(`Syncing ${eligible.length} listing jobs to Etsy with paced processing...`);
     let completedCount = 0;
     let failedCount = 0;
 
-    await runWithConcurrency(eligible, 2, async (job) => {
+    await runWithPacedConcurrency(eligible, 1, 2500, async (job) => {
       try {
-        await syncEtsyForScaleJob(job);
+        await runScaleJobWithRateLimitRetry(job, "Etsy sync", () => syncEtsyForScaleJob(job));
         completedCount += 1;
       } catch (error: any) {
         failedCount += 1;
@@ -2687,14 +2752,14 @@ export default function Page() {
     }
 
     setScaleEtsyUrlLoading(true);
-    setScaleMessage(`Fetching published Etsy URLs for ${eligible.length} listing jobs...`);
+    setScaleMessage(`Fetching published Etsy URLs for ${eligible.length} listing jobs with paced processing...`);
 
     let completedCount = 0;
     let failedCount = 0;
 
-    await runWithConcurrency(eligible, 3, async (job) => {
+    await runWithPacedConcurrency(eligible, 1, 1500, async (job) => {
       try {
-        await fetchPublishedEtsyUrlForScaleJob(job);
+        await runScaleJobWithRateLimitRetry(job, "Etsy URL", () => fetchPublishedEtsyUrlForScaleJob(job));
         completedCount += 1;
       } catch (error: any) {
         failedCount += 1;
@@ -3108,7 +3173,7 @@ export default function Page() {
     }
 
   function sleep(ms: number) {
-    return new Promise((resolve) => window.setTimeout(resolve, ms));
+    return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
   }
 
   async function retryAsync<T>(
