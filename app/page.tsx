@@ -22,6 +22,8 @@ import { CSS } from "@dnd-kit/utilities";
 import Image from "next/image";
 import {
   Copy,
+  Download,
+  Edit3,
   Eye,
   FolderOpen,
   Image as ImageIcon,
@@ -35,6 +37,9 @@ import {
   Layers3,
   LayoutDashboard,
   Menu,
+  Save,
+  Trash2,
+  Wand2,
 } from "lucide-react";
 
 type MediaItem = {
@@ -173,7 +178,7 @@ type EtsyAttributeInspectionResponse = {
   error?: string;
 };
 
-type AppSection = "prompt" | "single" | "batch";
+type AppSection = "prompt" | "image" | "single" | "batch";
 
 type PromptLabResult = {
   summary: string;
@@ -211,10 +216,46 @@ type PromptLabResult = {
   midjourneyBlock: string;
 };
 
+type ImageLabSize = "1024x1536" | "1536x1024" | "1024x1024";
+type ImageLabQuality = "medium" | "low" | "high";
+
+type ImageLabDraftImage = {
+  id: string;
+  prompt: string;
+  imageDataUrl: string;
+  model: string;
+  quality: ImageLabQuality;
+  size: ImageLabSize;
+  source?: "prompt_lab" | "manual" | "edit";
+  editInstruction?: string;
+  parentImageLabId?: string;
+  approvedItemId?: string;
+};
+
+type ImageLabLibraryItem = {
+  id: string;
+  productType: ProductType;
+  prompt: string;
+  source: "prompt_lab" | "manual" | "edit";
+  model: string;
+  quality: ImageLabQuality;
+  size: ImageLabSize;
+  status: "approved" | "used";
+  createdAt: string;
+  updatedAt: string;
+  notes: string;
+  editInstruction?: string;
+  parentImageLabId?: string;
+  imageKey: string;
+  metadataKey: string;
+  imageUrl: string;
+};
+
 const STORAGE_KEYS = {
   activeSection: "autolisty.activeSection",
   listingProductType: "autolisty.listingProductType",
   scaleProductType: "autolisty.scaleProductType",
+  imageLabProductType: "autolisty.imageLabProductType",
 } as const;
 
 const ICON_REV = "20260404";
@@ -224,11 +265,15 @@ function readStoredActiveSection(): AppSection {
   const value = window.localStorage.getItem(STORAGE_KEYS.activeSection);
   if (value === "batch") return "batch";
   if (value === "single") return "single";
+  if (value === "image") return "image";
   return "prompt";
 }
 
 function readStoredProductType(
-  key: (typeof STORAGE_KEYS)["listingProductType"] | (typeof STORAGE_KEYS)["scaleProductType"]
+  key:
+    | (typeof STORAGE_KEYS)["listingProductType"]
+    | (typeof STORAGE_KEYS)["scaleProductType"]
+    | (typeof STORAGE_KEYS)["imageLabProductType"]
 ): ProductType {
   if (typeof window === "undefined") return "frame_tv_art";
   const value = window.localStorage.getItem(key);
@@ -292,6 +337,7 @@ type ScaleJob = {
   files: ScaleImportedFile[];
   listingId?: string;
   midjourneyPrompt: string;
+  imageLabId?: string;
   counts: {
     design: number;
     mockups: number;
@@ -907,6 +953,24 @@ export default function Page() {
   const [promptLabProductType, setPromptLabProductType] = useState<ProductType>(() =>
     readStoredProductType(STORAGE_KEYS.listingProductType)
   );
+  const [imageLabProductType, setImageLabProductType] = useState<ProductType>(() =>
+    readStoredProductType(STORAGE_KEYS.imageLabProductType)
+  );
+  const [imageLabPrompts, setImageLabPrompts] = useState<string[]>(["", "", "", ""]);
+  const [imageLabQuality, setImageLabQuality] = useState<ImageLabQuality>("medium");
+  const [imageLabSize, setImageLabSize] = useState<ImageLabSize>("1024x1536");
+  const [imageLabSource, setImageLabSource] = useState<"prompt_lab" | "manual">("manual");
+  const [imageLabImages, setImageLabImages] = useState<ImageLabDraftImage[]>([]);
+  const [imageLabGenerating, setImageLabGenerating] = useState(false);
+  const [imageLabApprovingIds, setImageLabApprovingIds] = useState<string[]>([]);
+  const [imageLabEditingId, setImageLabEditingId] = useState<string | null>(null);
+  const [imageLabEditInstruction, setImageLabEditInstruction] = useState("");
+  const [imageLabMessage, setImageLabMessage] = useState<string | null>(null);
+  const [imageLabMessageTone, setImageLabMessageTone] = useState<"info" | "error">("info");
+  const [imageLabLibrary, setImageLabLibrary] = useState<ImageLabLibraryItem[]>([]);
+  const [imageLabLibraryLoading, setImageLabLibraryLoading] = useState(false);
+  const [imageLabLibraryFilter, setImageLabLibraryFilter] = useState<"approved" | "used" | "all">("approved");
+  const [scaleImageLabPickerJobId, setScaleImageLabPickerJobId] = useState<string | null>(null);
   const [productType, setProductType] = useState<ProductType>(() =>
     readStoredProductType(STORAGE_KEYS.listingProductType)
   );
@@ -1195,6 +1259,28 @@ export default function Page() {
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEYS.scaleProductType, scaleProductType);
   }, [scaleProductType]);
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEYS.imageLabProductType, imageLabProductType);
+  }, [imageLabProductType]);
+
+  useEffect(() => {
+    setImageLabSize(
+      imageLabProductType === "horizontal_wall_art" || imageLabProductType === "frame_tv_art"
+        ? "1536x1024"
+        : "1024x1536"
+    );
+  }, [imageLabProductType]);
+
+  useEffect(() => {
+    if (activeSection !== "image") return;
+    void loadImageLabLibrary(imageLabProductType, imageLabLibraryFilter);
+  }, [activeSection, imageLabProductType, imageLabLibraryFilter]);
+
+  useEffect(() => {
+    if (!scaleImageLabPickerJobId) return;
+    void loadImageLabLibrary(scaleProductType, "approved");
+  }, [scaleImageLabPickerJobId, scaleProductType]);
 
   useEffect(() => {
     if (!promptLabReferenceFile) {
@@ -1749,7 +1835,20 @@ export default function Page() {
     updateScaleJob(jobId, (job) => ({
       ...job,
       midjourneyPrompt: value,
+      imageLabId: undefined,
     }));
+  }
+
+  function applyImageLabPromptToScaleJob(jobId: string, item: ImageLabLibraryItem) {
+    updateScaleJob(jobId, (job) => ({
+      ...job,
+      midjourneyPrompt: item.prompt,
+      imageLabId: item.id,
+    }));
+    setScaleImageLabPickerJobId(null);
+    setScaleMessageTone("info");
+    setScaleMessage(`${item.id} prompt loaded into ${scaleJobs.find((job) => job.id === jobId)?.folderName || "Scale listing"}.`);
+    void markImageLabItemStatus(item, "used");
   }
 
   function setScaleJobDraftListingId(jobId: string, value: string) {
@@ -3041,6 +3140,266 @@ export default function Page() {
     setScalePinterestPublishing(false);
   }
 
+  function setImageLabPrompt(index: number, value: string) {
+    setImageLabPrompts((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+  }
+
+  function sendPromptLabToImageLab() {
+    if (!promptLabResult?.prompts?.length) return;
+    const prompts = [...promptLabResult.prompts.slice(0, 4)];
+    while (prompts.length < 4) prompts.push("");
+    setImageLabProductType(promptLabProductType);
+    setImageLabPrompts(prompts);
+    setImageLabSource("prompt_lab");
+    setImageLabImages([]);
+    setImageLabMessageTone("info");
+    setImageLabMessage("Prompt Lab prompts loaded into Image Lab.");
+    setActiveSection("image");
+  }
+
+  async function loadImageLabLibrary(
+    productTypeForLoad: ProductType = imageLabProductType,
+    status: "approved" | "used" | "all" = imageLabLibraryFilter
+  ) {
+    setImageLabLibraryLoading(true);
+    try {
+      const params = new URLSearchParams({ productType: productTypeForLoad });
+      if (status !== "all") params.set("status", status);
+      const res = await fetch(`/api/image-lab/library?${params.toString()}`);
+      const data: { items?: ImageLabLibraryItem[]; error?: string } = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to load Image Lab library.");
+      setImageLabLibrary(data.items || []);
+    } catch (error: any) {
+      setImageLabMessageTone("error");
+      setImageLabMessage(error?.message || "Failed to load Image Lab library.");
+    } finally {
+      setImageLabLibraryLoading(false);
+    }
+  }
+
+  async function generateImageLabImages() {
+    const prompts = imageLabPrompts.map((prompt) => prompt.trim()).filter(Boolean);
+    if (prompts.length === 0) {
+      setImageLabMessageTone("error");
+      setImageLabMessage("Add at least one prompt before generating.");
+      return;
+    }
+
+    setImageLabGenerating(true);
+    setImageLabMessageTone("info");
+    setImageLabMessage(`Generating ${prompts.length} Image Lab image${prompts.length === 1 ? "" : "s"}...`);
+
+    try {
+      const res = await fetch("/api/image-lab/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productType: imageLabProductType,
+          prompts,
+          quality: imageLabQuality,
+          size: imageLabSize,
+        }),
+      });
+      const data: { images?: ImageLabDraftImage[]; error?: string } = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to generate Image Lab images.");
+
+      setImageLabImages((data.images || []).map((item) => ({ ...item, source: imageLabSource })));
+      setImageLabMessageTone("info");
+      setImageLabMessage("Images generated. Approve only the designs you plan to use.");
+    } catch (error: any) {
+      setImageLabMessageTone("error");
+      setImageLabMessage(error?.message || "Failed to generate Image Lab images.");
+    } finally {
+      setImageLabGenerating(false);
+    }
+  }
+
+  async function approveImageLabDraft(image: ImageLabDraftImage) {
+    if (imageLabApprovingIds.includes(image.id) || image.approvedItemId) return;
+    setImageLabApprovingIds((prev) => [...prev, image.id]);
+    setImageLabMessageTone("info");
+    setImageLabMessage("Saving approved image to R2...");
+
+    try {
+      const res = await fetch("/api/image-lab/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productType: imageLabProductType,
+          prompt: image.prompt,
+          imageDataUrl: image.imageDataUrl,
+          model: image.model,
+          quality: image.quality,
+          size: image.size,
+          source: image.source || imageLabSource,
+          editInstruction: image.editInstruction,
+          parentImageLabId: image.parentImageLabId,
+        }),
+      });
+      const data: { item?: ImageLabLibraryItem; error?: string } = await res.json();
+      if (!res.ok || !data.item) throw new Error(data?.error || "Failed to save approved image.");
+
+      setImageLabImages((prev) =>
+        prev.map((item) =>
+          item.id === image.id ? { ...item, approvedItemId: data.item!.id } : item
+        )
+      );
+      setImageLabMessageTone("info");
+      setImageLabMessage(`${data.item.id} saved to Image Lab library.`);
+      await loadImageLabLibrary(imageLabProductType, imageLabLibraryFilter);
+    } catch (error: any) {
+      setImageLabMessageTone("error");
+      setImageLabMessage(error?.message || "Failed to approve Image Lab image.");
+    } finally {
+      setImageLabApprovingIds((prev) => prev.filter((id) => id !== image.id));
+    }
+  }
+
+  function rejectImageLabDraft(imageId: string) {
+    setImageLabImages((prev) => prev.filter((item) => item.id !== imageId));
+  }
+
+  async function editImageLabDraft(image: ImageLabDraftImage) {
+    const instruction = imageLabEditInstruction.trim();
+    if (!instruction) {
+      setImageLabMessageTone("error");
+      setImageLabMessage("Write the edit instruction first.");
+      return;
+    }
+
+    setImageLabEditingId(image.id);
+    setImageLabMessageTone("info");
+    setImageLabMessage("Editing selected image...");
+
+    try {
+      const res = await fetch("/api/image-lab/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productType: imageLabProductType,
+          imageDataUrl: image.imageDataUrl,
+          prompt: image.prompt,
+          instruction,
+          quality: imageLabQuality,
+          size: image.size,
+          parentImageLabId: image.approvedItemId,
+        }),
+      });
+      const data: { image?: ImageLabDraftImage; error?: string } = await res.json();
+      if (!res.ok || !data.image) throw new Error(data?.error || "Failed to edit image.");
+
+      setImageLabImages((prev) => [{ ...data.image!, source: "edit" }, ...prev]);
+      setImageLabEditInstruction("");
+      setImageLabMessageTone("info");
+      setImageLabMessage("Edited version added to the review grid.");
+    } catch (error: any) {
+      setImageLabMessageTone("error");
+      setImageLabMessage(error?.message || "Failed to edit Image Lab image.");
+    } finally {
+      setImageLabEditingId(null);
+    }
+  }
+
+  async function editImageLabLibraryItem(item: ImageLabLibraryItem) {
+    const instruction = imageLabEditInstruction.trim();
+    if (!instruction) {
+      setImageLabMessageTone("error");
+      setImageLabMessage("Write the edit instruction first.");
+      return;
+    }
+
+    setImageLabEditingId(item.id);
+    setImageLabMessageTone("info");
+    setImageLabMessage(`Editing ${item.id}...`);
+
+    try {
+      const res = await fetch("/api/image-lab/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productType: item.productType,
+          imageUrl: item.imageUrl,
+          prompt: item.prompt,
+          instruction,
+          quality: item.quality,
+          size: item.size,
+          parentImageLabId: item.id,
+        }),
+      });
+      const data: { image?: ImageLabDraftImage; error?: string } = await res.json();
+      if (!res.ok || !data.image) throw new Error(data?.error || "Failed to edit image.");
+
+      setImageLabImages((prev) => [{ ...data.image!, source: "edit" }, ...prev]);
+      setImageLabProductType(item.productType);
+      setImageLabEditInstruction("");
+      setActiveSection("image");
+      setImageLabMessageTone("info");
+      setImageLabMessage("Edited version added to the review grid. Approve it if it is ready for Etsy.");
+    } catch (error: any) {
+      setImageLabMessageTone("error");
+      setImageLabMessage(error?.message || "Failed to edit Image Lab image.");
+    } finally {
+      setImageLabEditingId(null);
+    }
+  }
+
+  async function markImageLabItemStatus(item: ImageLabLibraryItem, status: "approved" | "used") {
+    try {
+      const res = await fetch("/api/image-lab/library", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          productType: item.productType,
+          status,
+        }),
+      });
+      const data: { item?: ImageLabLibraryItem; error?: string } = await res.json();
+      if (!res.ok || !data.item) throw new Error(data?.error || "Failed to update Image Lab item.");
+      setImageLabLibrary((prev) =>
+        prev
+          .map((candidate) => (candidate.id === item.id ? data.item! : candidate))
+          .filter((candidate) => imageLabLibraryFilter === "all" || candidate.status === imageLabLibraryFilter)
+      );
+    } catch (error: any) {
+      setImageLabMessageTone("error");
+      setImageLabMessage(error?.message || "Failed to update Image Lab item.");
+    }
+  }
+
+  async function deleteImageLabLibraryItem(item: ImageLabLibraryItem) {
+    setImageLabMessageTone("info");
+    setImageLabMessage(`Deleting ${item.id} from Image Lab...`);
+    try {
+      const res = await fetch("/api/image-lab/library", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          productType: item.productType,
+        }),
+      });
+      const data: { error?: string } = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to delete Image Lab item.");
+      setImageLabLibrary((prev) => prev.filter((candidate) => candidate.id !== item.id));
+      setImageLabMessageTone("info");
+      setImageLabMessage(`${item.id} deleted from Image Lab.`);
+    } catch (error: any) {
+      setImageLabMessageTone("error");
+      setImageLabMessage(error?.message || "Failed to delete Image Lab item.");
+    }
+  }
+
+  async function copyText(value: string, label = "Copied") {
+    await navigator.clipboard.writeText(value);
+    setImageLabMessageTone("info");
+    setImageLabMessage(label);
+  }
+
   function resetAll() {
     clearDesign();
     clearListingMedia();
@@ -4154,6 +4513,8 @@ export default function Page() {
             <div className="text-sm font-medium text-neutral-100">
               {activeSection === "prompt"
                 ? "Prompt Lab"
+                : activeSection === "image"
+                  ? "Image Lab"
                 : activeSection === "single"
                   ? "Listing"
                   : "Scale"}
@@ -4200,6 +4561,16 @@ export default function Page() {
                       setWorkspaceOpen(false);
                     }}
                     icon={<Sparkles size={18} />}
+                  />
+                  <SidebarNavItem
+                    title="Image Lab"
+                    subtitle="Generate, edit, approve, and preserve final design prompts."
+                    active={activeSection === "image"}
+                    onClick={() => {
+                      setActiveSection("image");
+                      setWorkspaceOpen(false);
+                    }}
+                    icon={<Wand2 size={18} />}
                   />
                   <SidebarNavItem
                     title="Listing"
@@ -4466,6 +4837,14 @@ export default function Page() {
                           Target: 4 prompts
                         </div>
                       </div>
+                      {promptLabResult?.prompts?.length ? (
+                        <div className="mt-4 flex justify-end">
+                          <Button variant="primary" onClick={sendPromptLabToImageLab}>
+                            <Wand2 size={16} />
+                            Send to Image Lab
+                          </Button>
+                        </div>
+                      ) : null}
 
                       <div className="mt-5 grid gap-4 lg:grid-cols-2">
                         {(promptLabResult?.prompts || Array.from({ length: 4 }).map(() => "")).map((prompt, index) => {
@@ -4543,6 +4922,386 @@ export default function Page() {
                     </div>
                   </div>
                 </div>
+              </Card>
+            </div>
+          ) : activeSection === "image" ? (
+            <div className="space-y-6">
+              <Card
+                title="Image Lab"
+                accent
+                right={
+                  <div className="flex flex-wrap items-center gap-3">
+                    <select
+                      value={imageLabProductType}
+                      onChange={(e) => {
+                        setImageLabProductType(e.target.value as ProductType);
+                        setImageLabMessage(null);
+                      }}
+                      disabled={imageLabGenerating}
+                      className="rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                    >
+                      {PRODUCT_OPTIONS.map((product) => (
+                        <option key={product.value} value={product.value}>
+                          {product.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={imageLabQuality}
+                      onChange={(e) => setImageLabQuality(e.target.value as ImageLabQuality)}
+                      disabled={imageLabGenerating}
+                      className="rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                    >
+                      <option value="medium">Medium quality</option>
+                      <option value="low">Low quality</option>
+                      <option value="high">High quality</option>
+                    </select>
+                    <select
+                      value={imageLabSize}
+                      onChange={(e) => setImageLabSize(e.target.value as ImageLabSize)}
+                      disabled={imageLabGenerating}
+                      className="rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                    >
+                      <option value="1024x1536">1024 x 1536</option>
+                      <option value="1536x1024">1536 x 1024</option>
+                      <option value="1024x1024">1024 x 1024</option>
+                    </select>
+                    <Button
+                      variant="primary"
+                      onClick={() => void generateImageLabImages()}
+                      disabled={imageLabGenerating}
+                    >
+                      {imageLabGenerating ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} />}
+                      {imageLabGenerating ? "Generating..." : "Generate"}
+                    </Button>
+                  </div>
+                }
+              >
+                <div className="grid gap-6 xl:grid-cols-[440px_minmax(0,1fr)]">
+                  <div className="space-y-5">
+                    <div className="rounded-[28px] border border-[#eeba2b]/15 bg-neutral-950/75 p-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
+                            Prompt Queue
+                          </div>
+                          <div className="mt-2 text-sm leading-relaxed text-neutral-400">
+                            Generate up to four images. Only approved designs are stored in R2.
+                          </div>
+                        </div>
+                        <div className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1 text-xs text-neutral-400">
+                          {imageLabSource === "prompt_lab" ? "Prompt Lab" : "Manual"}
+                        </div>
+                      </div>
+
+                      <div className="mt-5 space-y-4">
+                        {imageLabPrompts.map((prompt, index) => (
+                          <div key={`image-lab-prompt-${index}`} className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                                Prompt {index + 1}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setImageLabPrompt(index, "")}
+                                className="text-xs text-neutral-500 transition hover:text-neutral-200"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                            <textarea
+                              value={prompt}
+                              onChange={(e) => {
+                                setImageLabSource("manual");
+                                setImageLabPrompt(index, e.target.value);
+                              }}
+                              rows={4}
+                              placeholder="Paste or write an image prompt."
+                              disabled={imageLabGenerating}
+                              className="w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm leading-relaxed text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-[28px] border border-white/8 bg-neutral-950/75 p-5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
+                        Basic Edit
+                      </div>
+                      <textarea
+                        value={imageLabEditInstruction}
+                        onChange={(e) => setImageLabEditInstruction(e.target.value)}
+                        rows={4}
+                        placeholder='Example: Correct the text so it says exactly "DREAM BIG LITTLE ONE" while keeping the same style.'
+                        className="mt-4 w-full rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm leading-relaxed text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                      />
+                      <p className="mt-3 text-xs leading-relaxed text-neutral-500">
+                        Select Edit on any generated or approved image. The edited result returns to the review grid and is saved only if you approve it.
+                      </p>
+                    </div>
+
+                    {imageLabMessage ? (
+                      <div
+                        className={cn(
+                          "rounded-[24px] border p-4 text-sm",
+                          imageLabMessageTone === "error"
+                            ? "border-red-500/20 bg-red-500/10 text-red-200"
+                            : "border-[#eeba2b]/20 bg-[#eeba2b]/10 text-[#f1cc61]"
+                        )}
+                      >
+                        {imageLabMessage}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="rounded-[28px] border border-white/8 bg-neutral-950/75 p-5">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
+                            Review Generated Images
+                          </div>
+                          <div className="mt-2 text-sm text-neutral-400">
+                            Approve every image you want to keep for Etsy. Reject deletes it from this temporary review.
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setImageLabImages([]);
+                            setImageLabMessage(null);
+                          }}
+                          disabled={imageLabImages.length === 0 || imageLabGenerating}
+                        >
+                          <X size={16} />
+                          Clear review
+                        </Button>
+                      </div>
+
+                      {imageLabImages.length ? (
+                        <div className="mt-5 grid gap-4 md:grid-cols-2">
+                          {imageLabImages.map((image) => (
+                            <div
+                              key={image.id}
+                              className="overflow-hidden rounded-[26px] border border-neutral-800 bg-neutral-900/55"
+                            >
+                              <div className="aspect-[2/3] bg-neutral-950">
+                                <img
+                                  src={image.imageDataUrl}
+                                  alt="Generated Image Lab artwork"
+                                  className="h-full w-full object-contain"
+                                />
+                              </div>
+                              <div className="space-y-4 p-4">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="rounded-full border border-neutral-800 bg-neutral-950 px-3 py-1 text-xs text-neutral-400">
+                                    {image.size}
+                                  </span>
+                                  <span className="rounded-full border border-neutral-800 bg-neutral-950 px-3 py-1 text-xs text-neutral-400">
+                                    {image.quality}
+                                  </span>
+                                  {image.approvedItemId ? (
+                                    <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300">
+                                      {image.approvedItemId}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="line-clamp-4 rounded-2xl border border-white/8 bg-neutral-950/60 p-3 text-xs leading-relaxed text-neutral-400">
+                                  {image.editInstruction ? (
+                                    <>
+                                      <span className="text-neutral-500">Edit:</span> {image.editInstruction}
+                                      <br />
+                                    </>
+                                  ) : null}
+                                  {image.prompt}
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <Button
+                                    variant={image.approvedItemId ? "success" : "primary"}
+                                    onClick={() => void approveImageLabDraft(image)}
+                                    disabled={!!image.approvedItemId || imageLabApprovingIds.includes(image.id)}
+                                  >
+                                    {imageLabApprovingIds.includes(image.id) ? (
+                                      <Loader2 className="animate-spin" size={16} />
+                                    ) : (
+                                      <Save size={16} />
+                                    )}
+                                    {image.approvedItemId ? "Saved" : "Approve"}
+                                  </Button>
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() => void editImageLabDraft(image)}
+                                    disabled={imageLabEditingId === image.id}
+                                  >
+                                    {imageLabEditingId === image.id ? (
+                                      <Loader2 className="animate-spin" size={16} />
+                                    ) : (
+                                      <Edit3 size={16} />
+                                    )}
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    onClick={() => void copyText(image.prompt, "Prompt copied.")}
+                                  >
+                                    <Copy size={16} />
+                                    Prompt
+                                  </Button>
+                                  <Button variant="ghost" onClick={() => rejectImageLabDraft(image.id)}>
+                                    <Trash2 size={16} />
+                                    Reject
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-5 flex min-h-[360px] items-center justify-center rounded-[24px] border border-dashed border-[#eeba2b]/15 bg-neutral-900/45 p-8 text-center">
+                          <div className="max-w-sm">
+                            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 text-[#f1cc61]">
+                              <Wand2 size={28} />
+                            </div>
+                            <div className="mt-4 text-base font-semibold text-neutral-100">
+                              Generate your first Image Lab set
+                            </div>
+                            <p className="mt-2 text-sm leading-relaxed text-neutral-400">
+                              Results appear here temporarily. Approving a design stores the image and prompt permanently in R2.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+
+              <Card
+                title="Approved Library"
+                right={
+                  <div className="flex flex-wrap items-center gap-3">
+                    <select
+                      value={imageLabLibraryFilter}
+                      onChange={(e) => setImageLabLibraryFilter(e.target.value as "approved" | "used" | "all")}
+                      className="rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
+                    >
+                      <option value="approved">Unused approved</option>
+                      <option value="used">Used</option>
+                      <option value="all">All approved</option>
+                    </select>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void loadImageLabLibrary(imageLabProductType, imageLabLibraryFilter)}
+                      disabled={imageLabLibraryLoading}
+                    >
+                      {imageLabLibraryLoading ? <Loader2 className="animate-spin" size={16} /> : <Eye size={16} />}
+                      Refresh
+                    </Button>
+                  </div>
+                }
+              >
+                {imageLabLibrary.length ? (
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {imageLabLibrary.map((item) => (
+                      <div
+                        key={item.id}
+                        className="overflow-hidden rounded-[26px] border border-neutral-800 bg-neutral-900/55"
+                      >
+                        <div className="aspect-[2/3] bg-neutral-950">
+                          <img
+                            src={item.imageUrl}
+                            alt={`Image Lab approved artwork ${item.id}`}
+                            className="h-full w-full object-contain"
+                          />
+                        </div>
+                        <div className="space-y-3 p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-neutral-100">{item.id}</div>
+                              <div className="mt-1 text-xs text-neutral-500">
+                                {getProductOption(item.productType).label}
+                              </div>
+                            </div>
+                            <span
+                              className={cn(
+                                "rounded-full border px-3 py-1 text-xs",
+                                item.status === "used"
+                                  ? "border-neutral-700 bg-neutral-800 text-neutral-400"
+                                  : "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
+                              )}
+                            >
+                              {item.status === "used" ? "Used" : "Ready"}
+                            </span>
+                          </div>
+                          <div className="line-clamp-3 rounded-2xl border border-white/8 bg-neutral-950/60 p-3 text-xs leading-relaxed text-neutral-400">
+                            {item.prompt}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Button
+                              variant="secondary"
+                              onClick={() => void copyText(item.prompt, `${item.id} prompt copied.`)}
+                            >
+                              <Copy size={16} />
+                              Prompt
+                            </Button>
+                            <a
+                              href={item.imageUrl}
+                              download={`${item.id}.png`}
+                              className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#eeba2b]/20 bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-neutral-100 transition-all hover:border-[#eeba2b]/40 hover:bg-neutral-800 active:scale-[0.99]"
+                            >
+                              <Download size={16} />
+                              Image
+                            </a>
+                            <Button
+                              variant="ghost"
+                              onClick={() => void editImageLabLibraryItem(item)}
+                              disabled={imageLabEditingId === item.id}
+                            >
+                              {imageLabEditingId === item.id ? (
+                                <Loader2 className="animate-spin" size={16} />
+                              ) : (
+                                <Edit3 size={16} />
+                              )}
+                              Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              onClick={() =>
+                                void markImageLabItemStatus(
+                                  item,
+                                  item.status === "used" ? "approved" : "used"
+                                )
+                              }
+                            >
+                              {item.status === "used" ? "Reuse" : "Used"}
+                            </Button>
+                            <div className="col-span-2">
+                              <Button variant="ghost" onClick={() => void deleteImageLabLibraryItem(item)}>
+                                <Trash2 size={16} />
+                                Delete from R2
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex min-h-[240px] items-center justify-center rounded-[24px] border border-dashed border-neutral-800 bg-neutral-900/45 p-8 text-center">
+                    <div className="max-w-sm">
+                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-3xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+                        <ImageIcon size={24} />
+                      </div>
+                      <div className="mt-4 text-base font-semibold text-neutral-100">
+                        No approved images yet
+                      </div>
+                      <p className="mt-2 text-sm leading-relaxed text-neutral-400">
+                        Approved images saved to R2 will appear here as a visual prompt library.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </Card>
             </div>
           ) : activeSection === "single" ? (
@@ -6207,8 +6966,32 @@ export default function Page() {
                                 </div>
 
                                 <div className="mt-4 space-y-2">
-                                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
-                                    Midjourney prompt
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+                                      Midjourney prompt
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      {job.imageLabId ? (
+                                        <span className="rounded-full border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-3 py-1 text-xs font-semibold text-[#f1cc61]">
+                                          {job.imageLabId}
+                                        </span>
+                                      ) : null}
+                                      <button
+                                        type="button"
+                                        onClick={() => setScaleImageLabPickerJobId(job.id)}
+                                        disabled={
+                                          scaleUploading ||
+                                          scaleSeoLoading ||
+                                          scalePdfLoading ||
+                                          scaleEtsyLoading ||
+                                          scalePinterestLoading ||
+                                          scalePinterestPublishing
+                                        }
+                                        className="rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs font-semibold text-neutral-300 transition hover:border-[#eeba2b]/30 hover:text-[#f1cc61] disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        Load from Image Lab
+                                      </button>
+                                    </div>
                                   </div>
                                   <textarea
                                     value={job.midjourneyPrompt}
@@ -6523,6 +7306,94 @@ export default function Page() {
                     )}
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {scaleImageLabPickerJobId ? (
+          <div className="fixed inset-0 z-50">
+            <button
+              type="button"
+              aria-label="Close Image Lab picker"
+              className="absolute inset-0 bg-black/70 backdrop-blur-[2px]"
+              onClick={() => setScaleImageLabPickerJobId(null)}
+            />
+            <div className="absolute inset-x-4 top-6 mx-auto max-h-[calc(100vh-3rem)] max-w-6xl overflow-hidden rounded-[28px] border border-[#eeba2b]/20 bg-[#0b0f14]/98 shadow-[0_32px_90px_rgba(0,0,0,0.55)] backdrop-blur sm:inset-x-6">
+              <div className="flex flex-col gap-4 border-b border-white/8 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
+                    Load From Image Lab
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-neutral-100">
+                    {getProductOption(scaleProductType).label}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="secondary"
+                    onClick={() => void loadImageLabLibrary(scaleProductType, "approved")}
+                    disabled={imageLabLibraryLoading}
+                  >
+                    {imageLabLibraryLoading ? <Loader2 className="animate-spin" size={16} /> : <Eye size={16} />}
+                    Refresh
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setScaleImageLabPickerJobId(null)}
+                    className="rounded-2xl border border-neutral-800 bg-neutral-950 p-2 text-neutral-300 transition hover:bg-neutral-900"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-[calc(100vh-8rem)] overflow-y-auto p-5 sm:p-6">
+                {imageLabLibrary.length ? (
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {imageLabLibrary.map((item) => (
+                      <button
+                        key={`scale-picker-${item.id}`}
+                        type="button"
+                        onClick={() => applyImageLabPromptToScaleJob(scaleImageLabPickerJobId, item)}
+                        className="group overflow-hidden rounded-[26px] border border-neutral-800 bg-neutral-900/55 text-left transition hover:border-[#eeba2b]/35 hover:bg-neutral-900"
+                      >
+                        <div className="aspect-[2/3] bg-neutral-950">
+                          <img
+                            src={item.imageUrl}
+                            alt={`Image Lab ${item.id}`}
+                            className="h-full w-full object-contain"
+                          />
+                        </div>
+                        <div className="space-y-3 p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="truncate text-sm font-semibold text-neutral-100">{item.id}</div>
+                            <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300">
+                              Select
+                            </span>
+                          </div>
+                          <div className="line-clamp-3 rounded-2xl border border-white/8 bg-neutral-950/60 p-3 text-xs leading-relaxed text-neutral-400 group-hover:text-neutral-300">
+                            {item.prompt}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex min-h-[360px] items-center justify-center rounded-[24px] border border-dashed border-[#eeba2b]/15 bg-neutral-900/45 p-8 text-center">
+                    <div className="max-w-sm">
+                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 text-[#f1cc61]">
+                        <ImageIcon size={28} />
+                      </div>
+                      <div className="mt-4 text-base font-semibold text-neutral-100">
+                        No unused approved images for this product
+                      </div>
+                      <p className="mt-2 text-sm leading-relaxed text-neutral-400">
+                        Approve designs in Image Lab first, then return here to select the exact visual prompt for this Scale listing.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
