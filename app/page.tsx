@@ -8,6 +8,7 @@ import {
   getProductOption,
   isRatioWallArtProduct,
   normalizeProductType,
+  PROMPT_LAB_PRODUCT_OPTIONS,
   PRODUCT_OPTIONS,
   ProductType,
 } from "@/lib/products";
@@ -204,6 +205,26 @@ type PromptLabResult = {
   variationBoundaries: string;
   styleBrief: string;
   promptPrinciples: string[];
+  pngStrategy?: {
+    primaryNiche: string;
+    targetBuyer: string;
+    trendSynthesis: string;
+    sharedSignals: string[];
+    textStrategy: string;
+    productionStrategy: string;
+    originalityGuardrails: string[];
+    compatibleNicheExpansions: string[];
+  };
+  referenceFindings?: Array<{
+    referenceIndex: number;
+    mainSubject: string;
+    visibleText: string;
+    messageMechanism: string;
+    composition: string;
+    styleAndFinish: string;
+    commercialSignal: string;
+    avoidCopying: string;
+  }>;
   promptDetails?: Array<{
     role: string;
     prompt: string;
@@ -253,6 +274,7 @@ type ImageLabLibraryItem = {
 
 const STORAGE_KEYS = {
   activeSection: "autolisty.activeSection",
+  promptLabProductType: "autolisty.promptLabProductType",
   listingProductType: "autolisty.listingProductType",
   scaleProductType: "autolisty.scaleProductType",
   imageLabProductType: "autolisty.imageLabProductType",
@@ -271,6 +293,7 @@ function readStoredActiveSection(): AppSection {
 
 function readStoredProductType(
   key:
+    | (typeof STORAGE_KEYS)["promptLabProductType"]
     | (typeof STORAGE_KEYS)["listingProductType"]
     | (typeof STORAGE_KEYS)["scaleProductType"]
     | (typeof STORAGE_KEYS)["imageLabProductType"]
@@ -945,13 +968,13 @@ export default function Page() {
   const promptLabInputRef = useRef<HTMLInputElement | null>(null);
   const [activeSection, setActiveSection] = useState<AppSection>(readStoredActiveSection);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [promptLabReferenceFile, setPromptLabReferenceFile] = useState<File | null>(null);
-  const [promptLabReferencePreview, setPromptLabReferencePreview] = useState<string | null>(null);
+  const [promptLabReferenceFiles, setPromptLabReferenceFiles] = useState<File[]>([]);
+  const [promptLabReferencePreviews, setPromptLabReferencePreviews] = useState<string[]>([]);
   const [promptLabLoading, setPromptLabLoading] = useState(false);
   const [promptLabError, setPromptLabError] = useState<string | null>(null);
   const [promptLabResult, setPromptLabResult] = useState<PromptLabResult | null>(null);
   const [promptLabProductType, setPromptLabProductType] = useState<ProductType>(() =>
-    readStoredProductType(STORAGE_KEYS.listingProductType)
+    readStoredProductType(STORAGE_KEYS.promptLabProductType)
   );
   const [imageLabProductType, setImageLabProductType] = useState<ProductType>(() =>
     readStoredProductType(STORAGE_KEYS.imageLabProductType)
@@ -1253,6 +1276,10 @@ export default function Page() {
   }, [activeSection]);
 
   useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEYS.promptLabProductType, promptLabProductType);
+  }, [promptLabProductType]);
+
+  useEffect(() => {
     window.localStorage.setItem(STORAGE_KEYS.listingProductType, productType);
   }, [productType]);
 
@@ -1283,15 +1310,10 @@ export default function Page() {
   }, [scaleImageLabPickerJobId, scaleProductType]);
 
   useEffect(() => {
-    if (!promptLabReferenceFile) {
-      setPromptLabReferencePreview(null);
-      return;
-    }
-
-    const nextUrl = URL.createObjectURL(promptLabReferenceFile);
-    setPromptLabReferencePreview(nextUrl);
-    return () => URL.revokeObjectURL(nextUrl);
-  }, [promptLabReferenceFile]);
+    const nextUrls = promptLabReferenceFiles.map((file) => URL.createObjectURL(file));
+    setPromptLabReferencePreviews(nextUrls);
+    return () => nextUrls.forEach((url) => URL.revokeObjectURL(url));
+  }, [promptLabReferenceFiles]);
 
   useEffect(() => {
     if (!scaleSeoModalJob) return;
@@ -1362,13 +1384,14 @@ export default function Page() {
       event.preventDefault();
       event.stopPropagation();
 
-      const file = Array.from(event.dataTransfer?.files || []).find((candidate) =>
-        candidate.type.startsWith("image/")
-      ) || null;
+      const maximumReferences = promptLabProductType === "png_designs" ? 3 : 1;
+      const files = Array.from(event.dataTransfer?.files || [])
+        .filter((candidate) => candidate.type.startsWith("image/"))
+        .slice(0, maximumReferences);
 
-      if (!file) return;
+      if (!files.length) return;
 
-      setPromptLabReferenceFile(file);
+      setPromptLabReferenceFiles(files);
       setPromptLabError(null);
       setPromptLabResult(null);
     }
@@ -1380,7 +1403,7 @@ export default function Page() {
       window.removeEventListener("dragover", handleDragOver);
       window.removeEventListener("drop", handleDrop);
     };
-  }, [activeSection]);
+  }, [activeSection, promptLabProductType]);
 
   function ensureListingId() {
     if (listingIdRef.current) return listingIdRef.current;
@@ -3149,7 +3172,7 @@ export default function Page() {
   }
 
   function sendPromptLabToImageLab() {
-    if (!promptLabResult?.prompts?.length) return;
+    if (promptLabProductType === "png_designs" || !promptLabResult?.prompts?.length) return;
     const prompts = [...promptLabResult.prompts.slice(0, 4)];
     while (prompts.length < 4) prompts.push("");
     setImageLabProductType(promptLabProductType);
@@ -3427,9 +3450,39 @@ export default function Page() {
     setScaleProductType(nextProductType);
   }
 
+  function selectPromptLabReferenceFiles(files: File[], append = false) {
+    const images = files.filter((file) => file.type.startsWith("image/"));
+    if (!images.length) return;
+
+    const maximumReferences = promptLabProductType === "png_designs" ? 3 : 1;
+    setPromptLabReferenceFiles((current) => {
+      const candidates = append && maximumReferences > 1 ? [...current, ...images] : images;
+      const unique = candidates.filter(
+        (file, index, all) =>
+          all.findIndex(
+            (candidate) =>
+              candidate.name === file.name &&
+              candidate.size === file.size &&
+              candidate.lastModified === file.lastModified
+          ) === index
+      );
+      return unique.slice(0, maximumReferences);
+    });
+    setPromptLabError(null);
+    setPromptLabResult(null);
+  }
+
+  function handlePromptLabProductTypeChange(nextProductType: ProductType) {
+    if (nextProductType === promptLabProductType) return;
+    setPromptLabProductType(nextProductType);
+    setPromptLabReferenceFiles((current) => current.slice(0, nextProductType === "png_designs" ? 3 : 1));
+    setPromptLabResult(null);
+    setPromptLabError(null);
+  }
+
   async function analyzePromptLabReference() {
-    if (!promptLabReferenceFile) {
-      setPromptLabError("Upload a reference image first.");
+    if (!promptLabReferenceFiles.length) {
+      setPromptLabError("Upload at least one reference image first.");
       return;
     }
 
@@ -3439,7 +3492,7 @@ export default function Page() {
 
     try {
       const formData = new FormData();
-      formData.append("file", promptLabReferenceFile);
+      promptLabReferenceFiles.forEach((file) => formData.append("files", file));
       formData.append("productType", promptLabProductType);
 
       const res = await fetch("/api/prompt-lab", {
@@ -4627,31 +4680,25 @@ export default function Page() {
                 title="Prompt Lab"
                 accent
                 right={
-                  <div className="flex items-center gap-3">
+                  <div className="flex max-w-full flex-wrap items-center justify-end gap-3">
                     <input
                       ref={promptLabInputRef}
                       type="file"
                       accept="image/*"
+                      multiple={promptLabProductType === "png_designs"}
                       className="hidden"
                       onChange={(e) => {
-                        const file = e.target.files?.[0] || null;
-                        setPromptLabReferenceFile(file);
-                        setPromptLabError(null);
-                        setPromptLabResult(null);
+                        selectPromptLabReferenceFiles(Array.from(e.target.files || []), true);
                         e.currentTarget.value = "";
-                        }}
+                      }}
                       />
                     <select
                       value={promptLabProductType}
-                      onChange={(e) => {
-                        setPromptLabProductType(e.target.value as ProductType);
-                        setPromptLabResult(null);
-                        setPromptLabError(null);
-                      }}
+                      onChange={(e) => handlePromptLabProductTypeChange(e.target.value as ProductType)}
                       disabled={promptLabLoading}
                       className="rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-100 outline-none transition focus:border-[#eeba2b]/50 focus:ring-1 focus:ring-[#eeba2b]/30"
                     >
-                      {PRODUCT_OPTIONS.map((product) => (
+                      {PROMPT_LAB_PRODUCT_OPTIONS.map((product) => (
                         <option key={product.value} value={product.value}>
                           {product.label}
                         </option>
@@ -4662,24 +4709,28 @@ export default function Page() {
                       onClick={() => promptLabInputRef.current?.click()}
                     >
                       <Upload size={16} />
-                      Upload Reference
+                      {promptLabProductType === "png_designs" ? "Add References" : "Upload Reference"}
                     </Button>
                     <Button
                       variant={promptLabResult ? "success" : "secondary"}
                       onClick={() => void analyzePromptLabReference()}
-                      disabled={!promptLabReferenceFile || promptLabLoading}
+                      disabled={!promptLabReferenceFiles.length || promptLabLoading}
                     >
                       {promptLabLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-                      {promptLabLoading ? "Analyzing..." : "Analyze Reference"}
+                      {promptLabLoading
+                        ? "Analyzing..."
+                        : promptLabReferenceFiles.length > 1
+                          ? "Analyze References"
+                          : "Analyze Reference"}
                     </Button>
                     <Button
                       variant="ghost"
                       onClick={() => {
-                        setPromptLabReferenceFile(null);
+                        setPromptLabReferenceFiles([]);
                         setPromptLabError(null);
                         setPromptLabResult(null);
                       }}
-                      disabled={!promptLabReferenceFile && !promptLabResult && !promptLabError}
+                      disabled={!promptLabReferenceFiles.length && !promptLabResult && !promptLabError}
                     >
                       <X size={16} />
                       Reset
@@ -4696,39 +4747,76 @@ export default function Page() {
                   onDrop={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    const file = Array.from(e.dataTransfer.files || []).find((candidate) =>
-                      candidate.type.startsWith("image/")
-                    ) || null;
-
-                    if (!file) return;
-
-                    setPromptLabReferenceFile(file);
-                    setPromptLabError(null);
-                    setPromptLabResult(null);
+                    selectPromptLabReferenceFiles(Array.from(e.dataTransfer.files || []));
                   }}
                 >
                   <div className="space-y-6">
                     <div className="rounded-[28px] border border-[#eeba2b]/15 bg-neutral-950/75 p-5">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
-                        Reference
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
+                          {promptLabProductType === "png_designs" ? "Trend References" : "Reference"}
+                        </div>
+                        <div className="text-xs text-neutral-500">
+                          {promptLabReferenceFiles.length}/{promptLabProductType === "png_designs" ? 3 : 1}
+                        </div>
                       </div>
                       <div className="mt-4 flex min-h-[460px] items-center justify-center rounded-[24px] border border-dashed border-[#eeba2b]/20 bg-neutral-900/55 p-5">
-                        {promptLabReferencePreview ? (
-                          <img
-                            src={promptLabReferencePreview}
-                            alt="Prompt Lab reference"
-                            className="max-h-[420px] w-auto rounded-[20px] border border-neutral-800 object-contain"
-                          />
+                        {promptLabReferencePreviews.length ? (
+                          <div
+                            className={`grid w-full gap-3 ${
+                              promptLabReferencePreviews.length === 1 ? "grid-cols-1" : "grid-cols-2"
+                            }`}
+                          >
+                            {promptLabReferencePreviews.map((preview, index) => (
+                              <div
+                                key={`${promptLabReferenceFiles[index]?.name || "reference"}-${index}`}
+                                className={`group relative overflow-hidden rounded-[18px] border border-neutral-800 bg-neutral-950/70 ${
+                                  promptLabReferencePreviews.length === 3 && index === 0
+                                    ? "col-span-2"
+                                    : ""
+                                }`}
+                              >
+                                <div className="flex aspect-square items-center justify-center p-2">
+                                  <img
+                                    src={preview}
+                                    alt={`Prompt Lab reference ${index + 1}`}
+                                    className="h-full w-full rounded-[14px] object-contain"
+                                  />
+                                </div>
+                                <div className="absolute left-3 top-3 rounded-full border border-white/10 bg-black/70 px-2.5 py-1 text-xs font-semibold text-white">
+                                  {index + 1}
+                                </div>
+                                <button
+                                  type="button"
+                                  title={`Remove reference ${index + 1}`}
+                                  onClick={() => {
+                                    setPromptLabReferenceFiles((current) =>
+                                      current.filter((_, fileIndex) => fileIndex !== index)
+                                    );
+                                    setPromptLabResult(null);
+                                    setPromptLabError(null);
+                                  }}
+                                  className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/70 text-neutral-300 transition hover:border-red-400/40 hover:text-red-300"
+                                >
+                                  <X size={15} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
                         ) : (
                           <div className="max-w-xs text-center">
                             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 text-[#f1cc61]">
                               <ImageIcon size={28} />
                             </div>
                             <div className="mt-4 text-base font-semibold text-neutral-100">
-                              Add a reference image
+                              {promptLabProductType === "png_designs"
+                                ? "Add up to 3 references"
+                                : "Add a reference image"}
                             </div>
                             <p className="mt-2 text-sm leading-relaxed text-neutral-400">
-                              Start with one artwork that captures the direction you want the AI to understand.
+                              {promptLabProductType === "png_designs"
+                                ? "Use designs from the same primary niche."
+                                : "Start with one artwork that captures the direction you want the AI to understand."}
                             </p>
                           </div>
                         )}
@@ -4752,10 +4840,28 @@ export default function Page() {
                           {promptLabResult ? (
                             <>
                               <p>{promptLabResult.summary}</p>
+                              {promptLabResult.pngStrategy ? (
+                                <div className="rounded-2xl border border-[#eeba2b]/25 bg-[#eeba2b]/8 p-3">
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#f1cc61]">
+                                    Primary Niche Lock
+                                  </div>
+                                  <div className="mt-2 font-semibold text-neutral-100">
+                                    {promptLabResult.pngStrategy.primaryNiche}
+                                  </div>
+                                  <div className="mt-1 text-xs leading-relaxed text-neutral-400">
+                                    {promptLabResult.pngStrategy.targetBuyer}
+                                  </div>
+                                </div>
+                              ) : null}
                               <div className="grid gap-3">
                                 <div><span className="text-neutral-500">Intent:</span> {promptLabResult.globalIntent}</div>
                                 <div><span className="text-neutral-500">Buyer pull:</span> {promptLabResult.buyerAppeal}</div>
-                                <div><span className="text-neutral-500">Best room fit:</span> {promptLabResult.roomFit}</div>
+                                <div>
+                                  <span className="text-neutral-500">
+                                    {promptLabResult.pngStrategy ? "Niche definition:" : "Best room fit:"}
+                                  </span>{" "}
+                                  {promptLabResult.roomFit}
+                                </div>
                                 <div><span className="text-neutral-500">Emotional promise:</span> {promptLabResult.emotionalPromise}</div>
                               </div>
                               <div className="flex flex-wrap gap-2 pt-1">
@@ -4812,6 +4918,37 @@ export default function Page() {
                                   ))}
                                 </div>
                               ) : null}
+                              {promptLabResult.pngStrategy ? (
+                                <div className="space-y-3 pt-1">
+                                  <div className="rounded-2xl border border-white/8 bg-neutral-900/45 p-3 text-xs leading-relaxed text-neutral-400">
+                                    <span className="text-neutral-200">Text logic:</span>{" "}
+                                    {promptLabResult.pngStrategy.textStrategy}
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {promptLabResult.pngStrategy.sharedSignals.slice(0, 6).map((signal, index) => (
+                                      <span
+                                        key={`png-trend-signal-${index}`}
+                                        className="rounded-full border border-neutral-800 bg-neutral-900/70 px-3 py-1.5 text-xs text-neutral-300"
+                                      >
+                                        {signal}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+                                    Compatible crossovers
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {promptLabResult.pngStrategy.compatibleNicheExpansions.map((signal, index) => (
+                                      <span
+                                        key={`png-crossover-${index}`}
+                                        className="rounded-full border border-emerald-500/15 bg-emerald-500/5 px-3 py-1.5 text-xs text-emerald-200/80"
+                                      >
+                                        {signal}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
                             </>
                           ) : (
                             <p>
@@ -4823,6 +4960,45 @@ export default function Page() {
                       </div>
                     </div>
 
+                    {promptLabResult?.referenceFindings?.length ? (
+                      <div className="rounded-[28px] border border-white/8 bg-neutral-950/75 p-5">
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
+                            Reference Intelligence
+                          </div>
+                          <div className="text-xs text-neutral-500">
+                            {promptLabResult.referenceFindings.length} analyzed
+                          </div>
+                        </div>
+                        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                          {promptLabResult.referenceFindings.map((finding) => (
+                            <div
+                              key={`reference-finding-${finding.referenceIndex}`}
+                              className="rounded-[20px] border border-neutral-800 bg-neutral-900/55 p-4"
+                            >
+                              <div className="text-xs font-semibold text-[#f1cc61]">
+                                Reference {finding.referenceIndex}
+                              </div>
+                              <div className="mt-2 text-sm font-semibold text-neutral-100">
+                                {finding.mainSubject}
+                              </div>
+                              {finding.visibleText ? (
+                                <div className="mt-2 text-xs leading-relaxed text-neutral-400">
+                                  Text: {finding.visibleText}
+                                </div>
+                              ) : null}
+                              <div className="mt-3 text-xs leading-relaxed text-neutral-400">
+                                {finding.commercialSignal}
+                              </div>
+                              <div className="mt-3 rounded-xl border border-red-500/15 bg-red-500/5 p-2.5 text-xs leading-relaxed text-red-200/80">
+                                Avoid copying: {finding.avoidCopying}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
                     <div className="rounded-[28px] border border-white/8 bg-neutral-950/75 p-5">
                       <div className="flex items-center justify-between gap-4">
                         <div>
@@ -4830,14 +5006,14 @@ export default function Page() {
                             Prompt Set
                           </div>
                           <div className="mt-2 text-sm text-neutral-400">
-                            Phase 1 will show the prompt cards here once the analysis pipeline is connected.
+                            Four original directions built from the strongest commercial signals.
                           </div>
                         </div>
                         <div className="rounded-full border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-3 py-1 text-xs font-semibold text-[#f1cc61]">
                           Target: 4 prompts
                         </div>
                       </div>
-                      {promptLabResult?.prompts?.length ? (
+                      {promptLabResult?.prompts?.length && promptLabProductType !== "png_designs" ? (
                         <div className="mt-4 flex justify-end">
                           <Button variant="primary" onClick={sendPromptLabToImageLab}>
                             <Wand2 size={16} />
@@ -4898,10 +5074,12 @@ export default function Page() {
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
-                            Midjourney Block
+                            {promptLabProductType === "png_designs" ? "Prompt Collection" : "Midjourney Block"}
                           </div>
                           <div className="mt-2 text-sm text-neutral-400">
-                            We will also output one combined block so you can paste the full set directly into Midjourney.
+                            {promptLabProductType === "png_designs"
+                              ? "Copy the complete numbered set for your production workflow."
+                              : "Copy the full permutation block directly into Midjourney."}
                           </div>
                         </div>
                         <Button
@@ -4916,7 +5094,10 @@ export default function Page() {
 
                       <div className="mt-5 rounded-[24px] border border-[#eeba2b]/15 bg-neutral-950/70 p-5 text-sm leading-relaxed text-neutral-500">
                         <pre className="whitespace-pre-wrap font-inherit text-sm leading-relaxed text-neutral-300">
-                          {promptLabResult?.midjourneyBlock || "The combined Midjourney-ready prompt block will appear here after generation."}
+                          {promptLabResult?.midjourneyBlock ||
+                            (promptLabProductType === "png_designs"
+                              ? "The complete prompt collection will appear here after generation."
+                              : "The combined Midjourney-ready prompt block will appear here after generation.")}
                         </pre>
                       </div>
                     </div>

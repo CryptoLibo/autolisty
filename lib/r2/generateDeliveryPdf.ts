@@ -87,7 +87,7 @@ const horizontalWallArtLinks: DeliveryLayout["links"] = [
   },
 ]
 
-const DELIVERY_LAYOUTS: Record<ProductType, DeliveryLayout> = {
+const DELIVERY_LAYOUTS: Partial<Record<ProductType, DeliveryLayout>> = {
   frame_tv_art: {
     templateFile: "frame_tv_delivery.pdf",
     links: [

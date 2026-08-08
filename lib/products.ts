@@ -3,6 +3,7 @@ export type ProductType =
   | "vertical_wall_art"
   | "horizontal_wall_art"
   | "nursery_wall_art"
+  | "png_designs"
 
 export type DeliveryField = {
   id: string
@@ -157,13 +158,22 @@ export const PRODUCT_OPTIONS: Array<{
   },
 ]
 
+export const PROMPT_LAB_PRODUCT_OPTIONS: Array<{
+  value: ProductType
+  label: string
+}> = [
+  ...PRODUCT_OPTIONS.map(({ value, label }) => ({ value, label })),
+  { value: "png_designs", label: "PNG Designs" },
+]
+
 export function normalizeProductType(value: unknown): ProductType {
   if (value === "printable_wall_art") return "vertical_wall_art"
   if (
     value === "frame_tv_art" ||
     value === "vertical_wall_art" ||
     value === "horizontal_wall_art" ||
-    value === "nursery_wall_art"
+    value === "nursery_wall_art" ||
+    value === "png_designs"
   ) {
     return value
   }
@@ -172,7 +182,11 @@ export function normalizeProductType(value: unknown): ProductType {
 }
 
 export function isRatioWallArtProduct(productType: ProductType) {
-  return productType !== "frame_tv_art"
+  return (
+    productType === "vertical_wall_art" ||
+    productType === "horizontal_wall_art" ||
+    productType === "nursery_wall_art"
+  )
 }
 
 export function isHorizontalWallArtProduct(productType: ProductType) {

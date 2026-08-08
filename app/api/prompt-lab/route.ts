@@ -45,6 +45,45 @@ type PromptLabPromptSet = {
   }>;
 };
 
+type PngPromptLabAnalysis = {
+  summary: string;
+  primary_niche: string;
+  niche_definition: string;
+  target_buyer: string;
+  purchase_intent: string;
+  emotional_promise: string;
+  trend_synthesis: string;
+  shared_trend_signals: string[];
+  reference_findings: Array<{
+    reference_index: number;
+    main_subject: string;
+    visible_text: string;
+    message_mechanism: string;
+    composition: string;
+    style_and_finish: string;
+    commercial_signal: string;
+    avoid_copying: string;
+  }>;
+  visual_dna: {
+    composition: string;
+    silhouette: string;
+    form_language: string;
+    palette: string;
+    texture: string;
+    typography_relationship: string;
+    mood: string;
+  };
+  text_strategy: string;
+  subject_mechanics: string;
+  compatible_niche_expansions: string[];
+  production_strategy: string;
+  originality_guardrails: string[];
+  commercial_hook: string;
+  variation_boundaries: string;
+  style_brief: string;
+  prompt_principles: string[];
+};
+
 const analysisSchema = {
   type: "object",
   additionalProperties: false,
@@ -158,6 +197,122 @@ const promptSetSchema = {
   },
 } as const;
 
+const pngAnalysisSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "summary",
+    "primary_niche",
+    "niche_definition",
+    "target_buyer",
+    "purchase_intent",
+    "emotional_promise",
+    "trend_synthesis",
+    "shared_trend_signals",
+    "reference_findings",
+    "visual_dna",
+    "text_strategy",
+    "subject_mechanics",
+    "compatible_niche_expansions",
+    "production_strategy",
+    "originality_guardrails",
+    "commercial_hook",
+    "variation_boundaries",
+    "style_brief",
+    "prompt_principles",
+  ],
+  properties: {
+    summary: { type: "string" },
+    primary_niche: { type: "string" },
+    niche_definition: { type: "string" },
+    target_buyer: { type: "string" },
+    purchase_intent: { type: "string" },
+    emotional_promise: { type: "string" },
+    trend_synthesis: { type: "string" },
+    shared_trend_signals: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 4,
+      maxItems: 8,
+    },
+    reference_findings: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "reference_index",
+          "main_subject",
+          "visible_text",
+          "message_mechanism",
+          "composition",
+          "style_and_finish",
+          "commercial_signal",
+          "avoid_copying",
+        ],
+        properties: {
+          reference_index: { type: "integer", minimum: 1, maximum: 3 },
+          main_subject: { type: "string" },
+          visible_text: { type: "string" },
+          message_mechanism: { type: "string" },
+          composition: { type: "string" },
+          style_and_finish: { type: "string" },
+          commercial_signal: { type: "string" },
+          avoid_copying: { type: "string" },
+        },
+      },
+      minItems: 1,
+      maxItems: 3,
+    },
+    visual_dna: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "composition",
+        "silhouette",
+        "form_language",
+        "palette",
+        "texture",
+        "typography_relationship",
+        "mood",
+      ],
+      properties: {
+        composition: { type: "string" },
+        silhouette: { type: "string" },
+        form_language: { type: "string" },
+        palette: { type: "string" },
+        texture: { type: "string" },
+        typography_relationship: { type: "string" },
+        mood: { type: "string" },
+      },
+    },
+    text_strategy: { type: "string" },
+    subject_mechanics: { type: "string" },
+    compatible_niche_expansions: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 3,
+      maxItems: 6,
+    },
+    production_strategy: { type: "string" },
+    originality_guardrails: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 4,
+      maxItems: 8,
+    },
+    commercial_hook: { type: "string" },
+    variation_boundaries: { type: "string" },
+    style_brief: { type: "string" },
+    prompt_principles: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 4,
+      maxItems: 4,
+    },
+  },
+} as const;
+
 function extractJson<T>(raw: string): T {
   const normalized = String(raw || "").trim();
   const fenceMatch = normalized.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
@@ -190,6 +345,200 @@ function escapePermutationPrompt(value: string) {
 
 function buildMidjourneyPermutationBlock(prompts: string[]) {
   return `{${prompts.map(escapePermutationPrompt).join(", ")}}`;
+}
+
+async function generatePngDesignPromptLab(dataUrls: string[]) {
+  const referenceCount = dataUrls.length;
+  const referenceImages = dataUrls.map((imageUrl) => ({
+    type: "input_image" as const,
+    image_url: imageUrl,
+    detail: "high" as const,
+  }));
+
+  const analysisResponse = await client.responses.create({
+    model: "gpt-5.4-mini",
+    temperature: 0.25,
+    text: {
+      format: {
+        type: "json_schema",
+        name: "png_prompt_lab_analysis",
+        strict: true,
+        schema: pngAnalysisSchema,
+      },
+    },
+    input: [
+      {
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text: `You are an elite Etsy PNG trend analyst and original graphic-design director. Analyze references as market evidence, never as artwork to reproduce. Identify the durable niche, buyer identity, message mechanism, visual system, and commercial pattern behind the references. Separate shared trend signals from distinctive elements that must not be copied. Read visible text carefully, but never recommend reusing a reference phrase. Return only valid JSON.`,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: `Analyze the ${referenceCount} attached reference ${referenceCount === 1 ? "design" : "designs"} exhaustively.
+
+The references come from successful products in one market niche. Determine the PRIMARY NICHE from the audience, identity, subject, message, humor or emotional promise. That primary niche is a hard creative constraint for every later concept. Compatible subniches may enrich it but may never replace it.
+
+For each reference, record its subject, every legible word, phrase mechanism, composition, visual finish, commercial signal, and the distinctive combination that must not be copied. If text is unreadable, say so instead of guessing.
+
+When several references are supplied:
+- Treat repeated signals as evidence of the trend.
+- Treat one-off characters, exact phrases, poses, layouts and icon combinations as reference-specific material to avoid copying.
+- Synthesize the shared commercial logic instead of blending the designs into a collage.
+
+Analyze typography as part of the image: wording structure, tone, cadence, hierarchy, font personality and its relationship with illustration. Define how future wording can be original while preserving the successful message mechanism.
+
+The future output is an isolated, production-ready graphic on transparent background. Analyze silhouette, edge clarity, visual hierarchy and contrast that can remain readable across light and dark surfaces. Do not describe a shirt, mug, product, model, mockup or staged scene.
+
+Return all fields required by the JSON schema. The reference_findings array must contain exactly ${referenceCount} items, numbered in attachment order.`,
+          },
+          ...referenceImages,
+        ],
+      },
+    ],
+  });
+
+  const analysis = extractJson<PngPromptLabAnalysis>(analysisResponse.output_text || "");
+
+  const promptResponse = await client.responses.create({
+    model: "gpt-5.4-mini",
+    temperature: 0.7,
+    text: {
+      format: {
+        type: "json_schema",
+        name: "png_prompt_lab_prompt_set",
+        strict: true,
+        schema: promptSetSchema,
+      },
+    },
+    input: [
+      {
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text: `You are an expert prompt director for commercially strong, original transparent-background graphics. Convert market intelligence into four distinct concepts without copying the source artwork. The primary niche is immutable. Return only valid JSON.`,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: `Create exactly four production-ready image-generation prompts from this analysis:
+
+${JSON.stringify(analysis, null, 2)}
+
+Use these exact roles in this order:
+1. Trend-Aligned Original
+2. Compatible Niche Crossover
+3. Fresh Phrase or Subject Concept
+4. Seasonal or Evergreen Expansion
+
+Non-negotiable rules:
+- Every concept must clearly remain inside the primary niche: "${analysis.primary_niche}". An adjacent niche may support it but may not become the main idea.
+- Create original concepts, not paraphrased copies. Never reuse a visible reference phrase, distinctive mascot, exact pose, exact layout, or signature icon combination.
+- Each concept must meaningfully transform at least three of these: phrase, main subject, composition, supporting motifs, palette, typography treatment, or narrative action.
+- Preserve the proven commercial mechanism, buyer identity, emotional intention and relevant trend signals.
+- If a concept contains text, include one exact NEW phrase in quotation marks, spell it correctly, keep it concise, and describe its typographic hierarchy. Do not ask the image model to invent wording.
+- If the reference succeeds without text, do not force text into every concept.
+- Describe only the final isolated graphic: transparent background, centered balanced composition, clean transparent margins, crisp print-ready edges, strong silhouette and intentional contrast.
+- Make the contrast system adaptable to both light and dark surfaces through a coherent outline, keyline, shadow or palette separation when aesthetically appropriate. Do not mention those products or surfaces in the prompt.
+- Never mention PNG, file, download, dimensions, Etsy, sublimation, merchandise, shirt, t-shirt, mug, hat, ornament, product, mockup, model, room, scene presentation, or generation parameters.
+- Include concrete SEO-useful visual information naturally: niche, audience or identity, original phrase when present, subjects, style, palette, typography, motifs, composition, finish and mood.
+- Keep each prompt visually precise enough to generate directly in Kittl or another image model.
+- The crossover must combine only a genuinely compatible subniche from the analysis.
+- The seasonal concept should be seasonal only when the connection is natural; otherwise make it an evergreen identity or gift-intent expansion.
+- variation_strategy must explain the commercial reasoning and how originality is protected.
+- kept_from_reference lists abstract trend mechanisms only, never copyable expressions.
+- changed_from_reference identifies the concrete transformations that make the concept original.
+
+Before returning, silently reject any concept that drifts from the primary niche, copies a reference, produces a mockup, lacks transparent-background production logic, or uses vague filler language.`,
+          },
+          ...referenceImages,
+        ],
+      },
+    ],
+  });
+
+  const promptSet = extractJson<PromptLabPromptSet>(promptResponse.output_text || "");
+  const promptDetails = mapPromptDetails(promptSet);
+  const prompts = promptDetails.map((item) => item.prompt);
+
+  return Response.json({
+    summary: analysis.summary,
+    globalIntent: analysis.trend_synthesis,
+    buyerAppeal: `${analysis.target_buyer}. ${analysis.purchase_intent}`,
+    roomFit: analysis.niche_definition,
+    emotionalPromise: analysis.emotional_promise,
+    renderingMode: analysis.visual_dna.typography_relationship,
+    subjectMechanics: analysis.subject_mechanics,
+    variationLogic: analysis.variation_boundaries,
+    visualDna: {
+      composition: analysis.visual_dna.composition,
+      formLanguage: `${analysis.visual_dna.silhouette}. ${analysis.visual_dna.form_language}`,
+      palette: analysis.visual_dna.palette,
+      texture: analysis.visual_dna.texture,
+      mood: analysis.visual_dna.mood,
+      variationStrategy: analysis.production_strategy,
+    },
+    subjectIdentity: analysis.primary_niche,
+    stylingSignals: analysis.shared_trend_signals.join(", "),
+    visualContrastLogic: analysis.production_strategy,
+    commercialHook: analysis.commercial_hook,
+    variationBoundaries: analysis.variation_boundaries,
+    styleBrief: analysis.style_brief,
+    promptPrinciples: analysis.prompt_principles,
+    pngStrategy: {
+      primaryNiche: analysis.primary_niche,
+      targetBuyer: analysis.target_buyer,
+      trendSynthesis: analysis.trend_synthesis,
+      sharedSignals: analysis.shared_trend_signals,
+      textStrategy: analysis.text_strategy,
+      productionStrategy: analysis.production_strategy,
+      originalityGuardrails: analysis.originality_guardrails,
+      compatibleNicheExpansions: analysis.compatible_niche_expansions,
+    },
+    referenceFindings: analysis.reference_findings.map((finding) => ({
+      referenceIndex: finding.reference_index,
+      mainSubject: finding.main_subject,
+      visibleText: finding.visible_text,
+      messageMechanism: finding.message_mechanism,
+      composition: finding.composition,
+      styleAndFinish: finding.style_and_finish,
+      commercialSignal: finding.commercial_signal,
+      avoidCopying: finding.avoid_copying,
+    })),
+    promptDetails,
+    prompts,
+    midjourneyBlock: prompts.map((prompt, index) => `${index + 1}. ${prompt}`).join("\n\n"),
+  });
+}
+
+function mapPromptDetails(promptSet: PromptLabPromptSet) {
+  return (promptSet.prompts || [])
+    .map((item) => ({
+      role: String(item?.role || "").trim(),
+      prompt: String(item?.prompt || "").trim(),
+      variationStrategy: String(item?.variation_strategy || "").trim(),
+      seoSignals: Array.isArray(item?.seo_signals)
+        ? item.seo_signals.map((signal) => String(signal || "").trim()).filter(Boolean)
+        : [],
+      keptFromReference: Array.isArray(item?.kept_from_reference)
+        ? item.kept_from_reference.map((signal) => String(signal || "").trim()).filter(Boolean)
+        : [],
+      changedFromReference: Array.isArray(item?.changed_from_reference)
+        ? item.changed_from_reference.map((signal) => String(signal || "").trim()).filter(Boolean)
+        : [],
+    }))
+    .filter((item) => item.prompt);
 }
 
 function getProductCreativeContext(productType: ProductType) {
@@ -227,18 +576,46 @@ function getProductCreativeContext(productType: ProductType) {
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
-    const file = formData.get("file");
     const rawProductType = String(formData.get("productType") || "frame_tv_art");
     const productType = normalizeProductType(rawProductType);
     const productCreativeContext = getProductCreativeContext(productType);
+    const submittedFiles = formData
+      .getAll("files")
+      .filter((value): value is File => value instanceof File);
+    const legacyFile = formData.get("file");
+    const files = submittedFiles.length
+      ? submittedFiles
+      : legacyFile instanceof File
+        ? [legacyFile]
+        : [];
+    const maximumReferences = productType === "png_designs" ? 3 : 1;
 
-    if (!(file instanceof File)) {
-      return Response.json({ error: "Reference image is required." }, { status: 400 });
+    if (!files.length) {
+      return Response.json({ error: "At least one reference image is required." }, { status: 400 });
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const mimeType = file.type || "image/png";
-    const dataUrl = toDataUrl(buffer, mimeType);
+    if (files.length > maximumReferences) {
+      return Response.json(
+        { error: `This product accepts up to ${maximumReferences} reference image${maximumReferences === 1 ? "" : "s"}.` },
+        { status: 400 }
+      );
+    }
+
+    const dataUrls = await Promise.all(
+      files.map(async (file) => {
+        if (!file.type.startsWith("image/")) {
+          throw new Error("Every reference must be an image.");
+        }
+        const buffer = Buffer.from(await file.arrayBuffer());
+        return toDataUrl(buffer, file.type || "image/png");
+      })
+    );
+
+    if (productType === "png_designs") {
+      return generatePngDesignPromptLab(dataUrls);
+    }
+
+    const dataUrl = dataUrls[0];
 
     const analysisSystemPrompt = `
 You are an elite visual direction strategist for generative image workflows.
@@ -418,22 +795,7 @@ Rules:
     });
 
     const promptSet = extractJson<PromptLabPromptSet>(promptResponse.output_text || "");
-    const promptDetails = (promptSet.prompts || [])
-      .map((item) => ({
-        role: String(item?.role || "").trim(),
-        prompt: String(item?.prompt || "").trim(),
-        variationStrategy: String(item?.variation_strategy || "").trim(),
-        seoSignals: Array.isArray(item?.seo_signals)
-          ? item.seo_signals.map((signal) => String(signal || "").trim()).filter(Boolean)
-          : [],
-        keptFromReference: Array.isArray(item?.kept_from_reference)
-          ? item.kept_from_reference.map((signal) => String(signal || "").trim()).filter(Boolean)
-          : [],
-        changedFromReference: Array.isArray(item?.changed_from_reference)
-          ? item.changed_from_reference.map((signal) => String(signal || "").trim()).filter(Boolean)
-          : [],
-      }))
-      .filter((item) => item.prompt);
+    const promptDetails = mapPromptDetails(promptSet);
     const prompts = promptDetails.map((item) => item.prompt);
     const midjourneyBlock = buildMidjourneyPermutationBlock(prompts);
 
