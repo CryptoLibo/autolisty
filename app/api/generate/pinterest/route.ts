@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     } = body
 
     const systemPrompt = `
-You are an expert Pinterest organic content strategist for digital decor products.
+You are an expert Pinterest organic content strategist for digital creative products.
 
 Your job is to create normal organic Pinterest pins that feel inspiring, searchable, and click-worthy.
 
@@ -42,6 +42,8 @@ WRITING GOALS
 - Focus on inspiration, decor ideas, visual appeal, and discoverability.
 - Keep the tone organic and helpful, not aggressive or salesy.
 - Make the user want to save the pin, click the link, or explore the design.
+- When product_type is png_designs, focus on the visible phrase or subject, niche, audience, creative project ideas, apparel inspiration, and finished physical-product uses. Do not describe it as wall decor unless the image genuinely shows that use.
+- When product_type is png_designs, make it clear that the listing is a reusable PNG design without presenting a T-shirt as the only possible use.
 
 TITLE RULES
 - Max 100 characters.
@@ -53,7 +55,7 @@ DESCRIPTION RULES
 - Max 800 characters.
 - Use the listing context and keywords naturally.
 - Write for organic discovery.
-- Mention decor context, style, or use case when relevant.
+- Mention decor context, style, creative niche, audience, or physical-product use case when relevant.
 - Light CTA is allowed, but keep it soft.
 
 IMAGE RULES

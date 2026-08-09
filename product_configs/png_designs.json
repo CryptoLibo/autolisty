@@ -1,0 +1,111 @@
+{
+  "product_name": "PNG Designs",
+  "product_type": "digital",
+  "title_rules": {
+    "capitalization": "title_case",
+    "mandatory_terms": ["PNG", "| (Digital Download)"],
+    "allow_variations": ["PNG", "Sublimation Design", "Shirt Graphic"],
+    "structure": [
+      "VISIBLE_PHRASE_OR_SUBJECT",
+      "PNG",
+      ",",
+      "NICHE_AND_DESIGN_INTENT",
+      ",",
+      "AUDIENCE_OR_PHYSICAL_USE",
+      "| (Digital Download)"
+    ],
+    "word_rules": {
+      "min_words": 13,
+      "max_words": 14,
+      "max_characters": 140,
+      "avoid_word_repetition": true,
+      "target_full_word_budget": true
+    },
+    "seo_priorities": {
+      "lead_with_visible_phrase_when_commercially_meaningful": true,
+      "otherwise_lead_with_concrete_subject_or_niche": true,
+      "require_semantic_coherence": true,
+      "include_png_once": true,
+      "vary_sublimation_and_use_terms_by_relevance": true,
+      "avoid_keyword_stuffing": true
+    }
+  },
+  "normalization_rules": {
+    "primary_product_term": "PNG",
+    "alternate_product_terms": ["Sublimation Design", "Shirt Graphic", "Printable Graphic"],
+    "title_suffix": "| (Digital Download)",
+    "title_format": "png_design_commas",
+    "keyword_fallback_phrases": [
+      "printable png design",
+      "sublimation graphic",
+      "commercial use png"
+    ]
+  },
+  "analysis_rules": {
+    "source_inputs": ["design_image", "source_prompt"],
+    "required_outputs": [
+      "visible_phrase",
+      "primary_subject",
+      "secondary_subject",
+      "niche",
+      "audience",
+      "style",
+      "mood",
+      "color_palette",
+      "physical_product_uses",
+      "search_intent"
+    ],
+    "prompt_handling": {
+      "use_prompt_to_clarify_visual_intent": true,
+      "do_not_copy_generation_syntax_into_seo": true,
+      "prefer_etsy_search_language_over_prompt_jargon": true,
+      "read_visible_text_from_the_design": true
+    }
+  },
+  "tag_rules": {
+    "max_tags": 13,
+    "max_characters": 20,
+    "semantic_distribution": {
+      "niche_and_audience": 4,
+      "phrase_and_subject": 3,
+      "style_and_intent": 3,
+      "format_and_physical_use": 3
+    },
+    "quality_rules": {
+      "avoid_title_duplication": true,
+      "avoid_near_duplicate_roots": true,
+      "prefer_searchable_phrases": true,
+      "do_not_repeat_png_or_sublimation_excessively": true
+    }
+  },
+  "description_rules": {
+    "template_file": "png_designs.txt",
+    "keyword_slots": 5,
+    "roles": {
+      "KEYWORD_1": "main_niche_search_phrase",
+      "KEYWORD_2": "subject_or_visible_phrase",
+      "KEYWORD_3": "audience_or_style_phrase",
+      "KEYWORD_4": "physical_product_use_intent",
+      "KEYWORD_5": "supporting_design_phrase"
+    },
+    "keyword_rules": {
+      "min_words": 2,
+      "max_words": 4,
+      "main_phrase_can_be_long_tail": true,
+      "avoid_generic_keywords": true,
+      "avoid_repeating_png_digital_download": true,
+      "fit_template_naturally": true,
+      "require_distinct_roles": true
+    }
+  },
+  "image_rules": {
+    "analysis": "visual_per_image",
+    "alt_text": {
+      "min_characters": 170,
+      "max_characters": 200,
+      "structure": ["visible_mockup_scene", "design_subject_or_phrase", "style", "physical_product_context"],
+      "keyword_integration": "natural_and_selective",
+      "image_types": ["model_mockup", "flat_mockup", "grid", "informational", "promotional"]
+    }
+  }
+}

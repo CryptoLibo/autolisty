@@ -105,6 +105,8 @@ const ETSY_DYNAMIC_ATTRIBUTE_NAMES = new Set([
   "home style",
   "room",
   "subject",
+  "occasion",
+  "holiday",
 ])
 
 function cleanText(value: unknown) {
@@ -118,6 +120,18 @@ function normalizeAttributeName(value: unknown) {
 function shouldGenerateEtsyAttribute(productType: string, displayName: string) {
   const normalized = normalizeAttributeName(displayName)
   if (!ETSY_DYNAMIC_ATTRIBUTE_NAMES.has(normalized)) return false
+  if (
+    productType !== "png_designs" &&
+    (normalized === "occasion" || normalized === "holiday")
+  ) {
+    return false
+  }
+  if (
+    productType === "png_designs" &&
+    !["subject", "occasion", "holiday"].includes(normalized)
+  ) {
+    return false
+  }
   if (productType === "nursery_wall_art" && normalized === "room") return false
   return true
 }
@@ -341,8 +355,7 @@ function titleCase(input: string) {
     .map((word) => {
       const upper = word.toUpperCase()
 
-      if (upper === "TV") return "TV"
-      if (upper === "AI") return "AI"
+      if (["TV", "AI", "PNG", "POD", "DTF", "CNA"].includes(upper)) return upper
 
       if (word.startsWith("(") && word.endsWith(")")) {
         const inner = word.slice(1, -1)
@@ -357,7 +370,7 @@ function titleCase(input: string) {
           .map((part) => {
             const partUpper = part.toUpperCase()
             if (!part) return part
-            if (partUpper === "TV") return "TV"
+            if (["TV", "AI", "PNG", "POD", "DTF", "CNA"].includes(partUpper)) return partUpper
             return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
           })
           .join("-")
@@ -645,6 +658,16 @@ function normalizeTitle(
   maxWords = 15,
   maxCharacters = 140
 ) {
+  if (productConfig.normalization_rules?.title_format === "png_design_commas") {
+    return buildPngDesignTitle(
+      rawTitle,
+      components,
+      minWords,
+      maxWords,
+      maxCharacters
+    )
+  }
+
   if (productConfig.normalization_rules?.title_format === "print_wall_art_commas") {
     return buildPrintableWallArtTitle(
       rawTitle,
@@ -1004,6 +1027,80 @@ function fillSubjectOptions(
   }
 
   return filled
+}
+
+function buildPngDesignTitle(
+  rawTitle: unknown,
+  components: Record<string, unknown>,
+  minWords: number,
+  maxWords: number,
+  maxCharacters: number
+) {
+  const suffix = "| (Digital Download)"
+  const countWords = (value: string) =>
+    value.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*/g)?.length || 0
+
+  let prefix = cleanText(rawTitle)
+    .replace(/\s*\|?\s*\(?digital download\)?\s*$/i, "")
+    .replace(/\bPNG\b/gi, (match, offset, source) => {
+      const before = source.slice(0, offset)
+      return /\bPNG\b/i.test(before) ? "" : match
+    })
+    .replace(/\s+,/g, ",")
+    .replace(/,+/g, ",")
+    .replace(/,\s*,/g, ",")
+    .trim()
+
+  if (!/\bPNG\b/i.test(prefix)) {
+    const commaIndex = prefix.indexOf(",")
+    prefix = commaIndex >= 0
+      ? `${prefix.slice(0, commaIndex).trim()} PNG, ${prefix.slice(commaIndex + 1).trim()}`
+      : `${prefix} PNG`
+  }
+
+  prefix = titleCase(prefix).replace(/\bPng\b/g, "PNG")
+
+  const targetPrefixWords = Math.max(1, maxWords - 2)
+  let tokens = prefix.split(/\s+/).filter(Boolean)
+  while (countWords(tokens.join(" ")) > targetPrefixWords) {
+    tokens.pop()
+  }
+  prefix = tokens.join(" ").replace(/[,:;|-]+$/g, "").trim()
+
+  const expansionSources = [
+    components.visible_phrase,
+    components.primary_subject,
+    components.secondary_subject,
+    components.audience,
+    components.niche,
+    components.style,
+    components.search_intent,
+    components.search_phrases,
+    "Commercial Use",
+    "Versatile Physical Product Graphic",
+  ]
+
+  for (const source of expansionSources) {
+    if (countWords(`${prefix} ${suffix}`) >= minWords) break
+    const additions = cleanText(source)
+      .split(/\s+/)
+      .map((word) => normalizeWord(word))
+      .filter(Boolean)
+
+    for (const addition of additions) {
+      if (countWords(`${prefix} ${suffix}`) >= minWords) break
+      if (new RegExp(`\\b${escapeRegex(addition)}\\b`, "i").test(prefix)) continue
+      prefix = `${prefix} ${titleCase(addition)}`.trim()
+    }
+  }
+
+  let normalized = `${prefix} ${suffix}`.replace(/\s+/g, " ").trim()
+  while (normalized.length > maxCharacters && prefix.includes(" ")) {
+    prefix = prefix.replace(/\s+\S+$/, "").replace(/[,:;|-]+$/g, "").trim()
+    normalized = `${prefix} ${suffix}`
+  }
+
+  return normalized
 }
 
 function refineHomeStyleOption(
@@ -1470,12 +1567,18 @@ PRODUCT-SPECIFIC SEO INTENT
 - For horizontal_wall_art, treat the product as standard wall art for SEO. Do not mention horizontal, wide, orientation, ratio, dimensions, or landscape as a product orientation in the title, tags, or description keywords. Use landscape only when the artwork is genuinely a landscape scene.
 - For nursery_wall_art, keep the same wall art title structure, but make the buyer intent nursery-specific. Include nursery, baby room, kids room, or playroom intent naturally once in the title, preferably in the decor phrase, and avoid repeating nursery/baby/kids roots across the title.
 - For nursery_wall_art, tags and description keywords should acknowledge the nursery niche without becoming repetitive. Use nursery intent as one part of the SEO mix, then keep the rest focused on subject, style, mood, color, and decor context.
+- For png_designs, treat the uploaded transparent graphic as a reusable design for finished physical products, not as wall art and not as a T-shirt-only product.
+- For png_designs, identify any visible phrase accurately and lead with it when it has strong buyer search intent. Otherwise lead with the clearest niche, subject, or audience.
+- For png_designs, create a natural three-part title: visible phrase or subject plus PNG, niche/design intent, and audience or physical-use context, followed by the exact suffix "| (Digital Download)".
+- For png_designs, use exactly 13 or 14 words including "Digital Download", prefer 14, use PNG exactly once, and do not make Sublimation Design mandatory. Vary terms such as sublimation design, shirt graphic, printable graphic, commercial use, profession, hobby, season, and recipient only when they genuinely fit.
+- For png_designs, never describe the file as SVG, editable, layered, a cut file, or a physical product.
 
 DESCRIPTION KEYWORDS STRATEGY
 - Generate exactly 5 keyword phrases.
 - These phrases must strengthen the existing description template.
 - KEYWORD_1 must be the strongest Etsy search phrase for this listing, even if it is long-tail, but it must not include format/product terms already provided by the template such as "print", "wall art", "printable", "digital download", or "instant download".
 - For nursery_wall_art, KEYWORD_1 should usually carry the strongest nursery-relevant buyer intent while still avoiding repeated product terms from the template.
+- For png_designs, KEYWORD_1 must be the strongest niche, phrase, subject, profession, season, or audience search phrase. Do not waste a keyword slot on generic format terms such as PNG, digital download, instant download, printable file, or sublimation file.
 - Each keyword must have a distinct role and should not feel generic or repetitive.
 - Keywords must fit the template naturally.
 
@@ -1487,6 +1590,7 @@ TAG STRATEGY
 - Keep the current good balance across product, style, subject, decor, and digital format.
 - For horizontal_wall_art, do not create orientation tags such as "horizontal art" or "wide wall art"; keep tags about the artwork and buyer search intent.
 - For nursery_wall_art, include only a small number of nursery/baby/kids-room intent tags, then prioritize subject and style tags that fit the design.
+- For png_designs, balance niche, audience, visible phrase, subject, style, season, and physical-use intent. Avoid repeating PNG or sublimation across several tags.
 
 ETSY ATTRIBUTE STRATEGY
 - If etsy_attribute_options is empty, return an empty etsy_attributes array.
@@ -1496,6 +1600,7 @@ ETSY ATTRIBUTE STRATEGY
 - Choose Home Style from the actual visual style, subject matter, and buyer decor intent of the artwork. Do not default to "Bohemian & eclectic"; use it only when the design is genuinely boho or eclectic. If the artwork clearly has beach, ocean, surf, palm, island, or tropical cues, prefer "Coastal & tropical" when available. If it is clean/simple, consider "Minimalist" or "Contemporary" when available. If it is rustic, vintage, farmhouse, folk, or primitive, choose the closest available style instead of bohemian.
 - Choose Subject from what is actually represented in the artwork. If Subject is available, select exactly 3 valid Subject values whenever Etsy allows 3. Pick the most specific subject first, then broader supporting subjects, then the closest meaningful fallback from the provided options. Never return fewer than 3 Subject values unless fewer than 3 options are provided.
 - Choose Room only when the property is included in etsy_attribute_options. For nursery_wall_art, Room is normally fixed in the draft and should not be generated.
+- For png_designs, choose Occasion and Holiday only when the artwork has explicit, confident evidence. Omit either property completely when the connection is weak or merely possible.
 - Skip any attribute when none of the available options fit confidently, except Subject, which must still receive the closest 3 valid options when available.
 
 ALT TEXT STRATEGY
@@ -1539,13 +1644,17 @@ Return JSON in this exact shape:
 
 {
   "analysis": {
+    "visible_phrase": "",
     "primary_subject": "",
     "secondary_subject": "",
+    "niche": "",
+    "audience": "",
     "style": "",
     "decor_context": "",
     "mood": "",
     "color_palette": [],
     "search_intent": "",
+    "physical_product_uses": [],
     "search_phrases": []
   },
   "title_components": {

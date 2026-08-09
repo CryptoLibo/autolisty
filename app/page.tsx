@@ -11,6 +11,7 @@ import {
   PROMPT_LAB_PRODUCT_OPTIONS,
   PRODUCT_OPTIONS,
   ProductType,
+  usesDirectDelivery,
 } from "@/lib/products";
 import { DndContext, DragEndEvent, closestCenter } from "@dnd-kit/core";
 import {
@@ -411,7 +412,7 @@ function normalizeScaleFolderSegment(value: string) {
     .toLowerCase();
 }
 
-function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
+function buildScaleJobs(files: ScaleImportedFile[], productType: ProductType): ScaleJob[] {
   const grouped = new Map<string, ScaleImportedFile[]>();
 
   for (const item of files) {
@@ -449,13 +450,22 @@ function buildScaleJobs(files: ScaleImportedFile[]): ScaleJob[] {
           }
         } else if (rootName === "disenos finales") {
           deliverables += 1;
+          if (
+            productType === "png_designs" &&
+            item.file.type === "image/png" &&
+            /^design\.png$/i.test(segments[segments.length - 1] || "")
+          ) {
+            design += 1;
+          }
         } else if (rootName === "pines" || rootName === "pins") {
           pinterest += 1;
         }
       }
 
       const issues: string[] = [];
-      if (design === 0) issues.push("Missing Midjourney design");
+      if (design === 0) {
+        issues.push(productType === "png_designs" ? "Missing final Design.png" : "Missing Midjourney design");
+      }
       if (mockups === 0) issues.push("Missing listing media");
       if (deliverables === 0) issues.push("Missing delivery files");
       if (pinterest === 0) issues.push("Missing Pinterest images");
@@ -1788,7 +1798,7 @@ export default function Page() {
         return;
       }
 
-      const incomingJobs = buildScaleJobs(importedFiles);
+      const incomingJobs = buildScaleJobs(importedFiles, scaleProductType);
       const existingFolderNames = new Set(scaleJobs.map((job) => job.folderName.toLowerCase()));
       const uniqueJobs = incomingJobs.filter(
         (job) => !existingFolderNames.has(job.folderName.toLowerCase())
@@ -1939,7 +1949,7 @@ export default function Page() {
       case "seo":
         return "Retry SEO";
       case "pdf":
-        return "Retry PDF";
+        return "Retry delivery";
       case "etsy":
         return "Retry Etsy";
       case "etsy_url":
@@ -1995,7 +2005,7 @@ export default function Page() {
           break;
         case "pdf":
           setScalePdfLoading(true);
-          setScaleMessage(`Retrying PDF for ${job.folderName}...`);
+          setScaleMessage(`Retrying delivery for ${job.folderName}...`);
           await generatePdfForScaleJob(job);
           break;
         case "etsy":
@@ -2137,7 +2147,15 @@ export default function Page() {
         const info = getScaleImportedFileInfo(item);
         return (
           item.file.type.startsWith("image/") &&
-          info.normalizedName.includes("midjourney")
+          (
+            info.normalizedName.includes("midjourney") ||
+            (
+              scaleProductType === "png_designs" &&
+              item.file.type === "image/png" &&
+              info.normalizedName === "design.png" &&
+              pathHasFolderSegment(info.normalizedPath, "disenos finales")
+            )
+          )
         );
       })?.file || null;
 
@@ -2213,7 +2231,15 @@ export default function Page() {
               field: scaleFields.find((candidate) => candidate.id === "instructions")!,
             })),
         ]
-        : deliverableCandidates
+      : scaleProductType === "png_designs"
+        ? deliverableCandidates
+            .filter((file) => file.type === "image/png")
+            .slice(0, 1)
+            .map((file) => ({
+              file,
+              field: scaleFields.find((candidate) => candidate.id === "design")!,
+            }))
+      : deliverableCandidates
             .map((file) => {
               const field = classifyRatioDeliverableField(file, scaleFields);
               return field ? { file, field } : null;
@@ -2345,7 +2371,9 @@ export default function Page() {
       }
 
     if (!designCandidate) {
-      throw new Error("Missing Midjourney design");
+      throw new Error(
+        scaleProductType === "png_designs" ? "Missing final Design.png" : "Missing Midjourney design"
+      );
     }
 
     updateScaleJob(job.id, (current) => ({
@@ -2365,18 +2393,22 @@ export default function Page() {
           ? "webp"
           : "jpg");
 
-    const uploadedDesign = await retryAsync(
-      async () => {
-        return uploadMockupForListing(designCandidate, `design.${designExt}`, listingJobId);
-      },
-      {
-        label: `${job.folderName}: failed to upload design`,
-      }
-    );
+    let uploadedDesign: { url: string } | null = null;
+    if (!usesDirectDelivery(scaleProductType)) {
+      uploadedDesign = await retryAsync(
+        async () => {
+          return uploadMockupForListing(designCandidate, `design.${designExt}`, listingJobId);
+        },
+        {
+          label: `${job.folderName}: failed to upload design`,
+        }
+      );
+    }
 
       const uploadedMockups: ScaleUploadedMockup[] = [];
       const uploadedPins: ScalePinterestPin[] = [];
       const uploadedDeliverableFieldIds: string[] = [];
+      let directDeliveryUrl: string | null = null;
 
       await runWithConcurrency(
         mockupCandidates.map((item, index) => ({ item, index })),
@@ -2405,9 +2437,9 @@ export default function Page() {
       );
 
     await runWithConcurrency(deliverables, 3, async (item) => {
-      await retryAsync(
+      const upload = await retryAsync(
         async () => {
-          await uploadDeliverableForListing(
+          return await uploadDeliverableForListing(
             item.file,
             getDeliveryFilename(item.field, item.file),
             listingJobId
@@ -2417,8 +2449,19 @@ export default function Page() {
           label: `${job.folderName}: failed to upload deliverable ${item.field.label}`,
         }
       );
+      if (usesDirectDelivery(scaleProductType) && item.field.id === "design") {
+        directDeliveryUrl = upload.url;
+      }
       uploadedDeliverableFieldIds.push(item.field.id);
     });
+
+    if (usesDirectDelivery(scaleProductType) && directDeliveryUrl) {
+      uploadedDesign = { url: directDeliveryUrl };
+    }
+
+    if (!uploadedDesign) {
+      throw new Error("Failed to store the primary design in R2.");
+    }
 
       await runWithConcurrency(
         pinterestCandidates.map((item, index) => ({ item, index })),
@@ -2469,6 +2512,7 @@ export default function Page() {
       designUrl: uploadedDesign.url,
       mockupsUploaded: uploadedMockups,
       uploadedDeliverableFieldIds,
+      deliveryPdfUrl: directDeliveryUrl,
       pinterestPins: uploadedPins,
     }));
   }
@@ -2519,7 +2563,11 @@ export default function Page() {
     }
 
     if (!job.midjourneyPrompt.trim()) {
-      throw new Error("Add the Midjourney prompt for this listing first.");
+      throw new Error(
+        scaleProductType === "png_designs"
+          ? "Add the source prompt for this listing first."
+          : "Add the Midjourney prompt for this listing first."
+      );
     }
 
     if (!job.etsyDraftListingId.trim()) {
@@ -2633,11 +2681,11 @@ export default function Page() {
 
     async function generatePdfForScaleJob(job: ScaleJob) {
       if (!job.listingId) {
-        throw new Error("Upload this listing before generating the final PDF.");
+        throw new Error("Upload this listing before preparing its delivery file.");
       }
 
       if (!job.seoResult) {
-        throw new Error("Generate SEO for this listing before creating the PDF.");
+        throw new Error("Generate SEO for this listing before preparing its delivery file.");
       }
 
       const requiredDeliverables = getRequiredScaleDeliverableFieldIds();
@@ -2647,16 +2695,31 @@ export default function Page() {
       );
 
       if (missingDeliverables.length > 0) {
-        throw new Error("Upload the required deliverables before generating the final PDF.");
+        throw new Error("Upload the required deliverables before preparing the delivery file.");
       }
 
       updateScaleJob(job.id, (current) => ({
         ...current,
         status: "generating_pdf",
-        stepLabel: "Generating PDF",
+        stepLabel: usesDirectDelivery(scaleProductType) ? "Preparing PNG" : "Generating PDF",
         errorMessage: null,
         failedStage: null,
     }));
+
+      if (usesDirectDelivery(scaleProductType)) {
+        if (!job.deliveryPdfUrl) {
+          throw new Error("The final PNG was not uploaded to R2.");
+        }
+
+        updateScaleJob(job.id, (current) => ({
+          ...current,
+          status: "pdf_complete",
+          stepLabel: "PNG delivery ready",
+          errorMessage: null,
+          failedStage: null,
+        }));
+        return;
+      }
 
       const res = await fetch("/api/generate/delivery", {
         method: "POST",
@@ -2694,12 +2757,16 @@ export default function Page() {
       );
 
     if (eligible.length === 0) {
-      setScaleMessage("No Scale jobs are ready to generate the final PDF yet.");
+      setScaleMessage("No Scale jobs are ready to prepare their delivery files yet.");
       return;
     }
 
     setScalePdfLoading(true);
-    setScaleMessage(`Generating final PDFs for ${eligible.length} listing jobs...`);
+    setScaleMessage(
+      usesDirectDelivery(scaleProductType)
+        ? `Preparing final PNG delivery for ${eligible.length} listing jobs...`
+        : `Generating final PDFs for ${eligible.length} listing jobs...`
+    );
     let completedCount = 0;
     let failedCount = 0;
 
@@ -2712,8 +2779,8 @@ export default function Page() {
         updateScaleJob(job.id, (current) => ({
           ...current,
           status: "failed",
-          stepLabel: "PDF failed",
-          errorMessage: error?.message || "PDF generation failed",
+          stepLabel: "Delivery failed",
+          errorMessage: error?.message || "Delivery preparation failed",
           failedStage: "pdf",
         }));
       }
@@ -2721,15 +2788,15 @@ export default function Page() {
 
     setScaleMessage(
       failedCount > 0
-        ? `PDF finished. ${completedCount} complete, ${failedCount} failed.`
-        : `PDF finished. ${completedCount} listing jobs complete.`
+        ? `Delivery preparation finished. ${completedCount} complete, ${failedCount} failed.`
+        : `Delivery preparation finished. ${completedCount} listing jobs complete.`
     );
     setScalePdfLoading(false);
   }
 
   async function syncEtsyForScaleJob(job: ScaleJob) {
     if (!job.seoResult || !job.deliveryPdfUrl) {
-      throw new Error("Generate SEO and PDF for this listing before syncing Etsy.");
+      throw new Error("Generate SEO and prepare the delivery file before syncing Etsy.");
     }
 
     if (!job.etsyDraftListingId.trim()) {
@@ -2760,8 +2827,10 @@ export default function Page() {
           altText: item.altText,
           rank: item.position,
         })),
-        deliveryPdfUrl: job.deliveryPdfUrl,
-        deliveryPdfFilename: `${job.listingId || "listing"}.pdf`,
+        deliveryFileUrl: job.deliveryPdfUrl,
+        deliveryFilename: usesDirectDelivery(scaleProductType)
+          ? "Design.png"
+          : `${job.listingId || "listing"}.pdf`,
       }),
     });
 
@@ -3700,6 +3769,22 @@ export default function Page() {
       classifyRatioDeliverableField(file, printableFields)
     );
 
+    if (currentProductType === "png_designs") {
+      const validPngs = deliverableCandidates.filter(
+        (file) => file.type === "image/png" && /^design\.png$/i.test(file.name)
+      );
+
+      if (deliverableCandidates.length !== 1 || validPngs.length !== 1) {
+        return {
+          ok: false,
+          message:
+            "PNG Designs imports must include exactly one file named Design.png inside Diseños Finales.",
+        };
+      }
+
+      return { ok: true };
+    }
+
     const looksLikeRatioWallArt =
       ratioMatches.length >= 3 ||
       ratioMatches.length === deliverableImages.length && deliverableImages.length > 0;
@@ -3791,7 +3876,18 @@ export default function Page() {
 
       const designCandidate = acceptedFiles.find((file) => {
         const info = getFolderAwareName(file);
-        return file.type.startsWith("image/") && info.normalizedName.includes("midjourney");
+        return (
+          file.type.startsWith("image/") &&
+          (
+            info.normalizedName.includes("midjourney") ||
+            (
+              productType === "png_designs" &&
+              file.type === "image/png" &&
+              info.normalizedName === "design.png" &&
+              pathHasFolderSegment(info.normalizedPath, "disenos finales")
+            )
+          )
+        );
       });
 
       const pinterestCandidates = sortNumericFileNames(
@@ -3848,7 +3944,13 @@ export default function Page() {
       );
 
       const nextDesign = designCandidate
-        ? await retryAsync(
+        ? usesDirectDelivery(productType)
+          ? {
+              file: designCandidate,
+              previewUrl: URL.createObjectURL(designCandidate),
+              r2Url: null,
+            }
+          : await retryAsync(
             async () => {
               const ext =
                 designCandidate.name.split(".").pop()?.toLowerCase() ||
@@ -3920,6 +4022,7 @@ export default function Page() {
         : null;
 
       const nextDeliveryFiles: Record<string, File | null> = {};
+      let importedDirectDeliveryUrl: string | null = null;
 
       if (deliverableCandidates.length > 0) {
         const orderedDeliverables: Array<{
@@ -3947,6 +4050,14 @@ export default function Page() {
                       )!,
                   })),
               ].filter((item) => !!item.field)
+            : productType === "png_designs"
+              ? deliverableCandidates
+                  .filter((file) => file.type === "image/png")
+                  .slice(0, 1)
+                  .map((file) => ({
+                    file,
+                    field: activeDeliveryFields.find((candidate) => candidate.id === "design")!,
+                  }))
             : deliverableCandidates
                 .map((file) => {
                   const field = classifyRatioDeliverableField(file);
@@ -3972,14 +4083,21 @@ export default function Page() {
 
           if (!field || !deliverable) continue;
 
-          await retryAsync(
+          const upload = await retryAsync(
             async () => {
-              await uploadDeliverableToR2(deliverable, getDeliveryFilename(field, deliverable));
+              return await uploadDeliverableToR2(
+                deliverable,
+                getDeliveryFilename(field, deliverable)
+              );
             },
             {
               label: `Failed to upload deliverable ${field.label}`,
             }
           );
+
+          if (usesDirectDelivery(productType) && field.id === "design") {
+            importedDirectDeliveryUrl = upload.url;
+          }
 
           nextDeliveryFiles[field.id] = deliverable;
         }
@@ -4012,7 +4130,7 @@ export default function Page() {
         if (designPreview) URL.revokeObjectURL(designPreview);
         setDesignFile(nextDesign.file);
         setDesignPreview(nextDesign.previewUrl);
-        setDesignR2Url(nextDesign.r2Url);
+        setDesignR2Url(importedDirectDeliveryUrl || nextDesign.r2Url);
       }
 
       if (mockupCandidates.length > 0) {
@@ -4035,6 +4153,9 @@ export default function Page() {
             Object.keys(nextDeliveryFiles).map((fieldId) => [fieldId, true])
           ),
         }));
+        if (importedDirectDeliveryUrl) {
+          setDeliveryPdfUrl(importedDirectDeliveryUrl);
+        }
       }
 
       if (pinterestCandidates.length > 0) {
@@ -4132,7 +4253,8 @@ export default function Page() {
     setDeliveryLoading(true);
     setError(null);
     setUploadMessage(null);
-    setDeliveryPdfUrl(null);
+    const existingDirectDeliveryUrl = usesDirectDelivery(productType) ? deliveryPdfUrl : null;
+    if (!usesDirectDelivery(productType)) setDeliveryPdfUrl(null);
 
     const id = ensureListingId();
 
@@ -4151,6 +4273,7 @@ export default function Page() {
       });
 
       const uploadedNow: string[] = [];
+      let directDeliveryUrl: string | null = existingDirectDeliveryUrl;
 
       for (const [index, f] of files.entries()) {
         const field = activeDeliveryFields[index];
@@ -4160,14 +4283,18 @@ export default function Page() {
           continue;
         }
 
-        await retryAsync(
+        const upload = await retryAsync(
           async () => {
-            await uploadDeliverableToR2(f.file, f.name);
+            return await uploadDeliverableToR2(f.file, f.name);
           },
           {
             label: `Failed to upload deliverable ${field.label}`,
           }
         );
+
+        if (usesDirectDelivery(productType) && field.id === "design") {
+          directDeliveryUrl = upload.url;
+        }
 
         uploadedNow.push(field.id);
       }
@@ -4177,6 +4304,20 @@ export default function Page() {
           ...prev,
           ...Object.fromEntries(uploadedNow.map((fieldId) => [fieldId, true])),
         }));
+      }
+
+      if (usesDirectDelivery(productType)) {
+        if (!directDeliveryUrl) {
+          const designFile = deliveryFiles.design;
+          if (!designFile) throw new Error("Missing final Design.png");
+          const upload = await uploadDeliverableToR2(
+            designFile,
+            getDeliveryFilename(activeDeliveryFields[0], designFile)
+          );
+          directDeliveryUrl = upload.url;
+        }
+        setDeliveryPdfUrl(directDeliveryUrl);
+        return;
       }
 
       const res = await fetch("/api/generate/delivery", {
@@ -4421,7 +4562,7 @@ export default function Page() {
     }
 
     if (!deliveryPdfUrl) {
-      setEtsyMessage("Generate the delivery PDF before syncing Etsy.");
+      setEtsyMessage("Prepare the delivery file before syncing Etsy.");
       return;
     }
 
@@ -4453,8 +4594,10 @@ export default function Page() {
               altText: item.altText,
               rank: index + 1,
             })),
-          deliveryPdfUrl,
-          deliveryPdfFilename: `${listingId || "delivery"}.pdf`,
+          deliveryFileUrl: deliveryPdfUrl,
+          deliveryFilename: usesDirectDelivery(productType)
+            ? "Design.png"
+            : `${listingId || "delivery"}.pdf`,
         }),
       });
 
@@ -5538,10 +5681,14 @@ export default function Page() {
                   </div>
 
                   <TextArea
-                    label="Midjourney prompt"
+                    label={productType === "png_designs" ? "Source design prompt" : "Midjourney prompt"}
                     value={midjourneyPrompt}
                     onChange={setMidjourneyPrompt}
-                    placeholder="Paste the original Midjourney prompt used to create the artwork."
+                    placeholder={
+                      productType === "png_designs"
+                        ? "Paste the prompt used to create the final PNG design."
+                        : "Paste the original Midjourney prompt used to create the artwork."
+                    }
                     rows={12}
                   />
                 </div>
@@ -5748,7 +5895,7 @@ export default function Page() {
                       target="_blank"
                       className="ml-2 font-semibold underline underline-offset-4"
                     >
-                      Open PDF
+                      {usesDirectDelivery(productType) ? "Open PNG" : "Open PDF"}
                     </a>
                   </div>
                 )}
@@ -6111,7 +6258,7 @@ export default function Page() {
                       <div className="text-xs text-neutral-500">
                         SEO generation uses this draft to load Etsy attributes. Sync sends title,
                         tags, description, selected attributes, mockup images with alt text, and
-                        the final delivery PDF to this draft.
+                        the final delivery file to this draft.
                       </div>
                     </div>
 
@@ -6304,8 +6451,9 @@ export default function Page() {
             >
               <div className="space-y-3 text-sm text-neutral-400">
                 <p>
-                  Generate listing SEO from the main artwork and its Midjourney
-                  prompt. The Etsy draft ID is required so Autolisty can load
+                  Generate listing SEO from the main artwork and its{" "}
+                  {productType === "png_designs" ? "source design" : "Midjourney"} prompt.
+                  The Etsy draft ID is required so Autolisty can load
                   valid attribute options for that listing category.
                 </p>
                 <ul className="space-y-2 text-sm text-neutral-500">
@@ -6606,7 +6754,7 @@ export default function Page() {
                               {scalePdfLoading ? (
                                 <>
                                   <Loader2 className="animate-spin" size={16} />
-                                  Generating PDF...
+                                  {usesDirectDelivery(scaleProductType) ? "Preparing PNG..." : "Generating PDF..."}
                                 </>
                               ) : (
                                 <>
@@ -6617,7 +6765,7 @@ export default function Page() {
                                     height={16}
                                     className="h-4 w-4 object-contain"
                                   />
-                                  Generate PDF
+                                  {usesDirectDelivery(scaleProductType) ? "Prepare PNG" : "Generate PDF"}
                                 </>
                               )}
                           </Button>
@@ -7067,9 +7215,13 @@ export default function Page() {
                                           : job.status === "syncing_etsy"
                                             ? "Syncing Etsy"
                                           : job.status === "generating_pdf"
-                                            ? "Generating PDF"
+                                            ? usesDirectDelivery(scaleProductType)
+                                              ? "Preparing PNG"
+                                              : "Generating PDF"
                                           : job.status === "pdf_complete"
-                                            ? "PDF ready"
+                                            ? usesDirectDelivery(scaleProductType)
+                                              ? "PNG ready"
+                                              : "PDF ready"
                                           : job.status === "generating_seo"
                                             ? "Generating SEO"
                                             : job.status === "seo_complete"
@@ -7149,7 +7301,7 @@ export default function Page() {
                                 <div className="mt-4 space-y-2">
                                   <div className="flex items-center justify-between gap-3">
                                     <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
-                                      Midjourney prompt
+                                      {scaleProductType === "png_designs" ? "Source design prompt" : "Midjourney prompt"}
                                     </div>
                                     <div className="flex items-center gap-2">
                                       {job.imageLabId ? (
@@ -7177,7 +7329,11 @@ export default function Page() {
                                   <textarea
                                     value={job.midjourneyPrompt}
                                     onChange={(e) => setScaleJobPrompt(job.id, e.target.value)}
-                                    placeholder="Paste the Midjourney prompt for this listing"
+                                    placeholder={
+                                      scaleProductType === "png_designs"
+                                        ? "Paste the prompt used to create this PNG design"
+                                        : "Paste the Midjourney prompt for this listing"
+                                    }
                                     rows={3}
                                     disabled={
                                       scaleUploading ||
@@ -7256,7 +7412,9 @@ export default function Page() {
                                   </div>
                                 ) : job.deliveryPdfUrl ? (
                                   <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-200">
-                                    Final PDF ready for this listing.
+                                    {usesDirectDelivery(scaleProductType)
+                                      ? "Final PNG ready for Etsy delivery."
+                                      : "Final PDF ready for this listing."}
                                   </div>
                                 ) : job.seoResult ? (
                                   <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-200">
@@ -7316,7 +7474,9 @@ export default function Page() {
                         />
                       ) : (
                         <div className="px-4 text-center text-sm text-neutral-500">
-                          No Midjourney design detected for this listing.
+                          {scaleProductType === "png_designs"
+                            ? "No final Design.png detected for this listing."
+                            : "No Midjourney design detected for this listing."}
                         </div>
                       )}
                     </div>

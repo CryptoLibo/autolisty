@@ -94,6 +94,8 @@ export async function POST(req: Request) {
       mockups?: SyncMockup[];
       deliveryPdfUrl?: string;
       deliveryPdfFilename?: string;
+      deliveryFileUrl?: string;
+      deliveryFilename?: string;
     };
 
     const draftListingId = String(body.draftListingId || "").trim();
@@ -125,10 +127,11 @@ export async function POST(req: Request) {
               attribute.values.length > 0
           )
       : [];
-    const deliveryPdfUrl = String(body.deliveryPdfUrl || "").trim();
-    const deliveryPdfFilename = String(body.deliveryPdfFilename || "").trim() || "delivery.pdf";
+    const deliveryFileUrl = String(body.deliveryFileUrl || body.deliveryPdfUrl || "").trim();
+    const deliveryFilename =
+      String(body.deliveryFilename || body.deliveryPdfFilename || "").trim() || "delivery.pdf";
 
-    if (!draftListingId || !title || !description || tags.length === 0 || !deliveryPdfUrl) {
+    if (!draftListingId || !title || !description || tags.length === 0 || !deliveryFileUrl) {
       return NextResponse.json(
         { error: "Missing required Etsy sync data." },
         { status: 400 }
@@ -274,14 +277,14 @@ export async function POST(req: Request) {
     }
 
     try {
-      const deliveryPdf = await fetchAsset(deliveryPdfUrl);
+      const deliveryFile = await fetchAsset(deliveryFileUrl);
       await uploadListingFile({
         token,
         shopId,
         listingId: draftListingId,
-        fileBuffer: deliveryPdf.fileBuffer,
-        contentType: deliveryPdf.contentType,
-        filename: deliveryPdfFilename,
+        fileBuffer: deliveryFile.fileBuffer,
+        contentType: deliveryFile.contentType,
+        filename: deliveryFilename,
       });
     } catch (error) {
       throw wrapStepError("Failed while uploading the Etsy digital file", error);

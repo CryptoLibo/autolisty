@@ -93,6 +93,7 @@ export const PRODUCT_OPTIONS: Array<{
   value: ProductType
   label: string
   delivery: {
+    mode: "pdf" | "direct"
     summary: string
     buttonLabel: string
     templateFile: string
@@ -103,6 +104,7 @@ export const PRODUCT_OPTIONS: Array<{
     value: "frame_tv_art",
     label: "Frame TV Art (Digital)",
     delivery: {
+      mode: "pdf",
       summary: "Upload the final artwork and instructions PDF to generate the customer delivery PDF.",
       buttonLabel: "Generate Delivery PDF",
       templateFile: "frame_tv_delivery.pdf",
@@ -127,6 +129,7 @@ export const PRODUCT_OPTIONS: Array<{
     value: "vertical_wall_art",
     label: "Vertical Wall Art",
     delivery: {
+      mode: "pdf",
       summary:
         "Upload the 5 vertical ratio files. The final PDF will link each button to the matching ratio download.",
       buttonLabel: "Generate Vertical Delivery PDF",
@@ -138,6 +141,7 @@ export const PRODUCT_OPTIONS: Array<{
     value: "horizontal_wall_art",
     label: "Horizontal Wall Art",
     delivery: {
+      mode: "pdf",
       summary:
         "Upload the 5 horizontal ratio files. The final PDF will link each button to the matching ratio download.",
       buttonLabel: "Generate Horizontal Delivery PDF",
@@ -149,11 +153,32 @@ export const PRODUCT_OPTIONS: Array<{
     value: "nursery_wall_art",
     label: "Nursery Wall Art",
     delivery: {
+      mode: "pdf",
       summary:
         "Upload the 5 nursery ratio files. Nursery uses the same vertical delivery structure with nursery-focused artwork and mockups.",
       buttonLabel: "Generate Nursery Delivery PDF",
       templateFile: "print_art_delivery.pdf",
       fields: VERTICAL_WALL_ART_FIELDS,
+    },
+  },
+  {
+    value: "png_designs",
+    label: "PNG Designs",
+    delivery: {
+      mode: "direct",
+      summary:
+        "Upload the final transparent PNG. Autolisty stores it in R2 and sends the same file directly to Etsy.",
+      buttonLabel: "Prepare PNG Delivery",
+      templateFile: "",
+      fields: [
+        {
+          id: "design",
+          label: "Final transparent PNG",
+          accept: "image/png",
+          filenameBase: "Design",
+          fallbackExtension: "png",
+        },
+      ],
     },
   },
 ]
@@ -163,7 +188,6 @@ export const PROMPT_LAB_PRODUCT_OPTIONS: Array<{
   label: string
 }> = [
   ...PRODUCT_OPTIONS.map(({ value, label }) => ({ value, label })),
-  { value: "png_designs", label: "PNG Designs" },
 ]
 
 export function normalizeProductType(value: unknown): ProductType {
@@ -191,6 +215,10 @@ export function isRatioWallArtProduct(productType: ProductType) {
 
 export function isHorizontalWallArtProduct(productType: ProductType) {
   return productType === "horizontal_wall_art"
+}
+
+export function usesDirectDelivery(productType: ProductType) {
+  return getProductOption(productType).delivery.mode === "direct"
 }
 
 export function getProductOption(productType: ProductType) {
