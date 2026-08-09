@@ -6,10 +6,10 @@
     "mandatory_terms": ["PNG", "| (Digital Download)"],
     "allow_variations": ["PNG", "Sublimation Design", "Shirt Graphic"],
     "structure": [
-      "VISIBLE_PHRASE_OR_SUBJECT",
+      "NICHE_AND_PRIMARY_SUBJECT",
       "PNG",
       ",",
-      "NICHE_AND_DESIGN_INTENT",
+      "OPTIONAL_SHORT_VISIBLE_PHRASE_OR_DESIGN_INTENT",
       ",",
       "AUDIENCE_OR_PHYSICAL_USE",
       "| (Digital Download)"
@@ -22,11 +22,15 @@
       "target_full_word_budget": true
     },
     "seo_priorities": {
-      "lead_with_visible_phrase_when_commercially_meaningful": true,
-      "otherwise_lead_with_concrete_subject_or_niche": true,
+      "always_lead_with_niche_and_primary_subject": true,
+      "visible_phrase_is_complementary_only": true,
+      "visible_phrase_max_words_in_title": 4,
+      "summarize_long_visible_text_as_search_intent": true,
       "require_semantic_coherence": true,
       "include_png_once": true,
       "vary_sublimation_and_use_terms_by_relevance": true,
+      "avoid_repeated_meaningful_word_roots": true,
+      "exclude_subjective_promotional_adjectives": true,
       "avoid_keyword_stuffing": true
     }
   },
@@ -45,6 +49,9 @@
     "source_inputs": ["design_image", "source_prompt"],
     "required_outputs": [
       "visible_phrase",
+      "niche_subject_phrase",
+      "complementary_phrase",
+      "audience_use_phrase",
       "primary_subject",
       "secondary_subject",
       "niche",

@@ -353,9 +353,11 @@ function titleCase(input: string) {
     .split(/\s+/)
     .filter(Boolean)
     .map((word) => {
-      const upper = word.toUpperCase()
+      const acronymMatch = word.match(/^([^A-Za-z0-9]*)(TV|AI|PNG|POD|DTF|CNA)([^A-Za-z0-9]*)$/i)
 
-      if (["TV", "AI", "PNG", "POD", "DTF", "CNA"].includes(upper)) return upper
+      if (acronymMatch) {
+        return `${acronymMatch[1]}${acronymMatch[2].toUpperCase()}${acronymMatch[3]}`
+      }
 
       if (word.startsWith("(") && word.endsWith(")")) {
         const inner = word.slice(1, -1)
@@ -1037,10 +1039,70 @@ function buildPngDesignTitle(
   maxCharacters: number
 ) {
   const suffix = "| (Digital Download)"
+  const subjectiveWords = new Set([
+    "adorable",
+    "aesthetic",
+    "amazing",
+    "beautiful",
+    "charming",
+    "cute",
+    "gorgeous",
+    "lovely",
+    "perfect",
+    "stunning",
+    "trendy",
+    "unique",
+  ])
+  const repeatableWords = new Set(["a", "an", "and", "before", "for", "of", "the", "to", "with"])
   const countWords = (value: string) =>
     value.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*/g)?.length || 0
 
-  let prefix = cleanText(rawTitle)
+  const sanitizePrefix = (value: string) => {
+    const seenRoots = new Set<string>()
+    const result: string[] = []
+
+    for (const token of value.split(/\s+/).filter(Boolean)) {
+      const word = normalizeWord(token)
+      const root = wordRoot(word)
+      const carriesComma = token.includes(",")
+
+      if (!root || subjectiveWords.has(root) || root === "digital" || root === "download") {
+        if (carriesComma && result.length > 0 && !result[result.length - 1].endsWith(",")) {
+          result[result.length - 1] += ","
+        }
+        continue
+      }
+
+      if (seenRoots.has(root) && !repeatableWords.has(root)) {
+        if (carriesComma && result.length > 0 && !result[result.length - 1].endsWith(",")) {
+          result[result.length - 1] += ","
+        }
+        continue
+      }
+
+      if (!repeatableWords.has(root)) seenRoots.add(root)
+      result.push(token)
+    }
+
+    return result
+      .join(" ")
+      .replace(/\s+,/g, ",")
+      .replace(/,+/g, ",")
+      .replace(/,\s*,/g, ",")
+      .replace(/^,|,$/g, "")
+      .trim()
+  }
+
+  const structuredBlocks = [
+    cleanText(components.niche_subject_phrase),
+    cleanText(components.complementary_phrase),
+    cleanText(components.audience_use_phrase),
+  ]
+  const structuredTitle = structuredBlocks[0]
+    ? `${structuredBlocks[0]} PNG${structuredBlocks[1] ? `, ${structuredBlocks[1]}` : ""}${structuredBlocks[2] ? `, ${structuredBlocks[2]}` : ""}`
+    : ""
+
+  let prefix = cleanText(structuredTitle || rawTitle)
     .replace(/\s*\|?\s*\(?digital download\)?\s*$/i, "")
     .replace(/\bPNG\b/gi, (match, offset, source) => {
       const before = source.slice(0, offset)
@@ -1058,7 +1120,14 @@ function buildPngDesignTitle(
       : `${prefix} PNG`
   }
 
-  prefix = titleCase(prefix).replace(/\bPng\b/g, "PNG")
+  prefix = sanitizePrefix(titleCase(prefix).replace(/\bPng\b/g, "PNG"))
+
+  if (!/\bPNG\b/i.test(prefix)) {
+    const commaIndex = prefix.indexOf(",")
+    prefix = commaIndex >= 0
+      ? `${prefix.slice(0, commaIndex).trim()} PNG, ${prefix.slice(commaIndex + 1).trim()}`
+      : `${prefix} PNG`
+  }
 
   const targetPrefixWords = Math.max(1, maxWords - 2)
   let tokens = prefix.split(/\s+/).filter(Boolean)
@@ -1068,14 +1137,16 @@ function buildPngDesignTitle(
   prefix = tokens.join(" ").replace(/[,:;|-]+$/g, "").trim()
 
   const expansionSources = [
-    components.visible_phrase,
+    components.niche_subject_phrase,
+    components.niche,
     components.primary_subject,
     components.secondary_subject,
     components.audience,
-    components.niche,
+    components.audience_use_phrase,
+    components.complementary_phrase,
     components.style,
     components.search_intent,
-    components.search_phrases,
+    countWords(cleanText(components.visible_phrase)) <= 4 ? components.visible_phrase : "",
     "Commercial Use",
     "Versatile Physical Product Graphic",
   ]
@@ -1089,8 +1160,10 @@ function buildPngDesignTitle(
 
     for (const addition of additions) {
       if (countWords(`${prefix} ${suffix}`) >= minWords) break
+      const root = wordRoot(addition)
+      if (!root || subjectiveWords.has(root)) continue
       if (new RegExp(`\\b${escapeRegex(addition)}\\b`, "i").test(prefix)) continue
-      prefix = `${prefix} ${titleCase(addition)}`.trim()
+      prefix = sanitizePrefix(`${prefix} ${titleCase(addition)}`)
     }
   }
 
@@ -1377,6 +1450,11 @@ YOUR TITLE GOAL
 - Do not turn the title into a completely new title.
 - Preserve the product type and overall keyword intent.
 - For wall art ratio products, avoid redundant constructions such as "Printable Print" or repeated product nouns.
+- For PNG Designs, never repeat the same meaningful word or close grammatical form. Preserve the design's meaning, then use complementary terms or synonyms across the title blocks.
+- For PNG Designs, the first title block must always be the primary niche plus the primary subject. Visible text is never the automatic lead.
+- For PNG Designs, visible text may appear only as a complementary phrase when it has 4 words or fewer and adds useful search meaning. Never copy a long sentence or paragraph from the artwork into the title.
+- For PNG Designs, remove subjective promotional adjectives such as cute, aesthetic, beautiful, perfect, lovely, adorable, stunning, gorgeous, amazing, unique, charming, or trendy. Those ideas belong in the description, not the title.
+- For PNG Designs, never leave a broad word such as Healthcare, Gift, Design, Graphic, or Sublimation dangling by itself at the end of a title block. Attach it to a meaningful buyer phrase.
 - Keep the title commercially strong, polished, and natural.
 
 YOUR GOAL
@@ -1554,6 +1632,8 @@ TITLE STRATEGY
 - Use the strongest subject, style, and decor context discovered from the image plus prompt.
 - Avoid stuffing disconnected words together.
 - Avoid awkward phrases such as "Printable Print", repeated product nouns, or keyword chunks with no connector.
+- Do not repeat a meaningful word anywhere in the title. If a visible phrase already contains a word such as coffee or nurse, use complementary language such as caffeine, healthcare, CNA, caregiver, medical worker, mug, apparel, or profession-specific terms later instead of repeating it.
+- Do not use subjective promotional adjectives in titles, including cute, aesthetic, beautiful, perfect, lovely, adorable, stunning, gorgeous, amazing, unique, charming, or trendy. Put that language in the description when useful.
 - Prefer a strong search phrase cluster over decorative adjectives.
 - If the product rules require a full word budget, use as much of that allowed budget as possible without breaking coherence.
 - For wall art ratio products, think in 3 clear blocks: subject cluster ending in "Print", style/decor cluster ending in "Wall Art", and a final "(Digital Download)" suffix.
@@ -1568,9 +1648,11 @@ PRODUCT-SPECIFIC SEO INTENT
 - For nursery_wall_art, keep the same wall art title structure, but make the buyer intent nursery-specific. Include nursery, baby room, kids room, or playroom intent naturally once in the title, preferably in the decor phrase, and avoid repeating nursery/baby/kids roots across the title.
 - For nursery_wall_art, tags and description keywords should acknowledge the nursery niche without becoming repetitive. Use nursery intent as one part of the SEO mix, then keep the rest focused on subject, style, mood, color, and decor context.
 - For png_designs, treat the uploaded transparent graphic as a reusable design for finished physical products, not as wall art and not as a T-shirt-only product.
-- For png_designs, identify any visible phrase accurately and lead with it when it has strong buyer search intent. Otherwise lead with the clearest niche, subject, or audience.
-- For png_designs, create a natural three-part title: visible phrase or subject plus PNG, niche/design intent, and audience or physical-use context, followed by the exact suffix "| (Digital Download)".
-- For png_designs, use exactly 13 or 14 words including "Digital Download", prefer 14, use PNG exactly once, and do not make Sublimation Design mandatory. Vary terms such as sublimation design, shirt graphic, printable graphic, commercial use, profession, hobby, season, and recipient only when they genuinely fit.
+- For png_designs, identify visible text accurately, but treat it as supporting information rather than the primary title strategy.
+- For png_designs, always lead with the strongest niche plus the primary subject, followed by PNG. This remains true for text-only designs: infer the niche, audience, profession, hobby, season, humor, or message intent instead of copying all the text.
+- For png_designs, create a natural three-part title: niche plus primary subject ending in PNG, a complementary design-intent block, and an audience or physical-use block, followed by the exact suffix "| (Digital Download)".
+- For png_designs, title_components.niche_subject_phrase must be a coherent 2-4 word phrase without PNG or format terms. title_components.complementary_phrase must be 2-4 words and may use the exact visible phrase only when that phrase has 4 words or fewer; otherwise summarize its search intent. title_components.audience_use_phrase must be a coherent 2-4 word buyer, profession, recipient, or physical-use phrase.
+- For png_designs, use exactly 13 or 14 words including "Digital Download", prefer 14, use PNG exactly once, and do not make Sublimation Design mandatory. Every meaningful word root should appear only once. Vary complementary terms such as sublimation design, shirt graphic, printable graphic, commercial use, profession, hobby, season, and recipient only when they genuinely fit.
 - For png_designs, never describe the file as SVG, editable, layered, a cut file, or a physical product.
 
 DESCRIPTION KEYWORDS STRATEGY
@@ -1645,6 +1727,9 @@ Return JSON in this exact shape:
 {
   "analysis": {
     "visible_phrase": "",
+    "niche_subject_phrase": "",
+    "complementary_phrase": "",
+    "audience_use_phrase": "",
     "primary_subject": "",
     "secondary_subject": "",
     "niche": "",
@@ -1658,6 +1743,9 @@ Return JSON in this exact shape:
     "search_phrases": []
   },
   "title_components": {
+    "niche_subject_phrase": "",
+    "complementary_phrase": "",
+    "audience_use_phrase": "",
     "search_core": "",
     "subject_phrase": "",
     "style_phrase": "",
