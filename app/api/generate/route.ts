@@ -353,7 +353,7 @@ function titleCase(input: string) {
     .split(/\s+/)
     .filter(Boolean)
     .map((word) => {
-      const acronymMatch = word.match(/^([^A-Za-z0-9]*)(TV|AI|PNG|POD|DTF|CNA)([^A-Za-z0-9]*)$/i)
+      const acronymMatch = word.match(/^([^A-Za-z0-9]*)(TV|AI|PNG|POD|DTF|CNA|RN|LPN|NICU)([^A-Za-z0-9]*)$/i)
 
       if (acronymMatch) {
         return `${acronymMatch[1]}${acronymMatch[2].toUpperCase()}${acronymMatch[3]}`
@@ -372,7 +372,7 @@ function titleCase(input: string) {
           .map((part) => {
             const partUpper = part.toUpperCase()
             if (!part) return part
-            if (["TV", "AI", "PNG", "POD", "DTF", "CNA"].includes(partUpper)) return partUpper
+            if (["TV", "AI", "PNG", "POD", "DTF", "CNA", "RN", "LPN", "NICU"].includes(partUpper)) return partUpper
             return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
           })
           .join("-")
@@ -1094,15 +1094,23 @@ function buildPngDesignTitle(
   }
 
   const structuredBlocks = [
-    cleanText(components.niche_subject_phrase),
-    cleanText(components.complementary_phrase),
-    cleanText(components.audience_use_phrase),
+    cleanText(components.buyer_search_phrase || components.niche_subject_phrase),
+    cleanText(components.design_hook_phrase || components.complementary_phrase),
+    cleanText(components.production_use_phrase || components.audience_use_phrase),
   ]
   const structuredTitle = structuredBlocks[0]
     ? `${structuredBlocks[0]} PNG${structuredBlocks[1] ? `, ${structuredBlocks[1]}` : ""}${structuredBlocks[2] ? `, ${structuredBlocks[2]}` : ""}`
     : ""
 
-  let prefix = cleanText(structuredTitle || rawTitle)
+  // Preserve the model's polished commercial phrasing. Structured components are
+  // a fallback only; rebuilding every pass used to overwrite good buyer language.
+  const rawCandidate = cleanText(rawTitle)
+  const weakCatalogLanguage = /\b(healthcare apparel|medical icons|versatile physical products?|commercial use graphic)\b/i
+  let prefix = cleanText(
+    weakCatalogLanguage.test(rawCandidate) && structuredTitle
+      ? structuredTitle
+      : rawCandidate || structuredTitle
+  )
     .replace(/\s*\|?\s*\(?digital download\)?\s*$/i, "")
     .replace(/\bPNG\b/gi, (match, offset, source) => {
       const before = source.slice(0, offset)
@@ -1137,33 +1145,27 @@ function buildPngDesignTitle(
   prefix = tokens.join(" ").replace(/[,:;|-]+$/g, "").trim()
 
   const expansionSources = [
-    components.niche_subject_phrase,
-    components.niche,
-    components.primary_subject,
-    components.secondary_subject,
-    components.audience,
+    components.production_use_phrase,
     components.audience_use_phrase,
+    components.design_hook_phrase,
     components.complementary_phrase,
-    components.style,
-    components.search_intent,
-    countWords(cleanText(components.visible_phrase)) <= 4 ? components.visible_phrase : "",
-    "Commercial Use",
-    "Versatile Physical Product Graphic",
+    "Sublimation Design",
+    "Physical Product Graphic",
   ]
 
   for (const source of expansionSources) {
     if (countWords(`${prefix} ${suffix}`) >= minWords) break
-    const additions = cleanText(source)
-      .split(/\s+/)
-      .map((word) => normalizeWord(word))
-      .filter(Boolean)
+    const phrase = cleanText(source)
+    if (!phrase) continue
 
-    for (const addition of additions) {
-      if (countWords(`${prefix} ${suffix}`) >= minWords) break
-      const root = wordRoot(addition)
-      if (!root || subjectiveWords.has(root)) continue
-      if (new RegExp(`\\b${escapeRegex(addition)}\\b`, "i").test(prefix)) continue
-      prefix = sanitizePrefix(`${prefix} ${titleCase(addition)}`)
+    const candidate = sanitizePrefix(`${prefix}, ${titleCase(phrase)}`)
+    const candidateWords = countWords(`${candidate} ${suffix}`)
+    if (
+      candidateWords <= maxWords &&
+      candidateWords > countWords(`${prefix} ${suffix}`) &&
+      `${candidate} ${suffix}`.length <= maxCharacters
+    ) {
+      prefix = candidate
     }
   }
 
@@ -1451,10 +1453,12 @@ YOUR TITLE GOAL
 - Preserve the product type and overall keyword intent.
 - For wall art ratio products, avoid redundant constructions such as "Printable Print" or repeated product nouns.
 - For PNG Designs, never repeat the same meaningful word or close grammatical form. Preserve the design's meaning, then use complementary terms or synonyms across the title blocks.
-- For PNG Designs, the first title block must always be the primary niche plus the primary subject. Visible text is never the automatic lead.
+- For PNG Designs, think like the buyer searching Etsy, not like an image-captioning system. The title must target a realistic product-intent query.
+- For PNG Designs, the first title block must be the strongest buyer search phrase combining the niche with the season, audience, subject, or intended physical product when relevant, such as "Halloween Nurse Shirt PNG". A physical-product word describes what the PNG is intended to make; never imply that the listing delivers that physical item.
 - For PNG Designs, visible text may appear only as a complementary phrase when it has 4 words or fewer and adds useful search meaning. Never copy a long sentence or paragraph from the artwork into the title.
 - For PNG Designs, remove subjective promotional adjectives such as cute, aesthetic, beautiful, perfect, lovely, adorable, stunning, gorgeous, amazing, unique, charming, or trendy. Those ideas belong in the description, not the title.
 - For PNG Designs, never leave a broad word such as Healthcare, Gift, Design, Graphic, or Sublimation dangling by itself at the end of a title block. Attach it to a meaningful buyer phrase.
+- For PNG Designs, prefer natural buyer vocabulary such as nurse shirt, teacher tee, mug design, or sublimation design. Avoid catalog-like abstractions such as "medical icons for healthcare apparel" when a direct shopping phrase exists.
 - Keep the title commercially strong, polished, and natural.
 
 YOUR GOAL
@@ -1549,6 +1553,23 @@ function buildTitleFromComponents(
   productConfig: ProductConfig
 ) {
   const suffix = getTitleSuffix(productConfig)
+  if (productConfig.normalization_rules?.title_format === "png_design_commas") {
+    const buyerSearchPhrase = cleanText(
+      components.buyer_search_phrase || components.niche_subject_phrase
+    )
+    const designHookPhrase = cleanText(
+      components.design_hook_phrase || components.complementary_phrase
+    )
+    const productionUsePhrase = cleanText(
+      components.production_use_phrase || components.audience_use_phrase
+    )
+
+    return `${buyerSearchPhrase} PNG${designHookPhrase ? `, ${designHookPhrase}` : ""}${productionUsePhrase ? `, ${productionUsePhrase}` : ""} ${suffix}`
+      .replace(/\s+/g, " ")
+      .replace(/\s+,/g, ",")
+      .trim()
+  }
+
   const productTerm =
     cleanText(components.product_term) ||
     getProductTerms(productConfig).preferred ||
@@ -1620,6 +1641,8 @@ ANALYSIS PRINCIPLES
 - Use the Midjourney prompt to clarify style, subject intent, mood, and missing visual clues.
 - Do not copy Midjourney syntax, weights, parameters, aspect ratios, or camera jargon into the final SEO.
 - Think like an Etsy SEO expert, not like an image captioning model.
+- Before writing the title, silently ask: "What would a buyer type to find a design like this, and what finished physical product do they intend to create?"
+- Treat visual description as evidence, not as the title outline. Translate that evidence into real buyer search language.
 - Prefer concrete, searchable language over vague aesthetic filler.
 - Choose terms that describe what buyers would actually search for on Etsy.
 
@@ -1647,13 +1670,17 @@ PRODUCT-SPECIFIC SEO INTENT
 - For horizontal_wall_art, treat the product as standard wall art for SEO. Do not mention horizontal, wide, orientation, ratio, dimensions, or landscape as a product orientation in the title, tags, or description keywords. Use landscape only when the artwork is genuinely a landscape scene.
 - For nursery_wall_art, keep the same wall art title structure, but make the buyer intent nursery-specific. Include nursery, baby room, kids room, or playroom intent naturally once in the title, preferably in the decor phrase, and avoid repeating nursery/baby/kids roots across the title.
 - For nursery_wall_art, tags and description keywords should acknowledge the nursery niche without becoming repetitive. Use nursery intent as one part of the SEO mix, then keep the rest focused on subject, style, mood, color, and decor context.
-- For png_designs, treat the uploaded transparent graphic as a reusable design for finished physical products, not as wall art and not as a T-shirt-only product.
+- For png_designs, treat the uploaded transparent graphic as a reusable design for finished physical products, not as wall art and not as a T-shirt-only product. However, when one intended product forms a strong real buyer query, it may lead the title, for example "Halloween Nurse Shirt PNG".
 - For png_designs, identify visible text accurately, but treat it as supporting information rather than the primary title strategy.
-- For png_designs, always lead with the strongest niche plus the primary subject, followed by PNG. This remains true for text-only designs: infer the niche, audience, profession, hobby, season, humor, or message intent instead of copying all the text.
-- For png_designs, create a natural three-part title: niche plus primary subject ending in PNG, a complementary design-intent block, and an audience or physical-use block, followed by the exact suffix "| (Digital Download)".
-- For png_designs, title_components.niche_subject_phrase must be a coherent 2-4 word phrase without PNG or format terms. title_components.complementary_phrase must be 2-4 words and may use the exact visible phrase only when that phrase has 4 words or fewer; otherwise summarize its search intent. title_components.audience_use_phrase must be a coherent 2-4 word buyer, profession, recipient, or physical-use phrase.
+- For png_designs, lead with the strongest realistic buyer query, followed by PNG. Build that query from the most commercially important combination of niche, season, audience, subject, and intended finished product. Do not mechanically lead with the largest object in the image.
+- For png_designs, create a natural three-part title: (1) buyer search phrase ending in PNG, (2) differentiating design hook or short visible phrase, and (3) searchable subject plus production use, followed by the exact suffix "| (Digital Download)".
+- For png_designs, title_components.buyer_search_phrase must be a coherent 3-5 word phrase without PNG or file-format terms. It should resemble a query a buyer would genuinely type, such as "Halloween Nurse Shirt" rather than "Medical Icons".
+- For png_designs, title_components.design_hook_phrase must be 2-4 words and may use the exact visible phrase only when it is short, legible, relevant, and commercially useful; otherwise express the concept, humor, season, or differentiator.
+- For png_designs, title_components.production_use_phrase must be a coherent 2-4 word phrase joining a concrete subject, audience, or production use. Never output disconnected object inventories such as "Stethoscope Cap".
+- For png_designs, do not use formal category language such as "healthcare apparel", "versatile physical product", or "commercial use graphic" merely to fill the word target. Prefer a direct long-tail phrase that carries search intent.
 - For png_designs, use exactly 13 or 14 words including "Digital Download", prefer 14, use PNG exactly once, and do not make Sublimation Design mandatory. Every meaningful word root should appear only once. Vary complementary terms such as sublimation design, shirt graphic, printable graphic, commercial use, profession, hobby, season, and recipient only when they genuinely fit.
 - For png_designs, never describe the file as SVG, editable, layered, a cut file, or a physical product.
+- Before returning a png_designs title, verify all three questions: Could a real buyer plausibly type the opening phrase? Does the rest distinguish this exact design? Is it unmistakable that the item sold is a digital PNG rather than the pictured physical product? Rewrite the title if any answer is no.
 
 DESCRIPTION KEYWORDS STRATEGY
 - Generate exactly 5 keyword phrases.
@@ -1727,6 +1754,9 @@ Return JSON in this exact shape:
 {
   "analysis": {
     "visible_phrase": "",
+    "buyer_search_phrase": "",
+    "design_hook_phrase": "",
+    "production_use_phrase": "",
     "niche_subject_phrase": "",
     "complementary_phrase": "",
     "audience_use_phrase": "",
@@ -1743,6 +1773,9 @@ Return JSON in this exact shape:
     "search_phrases": []
   },
   "title_components": {
+    "buyer_search_phrase": "",
+    "design_hook_phrase": "",
+    "production_use_phrase": "",
     "niche_subject_phrase": "",
     "complementary_phrase": "",
     "audience_use_phrase": "",
