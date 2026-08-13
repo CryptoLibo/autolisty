@@ -394,7 +394,7 @@ When several references are supplied:
 
 Analyze typography as part of the image: wording structure, tone, cadence, hierarchy, font personality and its relationship with illustration. Define how future wording can be original while preserving the successful message mechanism.
 
-The future output is an isolated, production-ready graphic on transparent background. Analyze silhouette, edge clarity, visual hierarchy and contrast that can remain readable across light and dark surfaces. Do not describe a shirt, mug, product, model, mockup or staged scene.
+The future output is an isolated, production-ready sticker-style graphic with a continuous opaque white outer border, presented on one perfectly flat removable background color that does not appear anywhere inside the artwork. Analyze silhouette, border continuity, edge clarity, visual hierarchy and contrast that can remain readable across light and dark surfaces after the solid background is removed. Do not describe a shirt, mug, product, model, mockup or staged scene.
 
 Return all fields required by the JSON schema. The reference_findings array must contain exactly ${referenceCount} items, numbered in attachment order.`,
           },
@@ -423,7 +423,7 @@ Return all fields required by the JSON schema. The reference_findings array must
         content: [
           {
             type: "input_text",
-            text: `You are an expert prompt director for commercially strong, original transparent-background graphics. Convert market intelligence into four distinct concepts without copying the source artwork. The primary niche is immutable. Return only valid JSON.`,
+            text: `You are an expert prompt director for commercially strong, original print-ready graphics designed for reliable background removal. Convert market intelligence into four distinct concepts without copying the source artwork. The primary niche is immutable. Return only valid JSON.`,
           },
         ],
       },
@@ -449,8 +449,12 @@ Non-negotiable rules:
 - Preserve the proven commercial mechanism, buyer identity, emotional intention and relevant trend signals.
 - If a concept contains text, include one exact NEW phrase in quotation marks, spell it correctly, keep it concise, and describe its typographic hierarchy. Do not ask the image model to invent wording.
 - If the reference succeeds without text, do not force text into every concept.
-- Describe only the final isolated graphic: transparent background, centered balanced composition, clean transparent margins, crisp print-ready edges, strong silhouette and intentional contrast.
-- Make the contrast system adaptable to both light and dark surfaces through a coherent outline, keyline, shadow or palette separation when aesthetically appropriate. Do not mention those products or surfaces in the prompt.
+- Describe only the final isolated graphic in a polished sticker-style treatment: centered balanced composition, generous clean margins, crisp print-ready edges, strong silhouette and intentional contrast.
+- Every concept must have a clearly visible, opaque white outer border around the complete artwork. The border must be continuous, smooth, consistently thick and outside the artwork rather than covering its internal colors. Apply the same white border around every detached supporting element so no star, icon, letter or small motif is left unprotected.
+- Place the entire bordered design on one perfectly uniform, flat, solid-color background. Choose a vivid background color that is clearly absent from every part of the artwork, including its text, illustration, accents, shadows and white border. If a candidate color appears anywhere in the design, choose a different high-contrast background color.
+- The removable background must have exactly one color from edge to edge: no gradient, texture, noise, lighting, vignette, pattern, checkerboard, transparency simulation, color variation or cast shadow.
+- Keep all artwork inside the white border fully opaque. Do not use glow, feathering, translucent effects or soft exterior shadows beyond the border. These production constraints must be stated explicitly inside each generated prompt, not merely implied by this instruction.
+- Make the internal contrast system adaptable to both light and dark surfaces through palette separation and the mandatory white border. Do not mention those products or surfaces in the prompt.
 - Never mention PNG, file, download, dimensions, Etsy, sublimation, merchandise, shirt, t-shirt, mug, hat, ornament, product, mockup, model, room, scene presentation, or generation parameters.
 - Include concrete SEO-useful visual information naturally: niche, audience or identity, original phrase when present, subjects, style, palette, typography, motifs, composition, finish and mood.
 - Keep each prompt visually precise enough to generate directly in Kittl or another image model.
@@ -460,7 +464,7 @@ Non-negotiable rules:
 - kept_from_reference lists abstract trend mechanisms only, never copyable expressions.
 - changed_from_reference identifies the concrete transformations that make the concept original.
 
-Before returning, silently reject any concept that drifts from the primary niche, copies a reference, produces a mockup, lacks transparent-background production logic, or uses vague filler language.`,
+Before returning, silently reject and rewrite any concept that drifts from the primary niche, copies a reference, produces a mockup, omits the continuous white sticker border, uses a background color found inside the artwork, describes transparency or a checkerboard, adds variation to the solid background, or uses vague filler language.`,
           },
           ...referenceImages,
         ],
