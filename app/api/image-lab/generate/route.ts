@@ -1,4 +1,5 @@
 import OpenAI from "openai"
+import { requireOwnerApi } from "@/lib/auth/owner"
 import { normalizeProductType } from "@/lib/products"
 import { ImageLabQuality, ImageLabSize } from "@/lib/r2/imageLab"
 
@@ -46,6 +47,9 @@ function buildPrompt(prompt: string, productType: ReturnType<typeof normalizePro
 }
 
 export async function POST(req: Request) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   try {
     const body = await req.json()
     const productType = normalizeProductType(body?.productType)

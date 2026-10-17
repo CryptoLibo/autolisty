@@ -46,6 +46,13 @@ Required environment variable names currently used by the app:
 - `ETSY_API_KEY`
 - `ETSY_SHARED_SECRET`
 - `ETSY_REDIRECT_URI`
+- `AUTOMATION_DB_PATH` (required before enabling production Automation)
+- `AUTH_GITHUB_ID`
+- `AUTH_GITHUB_SECRET`
+- `AUTH_SECRET`
+- `AUTH_TRUST_HOST`
+- `AUTOLISTY_GITHUB_USER_ID`
+- `AUTOMATION_AGENT_TOKEN_SHA256` (server-side hash of the old PC machine token)
 
 ## Domains
 
@@ -63,6 +70,11 @@ The primary UI is in `app/page.tsx` and has three workspaces:
 - Prompt Lab: analyzes a reference image and generates Midjourney-ready prompt sets.
 - Listing: high-touch workflow for one Etsy listing at a time.
 - Scale: batch workflow for importing and processing many listing folders.
+
+Automation is being added as a persistent operating mode. Its server-side SQLite
+database is separate from R2 and stores only queue state, identifiers, metadata,
+events, and retry information. Production should set `AUTOMATION_DB_PATH` to an
+absolute path outside the Git checkout so deployments cannot replace the database.
 
 Supporting public pages:
 
@@ -144,6 +156,7 @@ Current product types:
 - `vertical_wall_art`
 - `horizontal_wall_art`
 - `nursery_wall_art`
+- `png_designs`
 
 Legacy note:
 

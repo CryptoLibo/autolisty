@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { requireOwnerApi } from "@/lib/auth/owner";
 import { ETSY_AUTH_COOKIE, EtsyTokenPayload } from "@/lib/etsy/auth";
 import { ensureFreshToken } from "@/lib/etsy/client";
 import { getPrimaryShop, getShopListing } from "@/lib/etsy/listings";
@@ -7,6 +8,9 @@ import { getPrimaryShop, getShopListing } from "@/lib/etsy/listings";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  const unauthorized = await requireOwnerApi();
+  if (unauthorized) return unauthorized;
+
   const cookieStore = await cookies();
   const raw = cookieStore.get(ETSY_AUTH_COOKIE)?.value;
 

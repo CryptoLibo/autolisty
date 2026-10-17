@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { normalizeProductType, ProductType } from "@/lib/products";
+import { requireOwnerApi } from "@/lib/auth/owner";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -580,6 +581,9 @@ function getProductCreativeContext(productType: ProductType) {
 }
 
 export async function POST(request: Request) {
+  const unauthorized = await requireOwnerApi();
+  if (unauthorized) return unauthorized;
+
   try {
     const formData = await request.formData();
     const rawProductType = String(formData.get("productType") || "frame_tv_art");

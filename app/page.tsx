@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { AutomationWorkspace } from "@/app/_components/AutomationWorkspace";
 import { SiteFooter } from "@/app/_components/SiteFooter";
+import { signOutOfAutolisty } from "@/app/actions/auth";
 import { generateListingId } from "@/lib/utils/generateListingId";
 import {
   DeliveryField,
@@ -39,9 +41,11 @@ import {
   Layers3,
   LayoutDashboard,
   Menu,
+  LogOut,
   Save,
   Trash2,
   Wand2,
+  Workflow,
 } from "lucide-react";
 
 type MediaItem = {
@@ -180,7 +184,7 @@ type EtsyAttributeInspectionResponse = {
   error?: string;
 };
 
-type AppSection = "prompt" | "image" | "single" | "batch";
+type AppSection = "prompt" | "image" | "single" | "batch" | "automation";
 
 type PromptLabResult = {
   summary: string;
@@ -289,6 +293,7 @@ function readStoredActiveSection(): AppSection {
   if (value === "batch") return "batch";
   if (value === "single") return "single";
   if (value === "image") return "image";
+  if (value === "automation") return "automation";
   return "prompt";
 }
 
@@ -4713,6 +4718,8 @@ export default function Page() {
                   ? "Image Lab"
                 : activeSection === "single"
                   ? "Listing"
+                  : activeSection === "automation"
+                    ? "Automation"
                   : "Scale"}
             </div>
           </div>
@@ -4788,14 +4795,33 @@ export default function Page() {
                   }}
                   icon={<Layers3 size={18} />}
                 />
+                <SidebarNavItem
+                  title="Automation"
+                  subtitle="Feed and control the unattended production queue."
+                  active={activeSection === "automation"}
+                  onClick={() => {
+                    setActiveSection("automation");
+                    setWorkspaceOpen(false);
+                  }}
+                  icon={<Workflow size={18} />}
+                />
               </div>
+              <form action={signOutOfAutolisty} className="mt-auto border-t border-neutral-800 pt-4">
+                <button
+                  type="submit"
+                  className="flex w-full items-center gap-3 border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-300 transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-200"
+                >
+                  <LogOut size={17} />
+                  Sign out
+                </button>
+              </form>
             </div>
           </div>
         </div>
       ) : null}
 
       <div className="mx-auto max-w-7xl px-5 py-5 sm:px-6 lg:px-8">
-        <div className="flex flex-col items-center gap-3 pb-8 pt-2 text-center">
+        <div className="flex flex-col items-center gap-3 pb-8 pt-20 text-center sm:pt-2">
           <Image
             src="/logo-final.png"
             alt="Autolisty"
@@ -6597,6 +6623,8 @@ export default function Page() {
             </Card>
               </div>
             </div>
+            ) : activeSection === "automation" ? (
+              <AutomationWorkspace />
             ) : activeSection === "batch" ? (
               <div className="space-y-6">
                 <Card

@@ -1,4 +1,5 @@
 import { normalizeProductType } from "@/lib/products"
+import { requireOwnerApi } from "@/lib/auth/owner"
 import {
   deleteImageLabApprovedImage,
   getImageLabMetadata,
@@ -19,6 +20,9 @@ function normalizeStatus(value: unknown): ImageLabStatus {
 }
 
 export async function GET(req: Request) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   try {
     const url = new URL(req.url)
     const rawProductType = url.searchParams.get("productType")
@@ -39,6 +43,9 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   try {
     const body = await req.json()
     const productType = normalizeProductType(body?.productType)
@@ -60,6 +67,9 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   try {
     const body = await req.json()
     const productType = normalizeProductType(body?.productType)

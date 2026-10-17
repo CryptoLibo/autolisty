@@ -7,6 +7,7 @@ import { ensureFreshToken } from "@/lib/etsy/client"
 import { getSellerTaxonomyProperties } from "@/lib/etsy/attributes"
 import { getPrimaryShop, getShopListing } from "@/lib/etsy/listings"
 import { normalizeProductType } from "@/lib/products"
+import { requireOwnerApi } from "@/lib/auth/owner"
 
 export const runtime = "nodejs"
 export const maxDuration = 180
@@ -1589,6 +1590,9 @@ function buildTitleFromComponents(
 }
 
 export async function POST(req: Request) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   try {
     const body = await req.json()
 

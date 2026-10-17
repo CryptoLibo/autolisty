@@ -1,5 +1,6 @@
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
+import { requireOwnerApi } from "@/lib/auth/owner"
 import {
   PINTEREST_AUTH_COOKIE,
   PINTEREST_PKCE_COOKIE,
@@ -8,6 +9,9 @@ import {
 export const runtime = "nodejs"
 
 export async function POST() {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   const cookieStore = await cookies()
   cookieStore.delete(PINTEREST_AUTH_COOKIE)
   cookieStore.delete(PINTEREST_PKCE_COOKIE)

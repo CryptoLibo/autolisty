@@ -1,5 +1,6 @@
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
+import { requireOwnerApi } from "@/lib/auth/owner"
 import {
   PinterestTokenPayload,
   PINTEREST_AUTH_COOKIE,
@@ -9,6 +10,9 @@ import { ensureFreshPinterestToken, pinterestFetch } from "@/lib/pinterest/clien
 export const runtime = "nodejs"
 
 export async function POST(req: Request) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   const cookieStore = await cookies()
   const raw = cookieStore.get(PINTEREST_AUTH_COOKIE)?.value
 

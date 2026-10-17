@@ -1,4 +1,5 @@
 import { normalizeProductType } from "@/lib/products"
+import { requireOwnerApi } from "@/lib/auth/owner"
 import {
   ImageLabQuality,
   ImageLabSize,
@@ -30,6 +31,9 @@ function normalizeSize(value: unknown): ImageLabSize {
 }
 
 export async function POST(req: Request) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   try {
     const body = await req.json()
     const productType = normalizeProductType(body?.productType)

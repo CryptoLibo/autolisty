@@ -1,5 +1,6 @@
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
+import { requireOwnerApi } from "@/lib/auth/owner"
 import {
   buildPinterestAuthorizeUrl,
   createPinterestPkcePair,
@@ -9,6 +10,9 @@ import {
 export const runtime = "nodejs"
 
 export async function GET(req: Request) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   try {
     const { state, codeVerifier, codeChallenge } = createPinterestPkcePair()
     const cookieStore = await cookies()

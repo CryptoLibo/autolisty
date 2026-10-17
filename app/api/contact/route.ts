@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import nodemailer from "nodemailer";
+import nodemailer from "nodemailer9";
 
 export const runtime = "nodejs";
 

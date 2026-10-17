@@ -1,4 +1,5 @@
 import OpenAI from "openai"
+import { requireOwnerApi } from "@/lib/auth/owner"
 
 export const runtime = "nodejs"
 export const maxDuration = 180
@@ -21,6 +22,9 @@ function normalizePinDescription(description: unknown) {
 }
 
 export async function POST(req: Request) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   try {
     const body = await req.json()
     const {

@@ -1,0 +1,28 @@
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);height:100vh;background:#f5f6f7;color:#20272b;font-family:Arial,Helvetica,sans-serif}
+.sidebar{background:#f9fafb;border-right:1px solid #d9dfe2;display:flex;flex-direction:column;min-height:0;padding:18px 12px;gap:16px}
+.brand{display:flex;align-items:center;gap:10px;padding:3px 5px;font-size:15px}
+.icon{width:32px;height:32px;border:0;background:transparent;color:#334148;display:grid;place-items:center;cursor:pointer}
+.icon:hover{background:#e8edef}
+.newButton{height:40px;border:1px solid #c5d0d4;background:white;color:#253138;display:flex;align-items:center;gap:9px;padding:0 12px;cursor:pointer;font-size:13px}
+.newButton:hover{background:#edf5f3}
+.sideLabel{color:#77848b;font-size:11px;text-transform:uppercase;font-weight:700;padding:0 8px}
+.conversationList{overflow:auto;display:flex;flex-direction:column;gap:3px;min-height:0}
+.conversation{border:0;background:transparent;color:#34434a;text-align:left;padding:10px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;font-size:13px}
+.conversation:hover,.selected{background:#e3ece9}
+.budget{margin-top:auto;border-top:1px solid #d9dfe2;padding:15px 8px 0;font-size:12px;color:#607078;line-height:1.6}
+.budget strong{display:block;color:#164b43;font-size:17px}.budget small{display:block;font-size:11px}
+.main{min-width:0;display:flex;flex-direction:column;min-height:0}
+.header{height:64px;background:#fff;border-bottom:1px solid #d9dfe2;display:flex;align-items:center;justify-content:space-between;padding:0 24px;flex:none}
+.header div{display:flex;flex-direction:column;gap:3px}.header strong{font-size:15px}.header span{font-size:11px;color:#718087}
+.header .nameEdit{display:flex;flex-direction:row;align-items:center;gap:5px}.nameEdit input{width:min(180px,45vw);height:32px;border:1px solid #bac7c9;padding:0 8px;font:inherit}
+.history{flex:1;overflow:auto;padding:26px max(24px,calc((100% - 780px)/2));display:flex;flex-direction:column;gap:18px}
+.turn{display:flex;flex-direction:column;gap:12px;border-bottom:1px solid #d9dfe2;padding-bottom:18px}
+.empty{margin:auto;color:#65757b;font-size:15px;text-align:center;max-width:450px;line-height:1.5}
+.message{max-width:100%;font-size:14px;line-height:1.6}.speaker{font-weight:700;font-size:12px;margin-bottom:5px;color:#237061}.messageText{white-space:pre-wrap;overflow-wrap:anywhere}
+.user{align-self:flex-end;background:#e4ece9;padding:13px 17px;max-width:78%}.user .speaker{color:#344b44}.assistant{align-self:stretch;padding:4px 0}
+.status{font-size:12px;color:#68777d;padding:8px 0}.report{border-top:1px solid #d9dfe2;padding:15px 0;font-size:13px}.report summary{cursor:pointer;font-weight:700;margin-bottom:10px}.report a{color:#126f69}
+.usage{font-size:12px;color:#53636a}.usage summary{cursor:pointer}.callList{border-top:1px solid #d9dfe2;margin-top:9px}.callRow{display:flex;flex-wrap:wrap;gap:4px 14px;justify-content:space-between;border-bottom:1px solid #d9dfe2;padding:7px 0;color:#53636a}
+.error{color:#a52d2d;font-size:12px;padding:8px 24px;text-align:center}
+.composer{margin:0 auto 20px;width:min(780px,calc(100% - 48px));border:1px solid #becbd0;background:white;display:flex;align-items:flex-end;padding:8px;gap:8px;flex:none}
+.composer textarea{border:0;outline:0;resize:vertical;min-height:70px;max-height:180px;flex:1;font:14px/1.5 Arial,Helvetica,sans-serif;color:#20272b;background:transparent;padding:7px}.composer button{width:34px;height:34px;display:grid;place-items:center;border:0;background:#167568;color:white;cursor:pointer}.composer button:disabled{opacity:.4;cursor:default}
+@media(max-width:680px){.shell{grid-template-columns:1fr}.sidebar{height:auto;padding:8px 12px;gap:6px;border-right:0;border-bottom:1px solid #d9dfe2}.brand{padding:0}.sideLabel,.conversationList,.budget{display:none}.newButton{position:absolute;right:12px;top:8px}.header{height:52px;padding:0 14px}.history{padding:17px 16px}.composer{width:calc(100% - 24px);margin-bottom:12px}.user{max-width:92%}}

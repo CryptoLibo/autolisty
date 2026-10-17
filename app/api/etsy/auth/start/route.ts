@@ -1,10 +1,14 @@
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
+import { requireOwnerApi } from "@/lib/auth/owner"
 import { buildEtsyAuthorizeUrl, createPkcePair, ETSY_PKCE_COOKIE } from "@/lib/etsy/auth"
 
 export const runtime = "nodejs"
 
 export async function GET(req: Request) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   try {
     const { state, codeVerifier, codeChallenge } = createPkcePair()
     const cookieStore = await cookies()

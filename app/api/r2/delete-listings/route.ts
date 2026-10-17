@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server"
+import { requireOwnerApi } from "@/lib/auth/owner"
 import { deleteListingAssets, isValidListingId } from "@/lib/r2/deleteListingAssets"
 
 export async function POST(req: Request) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   try {
     const body = (await req.json()) as { listingIds?: string[] }
     const listingIds = Array.isArray(body.listingIds) ? body.listingIds : []

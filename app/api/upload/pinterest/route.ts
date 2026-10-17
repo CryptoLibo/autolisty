@@ -1,6 +1,10 @@
 import { uploadPinterestImage } from "@/lib/r2/uploadPinterestImage"
+import { requireOwnerApi } from "@/lib/auth/owner"
 
 export async function POST(req: Request) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+
   const formData = await req.formData()
 
   const file = formData.get("file") as File
