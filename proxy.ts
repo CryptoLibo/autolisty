@@ -1,6 +1,7 @@
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server"
 import { auth } from "@/auth"
 import { isLocalDevAccess } from "@/lib/auth/local-dev"
+import { expectedRequestOrigin } from "@/lib/auth/request-origin"
 
 const PUBLIC_PAGES = new Set([
   "/login",
@@ -43,7 +44,7 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
   const { pathname } = request.nextUrl
   const host = request.headers.get("host") || ""
   const localDevAccess = isLocalDevAccess(host.split(":")[0])
-  const expectedOrigin = localDevAccess ? `http://${host}` : request.nextUrl.origin
+  const expectedOrigin = expectedRequestOrigin(host, request.nextUrl.origin, process.env.AUTH_URL, localDevAccess)
   if (
     pathname.startsWith("/api/") &&
     !pathname.startsWith("/api/auth/") &&
