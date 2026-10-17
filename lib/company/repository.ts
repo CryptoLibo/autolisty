@@ -37,6 +37,18 @@ export class CompanyRepository {
     })()
   }
 
+  linkTelegramConversation(chatId: string, conversationId: string) {
+    if (!this.getConversation(conversationId)) throw new Error("Conversation not found.")
+    this.db.prepare(`INSERT INTO company_telegram_chats(chat_id,conversation_id,created_at) VALUES(?,?,?)
+      ON CONFLICT(chat_id) DO UPDATE SET conversation_id=excluded.conversation_id`)
+      .run(chatId, conversationId, now())
+  }
+
+  isTelegramConversation(chatId: string, conversationId: string) {
+    const row = this.db.prepare("SELECT conversation_id FROM company_telegram_chats WHERE chat_id=?").get(chatId) as { conversation_id: string } | undefined
+    return row?.conversation_id === conversationId
+  }
+
   receiveTelegramUpdate(updateId: number, chatId: string, content: string) {
     return this.db.transaction(() => {
       const existing = this.telegramUpdate(updateId)

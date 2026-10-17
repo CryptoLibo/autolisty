@@ -1,14 +1,14 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { ArrowLeft, ArrowUp, Check, Pencil, Plus, RefreshCw, X } from "lucide-react"
+import { ArrowLeft, ArrowUp, Check, Link2, Pencil, Plus, RefreshCw, X } from "lucide-react"
 import Link from "next/link"
 import styles from "./workspace.module.css"
 
 type Conversation = { id: string; first_message: string | null; updated_at: string }
 type Message = { id: string; role: string; content: string }
 type Task = { id: string; owner_message_id: string; status: string; stage: string; last_error: string | null; report?: { content: string; sources_json: string } | null; calls: Array<{ agent_id: string; model: string; input_tokens: number | null; output_tokens: number | null; web_calls: number | null; model_usd: number; tool_usd: number; status: string }> }
-type Snapshot = { messages: Message[]; tasks: Task[]; budget: { total: number; model: number; tools: number; cap: number; remaining: number; localDailyTokens: { dayUtc: string; main: { used: number; limit: number }; economy: { used: number; limit: number } } } }
+type Snapshot = { messages: Message[]; tasks: Task[]; telegramLinked: boolean; budget: { total: number; model: number; tools: number; cap: number; remaining: number; localDailyTokens: { dayUtc: string; main: { used: number; limit: number }; economy: { used: number; limit: number } } } }
 
 async function jsonRequest(url: string, init?: RequestInit) {
   const response = await fetch(url, init)
@@ -50,6 +50,14 @@ export default function CompanyWorkspace() {
       setCeoName(data.name)
       setEditingName(false)
       setError("")
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+  }
+  async function linkTelegram() {
+    if (!selected) return
+    setError("")
+    try {
+      await jsonRequest("/api/company/telegram/link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId: selected }) })
+      await refresh(selected)
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
   useEffect(() => {
@@ -109,7 +117,7 @@ export default function CompanyWorkspace() {
       <div className={styles.budget}>Reserva de prueba<br/><strong>${(snapshot?.budget.total || 0).toFixed(3)} / ${(snapshot?.budget.cap || 5).toFixed(2)}</strong><small>Tarifa calculada + reservas; no es el cargo oficial</small>{snapshot && <small>Tokens Company hoy (UTC): {snapshot.budget.localDailyTokens.main.used.toLocaleString("es-ES")} / 250.000 principal · {snapshot.budget.localDailyTokens.economy.used.toLocaleString("es-ES")} / 2.500.000 económico. No incluye otros usos de tu cuenta.</small>}</div>
     </aside>
     <section className={styles.main}>
-      <header className={styles.header}><div>{editingName ? <div className={styles.nameEdit}><input aria-label="Nombre del CEO" maxLength={40} value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false) }}/><button className={styles.icon} title="Guardar nombre" onClick={saveName}><Check size={16}/></button><button className={styles.icon} title="Cancelar" onClick={() => setEditingName(false)}><X size={16}/></button></div> : <div className={styles.nameEdit}><strong>{ceoName}</strong><button className={styles.icon} title="Cambiar nombre" onClick={() => { setNameDraft(ceoName); setEditingName(true) }}><Pencil size={15}/></button></div>}<span>Dirección general</span></div><button className={styles.icon} title="Actualizar" onClick={() => selected && refresh(selected).catch((e) => setError(String(e)))}><RefreshCw size={18}/></button></header>
+      <header className={styles.header}><div>{editingName ? <div className={styles.nameEdit}><input aria-label="Nombre del CEO" maxLength={40} value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false) }}/><button className={styles.icon} title="Guardar nombre" onClick={saveName}><Check size={16}/></button><button className={styles.icon} title="Cancelar" onClick={() => setEditingName(false)}><X size={16}/></button></div> : <div className={styles.nameEdit}><strong>{ceoName}</strong><button className={styles.icon} title="Cambiar nombre" onClick={() => { setNameDraft(ceoName); setEditingName(true) }}><Pencil size={15}/></button></div>}<span>Dirección general</span></div><div className={styles.nameEdit}>{selected && <button className={styles.icon} onClick={linkTelegram} disabled={snapshot?.telegramLinked} title={snapshot?.telegramLinked ? "Telegram vinculado" : "Vincular esta conversación con Telegram"} aria-label={snapshot?.telegramLinked ? "Telegram vinculado" : "Vincular Telegram"}>{snapshot?.telegramLinked ? <Check size={18}/> : <Link2 size={18}/>}</button>}<button className={styles.icon} title="Actualizar" onClick={() => selected && refresh(selected).catch((e) => setError(String(e)))}><RefreshCw size={18}/></button></div></header>
       <div className={styles.history}>
         {!snapshot?.messages.length && <div className={styles.empty}>Habla con el CEO sobre una idea, pide una explicación o encarga una investigación.</div>}
         {snapshot?.tasks.map((task, taskIndex) => {

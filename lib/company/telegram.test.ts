@@ -35,4 +35,16 @@ describe("Telegram Company adapter", () => {
       expect(repo.messages(repo.telegramConversation("123"))).toHaveLength(3)
     } finally { db.close() }
   })
+
+  it("links the authorized chat to an existing web conversation", () => {
+    const db = openCompanyDatabase(":memory:")
+    try {
+      const repo = new CompanyRepository(db)
+      const webConversation = repo.createConversation()
+      repo.linkTelegramConversation("123", webConversation)
+      expect(repo.isTelegramConversation("123", webConversation)).toBe(true)
+      expect(repo.telegramConversation("123")).toBe(webConversation)
+      expect(repo.listConversations()).toHaveLength(1)
+    } finally { db.close() }
+  })
 })

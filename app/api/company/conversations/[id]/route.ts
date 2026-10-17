@@ -15,7 +15,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const tasks = repository.tasks(id)
   return NextResponse.json({ messages: repository.messages(id), tasks: tasks.map((task) => ({
     ...task, report: repository.report(task.id), calls: repository.calls(task.id), events: repository.events(task.id),
-  })), budget: { ...repository.spend(), localDailyTokens: repository.localDailyTokens() } })
+  })), telegramLinked: repository.isTelegramConversation(process.env.TELEGRAM_ALLOWED_CHAT_ID || "", id), budget: { ...repository.spend(), localDailyTokens: repository.localDailyTokens() } })
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {

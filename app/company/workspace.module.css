@@ -3,6 +3,7 @@
 .brand{display:flex;align-items:center;gap:10px;padding:3px 5px;font-size:15px}
 .icon{width:32px;height:32px;border:0;background:transparent;color:#334148;display:grid;place-items:center;cursor:pointer}
 .icon:hover{background:#e8edef}
+.icon:disabled{color:#167568;cursor:default}
 .newButton{height:40px;border:1px solid #c5d0d4;background:white;color:#253138;display:flex;align-items:center;gap:9px;padding:0 12px;cursor:pointer;font-size:13px}
 .newButton:hover{background:#edf5f3}
 .sideLabel{color:#77848b;font-size:11px;text-transform:uppercase;font-weight:700;padding:0 8px}
