@@ -1,13 +1,14 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { ArrowLeft, ArrowUp, Check, Link2, Pencil, Plus, RefreshCw, X } from "lucide-react"
+import { ArrowLeft, ArrowUp, Building2, Check, Link2, Pencil, Plus, RefreshCw, X } from "lucide-react"
 import Link from "next/link"
 import styles from "./workspace.module.css"
+import DesignReview from "./design-review"
 
 type Conversation = { id: string; first_message: string | null; updated_at: string }
 type Message = { id: string; role: string; content: string }
-type Task = { id: string; owner_message_id: string; status: string; stage: string; last_error: string | null; report?: { content: string; sources_json: string } | null; calls: Array<{ agent_id: string; model: string; input_tokens: number | null; output_tokens: number | null; web_calls: number | null; model_usd: number; tool_usd: number; status: string }> }
+type Task = { id: string; owner_message_id: string; status: string; stage: string; last_error: string | null; report?: { content: string; sources_json: string } | null; artifacts: Array<{ id: string; kind: string; content: string; data_json: string | null }>; designReviews: Array<{ concept_index: number; verdict: string; notes: string; kittl_url: string | null }>; calls: Array<{ agent_id: string; model: string; input_tokens: number | null; output_tokens: number | null; web_calls: number | null; model_usd: number; tool_usd: number; status: string }> }
 type Snapshot = { messages: Message[]; tasks: Task[]; telegramLinked: boolean; budget: { total: number; model: number; tools: number; cap: number; remaining: number; localDailyTokens: { dayUtc: string; main: { used: number; limit: number }; economy: { used: number; limit: number } } } }
 
 async function jsonRequest(url: string, init?: RequestInit) {
@@ -64,7 +65,7 @@ export default function CompanyWorkspace() {
     if (selected) jsonRequest(`/api/company/conversations/${selected}`).then((data: Snapshot) => setSnapshot(data)).catch((e) => setError(String(e)))
   }, [selected])
 
-  const active = snapshot?.tasks.find((task) => ["PENDING", "RESEARCH_READY", "SYNTHESIS_READY"].includes(task.status))
+  const active = snapshot?.tasks.find((task) => ["PENDING", "RESEARCH_READY", "DESIGN_READY", "SYNTHESIS_READY"].includes(task.status))
   useEffect(() => {
     if (!selected || !active || busy) return
     const timer = setTimeout(async () => {
@@ -117,7 +118,7 @@ export default function CompanyWorkspace() {
       <div className={styles.budget}>Reserva de prueba<br/><strong>${(snapshot?.budget.total || 0).toFixed(3)} / ${(snapshot?.budget.cap || 5).toFixed(2)}</strong><small>Tarifa calculada + reservas; no es el cargo oficial</small>{snapshot && <small>Tokens Company hoy (UTC): {snapshot.budget.localDailyTokens.main.used.toLocaleString("es-ES")} / 250.000 principal · {snapshot.budget.localDailyTokens.economy.used.toLocaleString("es-ES")} / 2.500.000 económico. No incluye otros usos de tu cuenta.</small>}</div>
     </aside>
     <section className={styles.main}>
-      <header className={styles.header}><div>{editingName ? <div className={styles.nameEdit}><input aria-label="Nombre del CEO" maxLength={40} value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false) }}/><button className={styles.icon} title="Guardar nombre" onClick={saveName}><Check size={16}/></button><button className={styles.icon} title="Cancelar" onClick={() => setEditingName(false)}><X size={16}/></button></div> : <div className={styles.nameEdit}><strong>{ceoName}</strong><button className={styles.icon} title="Cambiar nombre" onClick={() => { setNameDraft(ceoName); setEditingName(true) }}><Pencil size={15}/></button></div>}<span>Dirección general</span></div><div className={styles.nameEdit}>{selected && <button className={styles.icon} onClick={linkTelegram} disabled={snapshot?.telegramLinked} title={snapshot?.telegramLinked ? "Telegram vinculado" : "Vincular esta conversación con Telegram"} aria-label={snapshot?.telegramLinked ? "Telegram vinculado" : "Vincular Telegram"}>{snapshot?.telegramLinked ? <Check size={18}/> : <Link2 size={18}/>}</button>}<button className={styles.icon} title="Actualizar" onClick={() => selected && refresh(selected).catch((e) => setError(String(e)))}><RefreshCw size={18}/></button></div></header>
+      <header className={styles.header}><div>{editingName ? <div className={styles.nameEdit}><input aria-label="Nombre del CEO" maxLength={40} value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false) }}/><button className={styles.icon} title="Guardar nombre" onClick={saveName}><Check size={16}/></button><button className={styles.icon} title="Cancelar" onClick={() => setEditingName(false)}><X size={16}/></button></div> : <div className={styles.nameEdit}><strong>{ceoName}</strong><button className={styles.icon} title="Cambiar nombre" onClick={() => { setNameDraft(ceoName); setEditingName(true) }}><Pencil size={15}/></button></div>}<span>Dirección general</span></div><div className={styles.nameEdit}><Link className={styles.icon} href="/company/operations" title="Operaciones" aria-label="Operaciones"><Building2 size={18}/></Link>{selected && <button className={styles.icon} onClick={linkTelegram} disabled={snapshot?.telegramLinked} title={snapshot?.telegramLinked ? "Telegram vinculado" : "Vincular esta conversación con Telegram"} aria-label={snapshot?.telegramLinked ? "Telegram vinculado" : "Vincular Telegram"}>{snapshot?.telegramLinked ? <Check size={18}/> : <Link2 size={18}/>}</button>}<button className={styles.icon} title="Actualizar" onClick={() => selected && refresh(selected).catch((e) => setError(String(e)))}><RefreshCw size={18}/></button></div></header>
       <div className={styles.history}>
         {!snapshot?.messages.length && <div className={styles.empty}>Habla con el CEO sobre una idea, pide una explicación o encarga una investigación.</div>}
         {snapshot?.tasks.map((task, taskIndex) => {
@@ -134,12 +135,17 @@ export default function CompanyWorkspace() {
               <div className={styles.messageText}>{task.report.content}</div>
               <ul>{(JSON.parse(task.report.sources_json) as Array<{ title: string; url: string }>).map((source) => <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a></li>)}</ul>
             </details>}
+            {task.artifacts?.map((artifact) => <details className={styles.report} key={artifact.id}>
+              <summary>{artifact.kind === "product_brief" ? "Brief de producto" : "Conceptos y prompts de diseño"}</summary>
+              <div className={styles.messageText}>{artifact.content}</div>
+            </details>)}
+            {task.status === "COMPLETED" && task.artifacts?.find((artifact) => artifact.kind === "design_concepts")?.data_json && <DesignReview taskId={task.id} concepts={(JSON.parse(task.artifacts.find((artifact) => artifact.kind === "design_concepts")!.data_json!) as { concepts: Array<{ name: string; prompt: string }> }).concepts} reviews={task.designReviews || []} onSaved={() => selected ? refresh(selected) : Promise.resolve()}/>}
             {answer && <article className={`${styles.message} ${styles.assistant}`}><div className={styles.speaker}>{ceoName}</div><div className={styles.messageText}>{answer.content}</div></article>}
             {task.status !== "COMPLETED" && <div className={styles.status}>{task.status === "NEEDS_REVIEW" ? `Necesita revisión: ${task.last_error}` : busy && taskIndex === snapshot.tasks.length - 1 ? `Trabajando: ${task.stage}` : `Pendiente: ${task.stage}`}</div>}
             {completedCalls.length > 0 && <details className={styles.usage}>
               <summary>Consumo de esta pregunta: {completedCalls.length} {completedCalls.length === 1 ? "llamada" : "llamadas"}</summary>
               <div className={styles.callList}>{completedCalls.map((call, callIndex) => <div className={styles.callRow} key={callIndex}>
-                <span>{call.agent_id === "market_researcher" ? "Investigador" : "CEO"} · {call.model}</span>
+                <span>{({ ceo: ceoName, market_researcher: "Investigador", product_planner: "Planificador", visual_designer: "Diseñador" } as Record<string, string>)[call.agent_id] || call.agent_id} · {call.model}</span>
                 <span>{(call.input_tokens || 0).toLocaleString("es-ES")} entrada · {(call.output_tokens || 0).toLocaleString("es-ES")} salida · {call.web_calls || 0} búsquedas</span>
                 <span>${(call.model_usd + call.tool_usd).toFixed(4)} estimados</span>
               </div>)}</div>
