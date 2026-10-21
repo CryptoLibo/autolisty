@@ -33,7 +33,7 @@ export async function processTelegramUpdate(
   if (!update?.task_id || !["PENDING", "REPLY_READY"].includes(update.status)) return
   if (update.status === "PENDING") {
     let task = repository.task(update.task_id)
-    for (let step = 0; step < 3 && task && !["COMPLETED", "NEEDS_REVIEW"].includes(task.status); step++) {
+    for (let step = 0; step < 5 && task && !["COMPLETED", "NEEDS_REVIEW"].includes(task.status); step++) {
       if (task.status === "RUNNING") break
       task = await runCompanyStage(repository, task.id)
     }

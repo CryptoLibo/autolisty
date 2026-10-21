@@ -1,0 +1,3 @@
+export const DESIGN_PLAYBOOK_VERSION = 1
+
+export const DESIGN_PLAYBOOK = `Design craft v1: Start with one clear visual hierarchy and focal point. Name concrete subjects and their spatial relationship; specify a coherent illustration style and restrained palette appropriate to the product and audience. For lettering, choose short exact copy, quote it verbatim, and specify type style, scale, contrast and placement inside the same English prompt. Avoid unspecified secondary text, generic adjective piles and instructions that defer part of the design. Vary composition and concept across alternatives. A fluent prompt is not proof of a good image: inspect the actual Kittl result for lettering accuracy, composition, originality, readability and product fit before approval.`

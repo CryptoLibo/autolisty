@@ -237,12 +237,11 @@ async function uploadFile(api, jobId, file, log) {
   await log("Verified output in R2.", { relativePath: file.relativePath })
 }
 
-function assertDisposableListingPath(listingPath) {
+function assertListingPath(listingPath, productCode) {
   const resolved = path.resolve(listingPath)
-  if (path.basename(resolved).toLowerCase() !== "listing 1") {
-    throw new Error(`Refusing to clean unexpected listing folder: ${resolved}`)
+  if (!/^LBCreaStudio-[A-Z0-9]{6}$/.test(productCode) || path.basename(resolved) !== productCode) {
+    throw new Error(`Autobuildy returned a listing folder that does not match ${productCode}.`)
   }
-  if (resolved.split(path.sep).length < 5) throw new Error("Listing cleanup path is unsafe.")
   return resolved
 }
 
@@ -284,19 +283,21 @@ async function processJob(config, api, claimedJob, statePath, log) {
 
   const result = JSON.parse(await fsp.readFile(resultPath, "utf8"))
   if (!result.ok || !result.listingPath) throw new Error(result.error || "Autobuildy did not return a completed listing.")
+  if (result.jobId !== job.id || result.productCode !== job.productCode || result.productType !== job.productType) {
+    throw new Error("Autobuildy checkpoint does not belong to the claimed listing.")
+  }
+  const listingPath = assertListingPath(result.listingPath, job.productCode)
   if (job.status !== "LOCAL_UPLOADING") {
     await api.status(job.id, "LOCAL_VALIDATING", "Autobuildy finished. Validating listing contract.")
   }
-  const files = await collectAndValidateOutputs(job.productType, result.listingPath)
-  await writeJsonAtomic(statePath, { jobId: job.id, productCode: job.productCode, phase: "UPLOADING", listingPath: result.listingPath })
+  const files = await collectAndValidateOutputs(job.productType, listingPath)
+  await writeJsonAtomic(statePath, { jobId: job.id, productCode: job.productCode, phase: "UPLOADING", listingPath })
   if (job.status !== "LOCAL_UPLOADING") {
     await api.status(job.id, "LOCAL_UPLOADING", `${files.length} validated files are ready for R2.`)
   }
   for (const file of files) await uploadFile(api, job.id, file, log)
   await api.status(job.id, "LOCAL_COMPLETE", "All local outputs were verified in R2.")
 
-  const listingPath = assertDisposableListingPath(result.listingPath)
-  await fsp.rm(listingPath, { recursive: true, force: true })
   await fsp.rm(jobRoot, { recursive: true, force: true })
   await fsp.rm(statePath, { force: true })
   await log("Local production completed and temporary workspace released.", { productCode: job.productCode })

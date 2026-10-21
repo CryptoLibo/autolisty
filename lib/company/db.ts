@@ -25,18 +25,49 @@ export function openCompanyDatabase(databasePath?: string) {
     CREATE INDEX IF NOT EXISTS company_messages_conversation_idx ON company_messages(conversation_id, created_at);
     CREATE TABLE IF NOT EXISTS company_tasks (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, status TEXT NOT NULL, stage TEXT NOT NULL, owner_message_id TEXT NOT NULL, research_question TEXT, report_id TEXT, last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(conversation_id) REFERENCES company_conversations(id));
     CREATE INDEX IF NOT EXISTS company_tasks_status_idx ON company_tasks(status, updated_at);
+    CREATE TABLE IF NOT EXISTS company_projects (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS company_design_units (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES company_projects(id), FOREIGN KEY(task_id) REFERENCES company_tasks(id));
+    CREATE INDEX IF NOT EXISTS company_design_units_project_idx ON company_design_units(project_id);
+    CREATE TABLE IF NOT EXISTS company_listings (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES company_projects(id));
+    CREATE TABLE IF NOT EXISTS company_listing_units (listing_id TEXT NOT NULL, unit_id TEXT NOT NULL, PRIMARY KEY(listing_id,unit_id), FOREIGN KEY(listing_id) REFERENCES company_listings(id), FOREIGN KEY(unit_id) REFERENCES company_design_units(id));
+    CREATE TABLE IF NOT EXISTS company_project_artifacts (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, content TEXT NOT NULL, source_task_id TEXT, created_at TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES company_projects(id), FOREIGN KEY(source_task_id) REFERENCES company_tasks(id));
     CREATE TABLE IF NOT EXISTS company_reports (id TEXT PRIMARY KEY, task_id TEXT NOT NULL UNIQUE, content TEXT NOT NULL, sources_json TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(task_id) REFERENCES company_tasks(id));
+    CREATE TABLE IF NOT EXISTS company_artifacts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, kind TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(task_id,kind), FOREIGN KEY(task_id) REFERENCES company_tasks(id));
+    CREATE TABLE IF NOT EXISTS company_design_reviews (task_id TEXT NOT NULL, concept_index INTEGER NOT NULL, verdict TEXT NOT NULL, notes TEXT NOT NULL, kittl_url TEXT, prompt_snapshot TEXT NOT NULL, playbook_version INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(task_id,concept_index), FOREIGN KEY(task_id) REFERENCES company_tasks(id));
     CREATE TABLE IF NOT EXISTS company_events (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, event_type TEXT NOT NULL, detail_json TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS company_calls (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, agent_id TEXT NOT NULL, model TEXT NOT NULL, status TEXT NOT NULL, reserved_usd REAL NOT NULL, model_usd REAL NOT NULL DEFAULT 0, tool_usd REAL NOT NULL DEFAULT 0, input_tokens INTEGER, cached_tokens INTEGER, output_tokens INTEGER, web_calls INTEGER, provider_response_id TEXT, error TEXT, created_at TEXT NOT NULL, completed_at TEXT, FOREIGN KEY(task_id) REFERENCES company_tasks(id), FOREIGN KEY(agent_id) REFERENCES company_agents(id));
     CREATE INDEX IF NOT EXISTS company_calls_task_idx ON company_calls(task_id, created_at);
+    CREATE TABLE IF NOT EXISTS company_external_credits (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, provider TEXT NOT NULL, status TEXT NOT NULL, reserved_credits INTEGER NOT NULL, actual_credits INTEGER, remaining_credits INTEGER, created_at TEXT NOT NULL, completed_at TEXT, FOREIGN KEY(task_id) REFERENCES company_tasks(id));
+    CREATE INDEX IF NOT EXISTS company_external_credits_provider_idx ON company_external_credits(provider, created_at);
     CREATE TABLE IF NOT EXISTS company_official_daily (project_id TEXT NOT NULL, day_utc TEXT NOT NULL, billed_usd REAL NOT NULL, usage_json TEXT NOT NULL, costs_json TEXT NOT NULL, fetched_at TEXT NOT NULL, PRIMARY KEY(project_id, day_utc));
+    CREATE TABLE IF NOT EXISTS company_integrations (id TEXT PRIMARY KEY, encrypted_state TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS company_telegram_chats (chat_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(conversation_id) REFERENCES company_conversations(id));
     CREATE TABLE IF NOT EXISTS company_telegram_updates (update_id INTEGER PRIMARY KEY, chat_id TEXT NOT NULL, task_id TEXT, status TEXT NOT NULL, reply_text TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(task_id) REFERENCES company_tasks(id));
     CREATE INDEX IF NOT EXISTS company_telegram_updates_status_idx ON company_telegram_updates(status, updated_at);
   `)
+  const taskColumns = db.pragma("table_info(company_tasks)") as Array<{ name: string }>
+  if (!taskColumns.some((column) => column.name === "design_brief")) {
+    db.exec("ALTER TABLE company_tasks ADD COLUMN design_brief TEXT")
+  }
+  if (!taskColumns.some((column) => column.name === "specialist_agent_id")) {
+    db.exec("ALTER TABLE company_tasks ADD COLUMN specialist_agent_id TEXT")
+  }
+  if (!taskColumns.some((column) => column.name === "specialist_question")) {
+    db.exec("ALTER TABLE company_tasks ADD COLUMN specialist_question TEXT")
+  }
+  const artifactColumns = db.pragma("table_info(company_artifacts)") as Array<{ name: string }>
+  if (!artifactColumns.some((column) => column.name === "data_json")) {
+    db.exec("ALTER TABLE company_artifacts ADD COLUMN data_json TEXT")
+  }
+  const listingColumns = db.pragma("table_info(company_listings)") as Array<{ name: string }>
+  if (!listingColumns.some((column) => column.name === "product_code")) {
+    db.exec("ALTER TABLE company_listings ADD COLUMN product_code TEXT")
+  }
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS company_listings_product_code_idx ON company_listings(product_code)")
   for (const agent of Object.values(AGENTS)) {
     db.prepare("INSERT OR IGNORE INTO company_agents(id,name,role,active_instruction_version,model,tools_json) VALUES(?,?,?,?,?,?)").run(agent.id, agent.name, agent.role, agent.version, agent.defaultModel, JSON.stringify(agent.tools))
     db.prepare("INSERT OR IGNORE INTO company_agent_instructions(agent_id,version,instructions,created_at) VALUES(?,?,?,?)").run(agent.id, agent.version, agent.instructions, new Date().toISOString())
+    db.prepare("UPDATE company_agents SET active_instruction_version=? WHERE id=? AND active_instruction_version<?").run(agent.version, agent.id, agent.version)
     db.prepare("UPDATE company_agents SET model=? WHERE id=?").run(modelFor(agent.id), agent.id)
   }
   db.prepare("UPDATE company_agents SET name='James' WHERE id='ceo' AND name='CEO'").run()

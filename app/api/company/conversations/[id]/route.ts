@@ -14,7 +14,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   repository.recoverInterrupted()
   const tasks = repository.tasks(id)
   return NextResponse.json({ messages: repository.messages(id), tasks: tasks.map((task) => ({
-    ...task, report: repository.report(task.id), calls: repository.calls(task.id), events: repository.events(task.id),
+    ...task, designUnit: repository.designUnit(task.id), report: repository.report(task.id), artifacts: repository.artifacts(task.id), designReviews: repository.designReviews(task.id), calls: repository.calls(task.id), events: repository.events(task.id),
   })), telegramLinked: repository.isTelegramConversation(process.env.TELEGRAM_ALLOWED_CHAT_ID || "", id), budget: { ...repository.spend(), localDailyTokens: repository.localDailyTokens() } })
 }
 

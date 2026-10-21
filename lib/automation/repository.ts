@@ -1,6 +1,6 @@
 import crypto from "node:crypto"
 import type Database from "better-sqlite3"
-import { generateProductCode } from "../utils/generateListingId"
+import { generateProductCode, isProductCode } from "../utils/generateListingId"
 import { getAutomationDatabase } from "./db/database"
 import { assertAutomationTransition, isTerminalAutomationStatus } from "./stateMachine"
 import type {
@@ -17,6 +17,7 @@ import type {
 
 type AutomationJobRow = {
   id: string
+  company_listing_id: string | null
   product_code: string
   product_type: AutomationJob["productType"]
   source_prompt: string
@@ -113,6 +114,7 @@ const PRODUCTION_BLOCKING_STATUSES: AutomationJobStatus[] = [
 function mapJob(row: AutomationJobRow): AutomationJob {
   return {
     id: row.id,
+    companyListingId: row.company_listing_id,
     productCode: row.product_code,
     productType: row.product_type,
     sourcePrompt: row.source_prompt,
@@ -204,11 +206,22 @@ export class AutomationRepository {
     const sourcePrompt = input.sourcePrompt.trim()
 
     if (!sourcePrompt) throw new Error("Automation jobs require a source prompt.")
+    if (input.productCode !== undefined && !isProductCode(input.productCode)) throw new Error("Invalid product code.")
+    if (input.companyListingId && !input.productCode) throw new Error("Company jobs require their listing product code.")
+    if (input.companyListingId && !/^[0-9a-f-]{36}$/i.test(input.companyListingId)) throw new Error("Invalid Company listing ID.")
+
+    const existingCompanyJob = input.companyListingId ? this.findCompanyJob(input.companyListingId) : null
+    if (existingCompanyJob) {
+      if (existingCompanyJob.productCode !== input.productCode || existingCompanyJob.productType !== input.productType || existingCompanyJob.sourcePrompt !== sourcePrompt) {
+        throw new Error("Company listing already has a different Automation job.")
+      }
+      return existingCompanyJob
+    }
 
     const insert = this.database.prepare(`
       INSERT INTO automation_jobs (
-        id, product_code, product_type, source_prompt, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'CREATED', ?, ?)
+        id, product_code, product_type, source_prompt, company_listing_id, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'CREATED', ?, ?)
     `)
 
     const insertEvent = this.database.prepare(`
@@ -218,14 +231,22 @@ export class AutomationRepository {
     `)
 
     const create = this.database.transaction(() => {
-      for (let attempt = 0; attempt < 10; attempt += 1) {
-        const productCode = generateProductCode()
+      for (let attempt = 0; attempt < (input.productCode ? 1 : 10); attempt += 1) {
+        const productCode = input.productCode || generateProductCode()
         try {
-          insert.run(jobId, productCode, input.productType, sourcePrompt, now, now)
+          insert.run(jobId, productCode, input.productType, sourcePrompt, input.companyListingId || null, now, now)
           insertEvent.run(jobId, `Automation job ${productCode} created.`, now)
           return productCode
         } catch (error) {
-          if (String(error).includes("automation_jobs.product_code")) continue
+          if (String(error).includes("automation_jobs.product_code")) {
+            if (input.productCode) throw new Error("Product code is already assigned to an Automation job.")
+            continue
+          }
+          if (String(error).includes("automation_jobs.company_listing_id")) {
+            const existing = this.findCompanyJob(input.companyListingId!)
+            if (existing && existing.productCode === input.productCode && existing.productType === input.productType && existing.sourcePrompt === sourcePrompt) return existing.productCode
+            throw new Error("Company listing already has a different Automation job.")
+          }
           throw error
         }
       }
@@ -233,8 +254,18 @@ export class AutomationRepository {
       throw new Error("Unable to allocate a unique product code.")
     })
 
-    create()
-    return this.getJob(jobId)!
+    const code = create()
+    return this.getJob(jobId) || this.findJobByCode(code)!
+  }
+
+  findCompanyJob(companyListingId: string) {
+    const row = this.database.prepare("SELECT * FROM automation_jobs WHERE company_listing_id=?").get(companyListingId) as AutomationJobRow | undefined
+    return row ? mapJob(row) : null
+  }
+
+  findJobByCode(productCode: string) {
+    const row = this.database.prepare("SELECT * FROM automation_jobs WHERE product_code=?").get(productCode) as AutomationJobRow | undefined
+    return row ? mapJob(row) : null
   }
 
   getJob(jobId: string) {

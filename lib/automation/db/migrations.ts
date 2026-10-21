@@ -127,6 +127,13 @@ const MIGRATIONS = [
         ON automation_job_files(role, status, created_at);
     `,
   },
+  {
+    version: 3,
+    sql: `
+      ALTER TABLE automation_jobs ADD COLUMN company_listing_id TEXT;
+      CREATE UNIQUE INDEX automation_jobs_company_listing_idx ON automation_jobs(company_listing_id);
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database) {

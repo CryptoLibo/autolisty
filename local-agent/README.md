@@ -12,7 +12,7 @@ It never receives R2, Etsy, Pinterest, GitHub, or database credentials.
 - `jobs/<product-code>/`: temporary source, Autobuildy request, and result checkpoint.
 - `logs/agent.log`: local operational log without secrets.
 
-All runtime paths are rooted under `spoolRoot`. The agent removes a completed job workspace and Autobuildy's temporary `Listing 1` only after R2 has verified every required output and Autolisty has accepted `LOCAL_COMPLETE`.
+Runtime checkpoints are rooted under `spoolRoot`. Automated final listings use their `LBCreaStudio-XXXXXX` product code as the folder name. After R2 verifies every required output and Autolisty accepts `LOCAL_COMPLETE`, the agent removes its temporary job workspace but preserves the final listing folder.
 
 ## Run during development
 
