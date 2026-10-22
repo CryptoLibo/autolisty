@@ -1,5 +1,5 @@
 import { after } from "next/server"
-import { authorizedTelegramRequest, acceptTelegramUpdate, processTelegramUpdate, type TelegramUpdate } from "@/lib/company/telegram"
+import { authorizedTelegramRequest, acceptTelegramUpdate, processTelegramUpdate, processKittlCallback, type TelegramUpdate } from "@/lib/company/telegram"
 import { CompanyRepository } from "@/lib/company/repository"
 
 export const runtime = "nodejs"
@@ -16,6 +16,10 @@ export async function POST(request: Request) {
   if (!update) return new Response(null, { status: 400 })
   const repository = new CompanyRepository()
   try {
+    if (update.callback_query) {
+      await processKittlCallback(update, allowedChatId, token)
+      return new Response(null, { status: 200 })
+    }
     const accepted = acceptTelegramUpdate(repository, update, allowedChatId)
     if (accepted) {
       after(async () => {

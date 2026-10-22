@@ -205,7 +205,7 @@ function department(ctx: Ctx, index: number, stations: Map<string, Station>, win
     const rect = window.sprite.rects.glass
     windows.push({ rect: { x: window.left + rect.x, y: window.top + rect.y, w: rect.w, h: rect.h }, seed: index * 13 + 4 })
   }
-  const clock = wallItem(ctx, "clock", x, y, 14)
+  const clock = wallItem(ctx, "clock", x, y, 1)
   if (clock.sprite.rects?.face) {
     const rect = clock.sprite.rects.face
     clocks.push({ x: clock.left + rect.x, y: clock.top + rect.y, w: rect.w, h: rect.h })
@@ -217,10 +217,10 @@ function department(ctx: Ctx, index: number, stations: Map<string, Station>, win
   for (const [position, roleId] of room.roles.entries()) {
     const tx = stationTiles(room.roles.length, index)[position]
     const desk = furniture(ctx, "desk", x, y, tx, 5, deskVariants[index], position + index * 3)
-    furniture(ctx, "office_chair", x, y, tx, 7, chairVariants[index])
+    furniture(ctx, "office_chair", x, y, tx, 6, chairVariants[index])
     const screen = desk.sprite.rects?.screen
     stations.set(roleId, {
-      x: x + tx * 16 + 16, y: y + 121,
+      x: x + tx * 16 + 16, y: y + 112,
       screen: screen ? { x: desk.left + screen.x, y: desk.top + screen.y, w: screen.w, h: screen.h } : undefined,
       mode: room.mode,
     })

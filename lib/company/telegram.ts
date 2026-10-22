@@ -1,10 +1,12 @@
 import crypto from "node:crypto"
 import { CompanyRepository } from "./repository"
 import { runCompanyStage } from "./runner"
+import { reviewKittlGeneration, saveKittlFeedback } from "./kittl-generation"
 
 export type TelegramUpdate = {
   update_id: number
   message?: { chat?: { id?: number; type?: string }; text?: string }
+  callback_query?: { id?: string; data?: string; message?: { chat?: { id?: number; type?: string } } }
 }
 
 export function authorizedTelegramRequest(secret: string | null, expected: string | undefined) {
@@ -20,7 +22,23 @@ export function acceptTelegramUpdate(repository: CompanyRepository, update: Tele
   if (!Number.isSafeInteger(update.update_id) || update.update_id < 0) return null
   const text = update.message?.text?.trim()
   if (!text || text.length > 8000 || text.startsWith("/")) return null
+  if (saveKittlFeedback(allowedChatId, text)) return null
   return repository.receiveTelegramUpdate(update.update_id, allowedChatId, text)
+}
+
+export async function processKittlCallback(update: TelegramUpdate, allowedChatId: string | undefined, token: string, send: typeof fetch = fetch) {
+  const query = update.callback_query
+  const chat = query?.message?.chat
+  if (!allowedChatId || chat?.type !== "private" || String(chat.id) !== allowedChatId || !query?.id) return false
+  const match = /^kg:([ar]):([0-9a-f-]{36})$/.exec(query.data || "")
+  if (!match) return false
+  const verdict = match[1] === "a" ? "approved" : "revise"
+  const changed = reviewKittlGeneration(match[2], verdict, allowedChatId)
+  await send(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ callback_query_id: query.id, text: changed ? verdict === "approved" ? "Diseño aprobado" : "Escribe los cambios que quieres hacer" : "Esta revisión ya fue registrada" }), cache: "no-store",
+  })
+  return true
 }
 
 export async function processTelegramUpdate(

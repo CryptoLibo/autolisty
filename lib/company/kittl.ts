@@ -16,10 +16,14 @@ type KittlState = {
 }
 
 function key() {
-  const value = process.env.COMPANY_KITTL_KEY || ""
-  const secret = Buffer.from(value, "base64")
-  if (secret.length !== 32) throw new Error("COMPANY_KITTL_KEY must be a base64-encoded 32-byte key.")
-  return secret
+  if (process.env.COMPANY_KITTL_KEY) {
+    const secret = Buffer.from(process.env.COMPANY_KITTL_KEY, "base64")
+    if (secret.length !== 32) throw new Error("COMPANY_KITTL_KEY must be a base64-encoded 32-byte key.")
+    return secret
+  }
+  const authSecret = process.env.AUTH_SECRET
+  if (!authSecret) throw new Error("AUTH_SECRET is required to encrypt the Kittl session.")
+  return Buffer.from(crypto.hkdfSync("sha256", Buffer.from(authSecret), Buffer.from("autolisty-company"), Buffer.from("kittl-oauth-v1"), 32))
 }
 
 function encrypt(value: KittlState) {
@@ -85,7 +89,7 @@ function clientWithProvider(state: KittlState) {
 }
 
 export function kittlConnectionStatus() {
-  if (!process.env.COMPANY_KITTL_KEY || !process.env.COMPANY_PUBLIC_URL) return { configured: false, connected: false }
+  if ((!process.env.COMPANY_KITTL_KEY && !process.env.AUTH_SECRET) || !process.env.COMPANY_PUBLIC_URL) return { configured: false, connected: false }
   return { configured: true, connected: !!readState().tokens }
 }
 
@@ -137,6 +141,24 @@ export async function listKittlTools() {
   try {
     await client.connect(transport)
     return (await client.listTools()).tools.map((tool) => ({ name: tool.name, description: tool.description || "" }))
+  } finally {
+    await client.close().catch(() => {})
+  }
+}
+
+export async function callKittlTool(name: string, args: Record<string, unknown>) {
+  if (!["kittl-list-teams", "kittl-get-token-balance", "kittl-list-media-generation-models", "kittl-generate-media", "kittl-get-media-generation-status"].includes(name)) throw new Error("Kittl tool is not permitted.")
+  const state = readState()
+  if (!state.tokens) throw new Error("Conecta primero la cuenta de Kittl.")
+  const { client, transport } = clientWithProvider(state)
+  try {
+    await client.connect(transport)
+    const result = await client.callTool({ name, arguments: args })
+    if (result.isError) throw new Error(`Kittl rejected ${name}.`)
+    if (result.structuredContent && Object.keys(result.structuredContent).length) return result.structuredContent as unknown
+    const blocks = result.content as Array<{ type: string; text?: string }>
+    const text = blocks.filter((block) => block.type === "text").map((block) => block.text || "").join("\n")
+    try { return JSON.parse(text) as unknown } catch { return { message: text } }
   } finally {
     await client.close().catch(() => {})
   }

@@ -41,6 +41,8 @@ export function openCompanyDatabase(databasePath?: string) {
     CREATE INDEX IF NOT EXISTS company_external_credits_provider_idx ON company_external_credits(provider, created_at);
     CREATE TABLE IF NOT EXISTS company_official_daily (project_id TEXT NOT NULL, day_utc TEXT NOT NULL, billed_usd REAL NOT NULL, usage_json TEXT NOT NULL, costs_json TEXT NOT NULL, fetched_at TEXT NOT NULL, PRIMARY KEY(project_id, day_utc));
     CREATE TABLE IF NOT EXISTS company_integrations (id TEXT PRIMARY KEY, encrypted_state TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS company_kittl_generations (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, concept_index INTEGER NOT NULL, prompt TEXT NOT NULL, model_id TEXT NOT NULL, workspace_id TEXT NOT NULL, reservation_id TEXT, job_id TEXT, status TEXT NOT NULL, image_url TEXT, edit_url TEXT, credit_cost INTEGER, telegram_message_id INTEGER, review_status TEXT, feedback TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(task_id) REFERENCES company_tasks(id));
+    CREATE INDEX IF NOT EXISTS company_kittl_generations_status_idx ON company_kittl_generations(status, updated_at);
     CREATE TABLE IF NOT EXISTS company_telegram_chats (chat_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(conversation_id) REFERENCES company_conversations(id));
     CREATE TABLE IF NOT EXISTS company_telegram_updates (update_id INTEGER PRIMARY KEY, chat_id TEXT NOT NULL, task_id TEXT, status TEXT NOT NULL, reply_text TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(task_id) REFERENCES company_tasks(id));
     CREATE INDEX IF NOT EXISTS company_telegram_updates_status_idx ON company_telegram_updates(status, updated_at);
