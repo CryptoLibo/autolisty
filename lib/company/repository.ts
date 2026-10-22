@@ -15,6 +15,8 @@ export type CompanyTask = {
   id: string; conversation_id: string; status: string; stage: string; owner_message_id: string;
   research_question: string | null; report_id: string | null; design_brief: string | null; last_error: string | null;
   specialist_agent_id: string | null; specialist_question: string | null;
+  image_requested: number;
+  revision_root_id: string | null;
   created_at: string; updated_at: string
 }
 
@@ -145,11 +147,12 @@ export class CompanyRepository {
 
   stage(taskId: string, stage: string, status: string, details: Record<string, unknown> = {}) {
     this.db.transaction(() => {
-      this.db.prepare("UPDATE company_tasks SET stage=?,status=?,research_question=COALESCE(?,research_question),design_brief=COALESCE(?,design_brief),specialist_agent_id=COALESCE(?,specialist_agent_id),specialist_question=COALESCE(?,specialist_question),updated_at=? WHERE id=?").run(
+      this.db.prepare("UPDATE company_tasks SET stage=?,status=?,research_question=COALESCE(?,research_question),design_brief=COALESCE(?,design_brief),specialist_agent_id=COALESCE(?,specialist_agent_id),specialist_question=COALESCE(?,specialist_question),image_requested=COALESCE(?,image_requested),updated_at=? WHERE id=?").run(
         stage, status, typeof details.researchQuestion === "string" ? details.researchQuestion : null,
         typeof details.designBrief === "string" ? details.designBrief : null,
         typeof details.specialistAgentId === "string" ? details.specialistAgentId : null,
         typeof details.specialistQuestion === "string" ? details.specialistQuestion : null,
+        typeof details.imageRequested === "boolean" ? Number(details.imageRequested) : null,
         now(), taskId)
       if (typeof details.designBrief === "string" && details.designBrief.trim()) this.ensureDesignUnit(taskId, details.designBrief)
       this.event(taskId, "stage_changed", { stage, status })
@@ -290,13 +293,51 @@ export class CompanyRepository {
       if (!task || task.status !== "RUNNING" ||
         (kind === "product_brief" && task.stage !== "PRODUCT_PLAN") ||
         (kind === "design_concepts" && task.stage !== "VISUAL_DESIGN")) throw new Error("Unexpected artifact stage.")
-      const nextStage = kind === "product_brief" ? "VISUAL_DESIGN" : "CEO_SYNTHESIZE"
-      const nextStatus = kind === "product_brief" ? "DESIGN_READY" : "SYNTHESIS_READY"
+      const nextStage = kind === "product_brief" ? "VISUAL_DESIGN" : task.image_requested ? "KITTL_SELECT" : "CEO_SYNTHESIZE"
+      const nextStatus = kind === "product_brief" || task.image_requested ? "DESIGN_READY" : "SYNTHESIS_READY"
       this.db.prepare("INSERT INTO company_artifacts(id,task_id,kind,content,created_at,data_json) VALUES(?,?,?,?,?,?)")
         .run(crypto.randomUUID(), taskId, kind, content.trim(), now(), data ? JSON.stringify(data) : null)
       this.db.prepare("UPDATE company_tasks SET stage=?,status=?,updated_at=? WHERE id=?")
         .run(nextStage, nextStatus, now(), taskId)
       this.event(taskId, "artifact_delivered", { kind })
+    })()
+  }
+
+  recordKittlSelection(taskId: string, selection: { concept_index: number; model_id: string; aspect_ratio: string; reason: string }) {
+    const task = this.task(taskId)
+    if (!task || task.stage !== "KITTL_SELECT" || task.status !== "RUNNING" || !task.image_requested) throw new Error("Unexpected Kittl selection stage.")
+    this.db.prepare("INSERT INTO company_artifacts(id,task_id,kind,content,created_at,data_json) VALUES(?,?,?,?,?,?)")
+      .run(crypto.randomUUID(), taskId, "kittl_selection", selection.reason.slice(0, 500), now(), JSON.stringify(selection))
+    this.event(taskId, "kittl_model_selected", { conceptIndex: selection.concept_index, modelId: selection.model_id })
+  }
+
+  createImageRevision(chatId: string, generation: { id: string; task_id: string; prompt: string }, feedback: string, updateId: number) {
+    return this.db.transaction(() => {
+      if (this.telegramUpdate(updateId)) return null
+      const original = this.task(generation.task_id)
+      if (!original) throw new Error("Original design task not found.")
+      const root = original.revision_root_id || generation.id
+      const count = this.db.prepare("SELECT COUNT(*) AS count FROM company_tasks WHERE revision_root_id=?").get(root) as { count: number }
+      if (count.count >= 3) {
+        this.db.prepare("INSERT INTO company_telegram_updates(update_id,chat_id,status,created_at,updated_at) VALUES(?,?,'FEEDBACK',?,?)")
+          .run(updateId, chatId, now(), now())
+        return null
+      }
+      const conversationId = this.telegramConversation(chatId)
+      const request = `Revisa la imagen de Kittl. Mi comentario: ${feedback}. Prompt anterior: ${generation.prompt}`
+      const taskId = this.addUserMessage(conversationId, request)
+      this.db.prepare("UPDATE company_tasks SET revision_root_id=? WHERE id=?").run(root, taskId)
+      const projectId = this.designUnit(generation.task_id)?.project_id
+      if (projectId) this.ensureDesignUnit(taskId, `Revisión: ${feedback.slice(0, 80)}`, projectId)
+      const priorBrief = this.artifact(generation.task_id, "product_brief")?.content || original.design_brief || ""
+      this.stage(taskId, "PRODUCT_PLAN", "DESIGN_READY", {
+        designBrief: `${priorBrief}\nPrompt anterior: ${generation.prompt}\nCorrecciones solicitadas por el propietario: ${feedback}`.slice(0, 5500),
+        imageRequested: true,
+      })
+      this.db.prepare("INSERT INTO company_telegram_updates(update_id,chat_id,task_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?)")
+        .run(updateId, chatId, taskId, "PENDING", now(), now())
+      this.event(taskId, "image_revision_requested", { priorGenerationId: generation.id, rootGenerationId: root, revision: count.count + 1 })
+      return taskId
     })()
   }
 
@@ -315,7 +356,7 @@ export class CompanyRepository {
     })()
   }
 
-  artifact(taskId: string, kind: "product_brief" | "design_concepts" | "specialist_result") {
+  artifact(taskId: string, kind: "product_brief" | "design_concepts" | "specialist_result" | "kittl_selection") {
     return this.db.prepare("SELECT id,kind,content,created_at,data_json FROM company_artifacts WHERE task_id=? AND kind=?")
       .get(taskId, kind) as { id: string; kind: string; content: string; created_at: string; data_json: string | null } | undefined
   }
@@ -391,8 +432,9 @@ export class CompanyRepository {
   }
 
   externalCredits(provider: string) {
+    const month = now().slice(0, 7)
     return this.db.prepare(`SELECT COALESCE(SUM(COALESCE(actual_credits,reserved_credits)),0) AS used,
-      COUNT(*) AS requests FROM company_external_credits WHERE provider=?`).get(provider) as { used: number; requests: number }
+      COUNT(*) AS requests FROM company_external_credits WHERE provider=? AND created_at>=?`).get(provider, `${month}-01T00:00:00.000Z`) as { used: number; requests: number }
   }
 
   reserveExternalCredits(taskId: string, provider: string, credits: number, cap: number) {

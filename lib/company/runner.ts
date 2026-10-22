@@ -4,17 +4,18 @@ import { estimateActualUsd, MAX_WEB_SEARCH_CALLS, reserveEstimateUsd } from "./b
 import { CompanyRepository } from "./repository"
 import { designConceptsText, type DesignConcept } from "./design-quality"
 import { DESIGN_PLAYBOOK, DESIGN_PLAYBOOK_VERSION } from "./design-playbook"
-import { searchAluraProducts } from "./alura"
+import { aluraCreditsRemaining, searchAluraProducts } from "./alura"
+import { kittlOptions, startKittlGeneration } from "./kittl-generation"
 import { AGENT_PROCEDURES, CONSULTABLE_AGENT_IDS, isConsultableAgent } from "./procedures"
 
 type Source = { title: string; url: string }
-type ResponseFormat = "ceo_decision" | "product_brief" | "design_concepts" | null
+type ResponseFormat = "ceo_decision" | "product_brief" | "design_concepts" | "kittl_selection" | null
 
 const RESPONSE_SCHEMAS = {
   ceo_decision: {
     type: "object", additionalProperties: false, required: ["action", "answer", "research_question", "design_brief", "specialist_agent_id", "specialist_question"],
     properties: {
-      action: { type: "string", enum: ["answer", "delegate_research", "delegate_design", "delegate_research_design", "delegate_specialist"] },
+      action: { type: "string", enum: ["answer", "delegate_research", "delegate_design", "delegate_research_design", "delegate_research_design_image", "delegate_design_image", "delegate_specialist"] },
       answer: { type: "string" }, research_question: { type: "string" }, design_brief: { type: "string" },
       specialist_agent_id: { type: "string", enum: ["", ...CONSULTABLE_AGENT_IDS] }, specialist_question: { type: "string" },
     },
@@ -36,6 +37,10 @@ const RESPONSE_SCHEMAS = {
       properties: { name: { type: "string" }, visual_idea: { type: "string" }, prompt: { type: "string" }, rationale: { type: "string" },
         text_mode: { type: "string", enum: ["none", "included"] }, exact_text: { type: "string" }, typography: { type: "string" }, hierarchy: { type: "string" } },
     } } },
+  },
+  kittl_selection: {
+    type: "object", additionalProperties: false, required: ["concept_index", "model_id", "aspect_ratio", "reason"],
+    properties: { concept_index: { type: "integer" }, model_id: { type: "string" }, aspect_ratio: { type: "string", enum: ["1:1", "3:4", "4:3", "9:16", "16:9"] }, reason: { type: "string" } },
   },
 } as const
 
@@ -148,18 +153,19 @@ export async function runCompanyStage(repository: CompanyRepository, taskId: str
 
   try {
     if (task.stage === "CEO_DECIDE") {
-      const result = await paidResponse(repository, taskId, "ceo", `Decide how to respond to the owner's latest message. Use existing research if current and relevant. If asked for product/design ideas, delegate design. Research first only if current external evidence is needed; never search when the owner forbids it. For a concrete question belonging to another department, delegate one bounded consultation to the appropriate specialist: ${CONSULTABLE_AGENT_IDS.join(", ")}. Do not delegate a trivial question. A consultation is analysis only, never permission to operate Kittl, produce files, create drafts, publish or advertise. If asked only to discuss or explain, answer without delegation. For design, provide a bounded brief carrying owner constraints. Leave unused fields empty. Return answer in Spanish if action is answer.\nContext: ${contextFor(repository, task.conversation_id)}`, false, "ceo_decision")
+      const result = await paidResponse(repository, taskId, "ceo", `Decide how to respond to the owner's latest message. Use existing research if current and relevant. If asked for product/design ideas, delegate design. If the owner explicitly asks for a finished image or says to create/generate the design in Kittl, use delegate_research_design_image when market evidence is needed or delegate_design_image when it is not. These image actions authorize exactly one Kittl image for owner review, never a listing or publication. Research first only if current external evidence is needed; never search when the owner forbids it. For Alura, research_question should be a short Etsy search phrase, not a sentence. For a concrete question belonging to another department, delegate one bounded consultation to the appropriate specialist: ${CONSULTABLE_AGENT_IDS.join(", ")}. Do not delegate a trivial question. If asked only to discuss or explain, answer without delegation. For design, provide a bounded brief carrying owner constraints. Leave unused fields empty. Return answer in Spanish if action is answer.\nContext: ${contextFor(repository, task.conversation_id)}`, false, "ceo_decision")
       const decision = JSON.parse(result.text) as { action: string; answer: string; research_question: string; design_brief: string; specialist_agent_id: string; specialist_question: string }
-      if (decision.action === "delegate_research" || decision.action === "delegate_research_design") {
+      if (["delegate_research", "delegate_research_design", "delegate_research_design_image"].includes(decision.action)) {
         if (!decision.research_question.trim()) throw new Error("CEO delegated without a research question.")
-        if (decision.action === "delegate_research_design" && !decision.design_brief.trim()) throw new Error("CEO delegated design without a brief.")
+        if (decision.action !== "delegate_research" && !decision.design_brief.trim()) throw new Error("CEO delegated design without a brief.")
         repository.stage(taskId, "RESEARCH", "RESEARCH_READY", {
           researchQuestion: decision.research_question.trim(),
-          ...(decision.action === "delegate_research_design" ? { designBrief: decision.design_brief.trim() } : {}),
+          ...(decision.action !== "delegate_research" ? { designBrief: decision.design_brief.trim() } : {}),
+          imageRequested: decision.action === "delegate_research_design_image",
         })
-      } else if (decision.action === "delegate_design") {
+      } else if (decision.action === "delegate_design" || decision.action === "delegate_design_image") {
         if (!decision.design_brief.trim()) throw new Error("CEO delegated design without a brief.")
-        repository.stage(taskId, "PRODUCT_PLAN", "DESIGN_READY", { designBrief: decision.design_brief.trim() })
+        repository.stage(taskId, "PRODUCT_PLAN", "DESIGN_READY", { designBrief: decision.design_brief.trim(), imageRequested: decision.action === "delegate_design_image" })
       } else if (decision.action === "delegate_specialist") {
         if (!isConsultableAgent(decision.specialist_agent_id) || !decision.specialist_question.trim()) {
           throw new Error("CEO delegated without a valid specialist and bounded question.")
@@ -173,11 +179,11 @@ export async function runCompanyStage(repository: CompanyRepository, taskId: str
       } else throw new Error("Unknown CEO decision.")
     } else if (task.stage === "RESEARCH") {
       if (task.research_question && repository.reuseRecentReport(taskId, task.research_question)) return repository.task(taskId)
-      if (process.env.COMPANY_RESEARCH_PROVIDER === "alura") {
-        if (process.env.COMPANY_ALURA_RESEARCH_ENABLED !== "1") throw new Error("Alura research is disabled until explicitly enabled.")
-        if (Number(process.env.COMPANY_ALURA_MAX_CREDITS_PER_RESEARCH || 0) < 10) throw new Error("Alura search needs an explicit allowance of at least 10 API credits.")
+      if (process.env.COMPANY_RESEARCH_PROVIDER === "alura" || !process.env.COMPANY_RESEARCH_PROVIDER && process.env.ALURA_API_KEY) {
+        if (process.env.COMPANY_ALURA_RESEARCH_ENABLED === "0") throw new Error("Alura research is disabled.")
         if (!repository.agentConfig("market_researcher").tools.includes("alura_research")) throw new Error("Researcher is not permitted to use Alura.")
-        const creditCap = Number(process.env.COMPANY_ALURA_CREDIT_CAP || 0)
+        if (await aluraCreditsRemaining() < 10) throw new Error("Alura no tiene 10 créditos disponibles para esta búsqueda.")
+        const creditCap = Number(process.env.COMPANY_ALURA_CREDIT_CAP || 100)
         const creditReservation = repository.reserveExternalCredits(taskId, "alura", 10, creditCap)
         const research = await searchAluraProducts((task.research_question || "").slice(0, 200)).catch((error) => {
           repository.markExternalCreditsUnknown(creditReservation)
@@ -204,6 +210,20 @@ export async function runCompanyStage(repository: CompanyRepository, taskId: str
       const result = await paidResponse(repository, taskId, "visual_designer", `Product brief: ${brief.content}\n${DESIGN_PLAYBOOK}\nPlaybook version: ${DESIGN_PLAYBOOK_VERSION}. ${examples.length ? `Relevant owner-approved examples, for reference rather than copying: ${JSON.stringify(examples)}` : "No approved examples yet."}\nPropose up to three distinct visual directions. Each Kittl prompt must be entirely in English except quoted design copy, and must describe the complete finished result. If text is part of the design, put the exact quoted words, typography and placement inside the prompt itself. Keep metadata consistent with it. Do not ask for an empty area or later text insertion. Do not claim market validation unless it appears in the brief.`, false, "design_concepts")
       const content = designConceptsText(result.text)
       repository.saveArtifact(taskId, "design_concepts", content, JSON.parse(result.text) as { concepts: DesignConcept[] })
+    } else if (task.stage === "KITTL_SELECT") {
+      if (!task.image_requested || !repository.agentConfig("creation_operator").tools.includes("kittl_generate")) throw new Error("Kittl generation is not authorized for this task.")
+      const design = repository.artifact(taskId, "design_concepts")
+      const concepts = design?.data_json ? (JSON.parse(design.data_json) as { concepts: DesignConcept[] }).concepts : null
+      if (!concepts?.length) throw new Error("Design concepts are missing.")
+      if (repository.artifact(taskId, "kittl_selection")) throw new Error("Kittl selection already exists; inspect the job before retrying.")
+      const options = await kittlOptions()
+      const result = await paidResponse(repository, taskId, "creation_operator", `Select exactly one concept and one real Kittl image model for this owner-authorized request. Do not rewrite the English prompt. Prefer quality appropriate to the digital product without wasting credits. Return the zero-based concept index, exact model ID and a suitable aspect ratio supported by that model when its supported ratios are listed; vertical wall art should generally be portrait (3:4), horizontal art landscape, and square products 1:1. Product brief: ${repository.artifact(taskId, "product_brief")?.content || ""}. Concepts: ${JSON.stringify(concepts.map((concept, index) => ({ index, name: concept.name, prompt: concept.prompt })))}. Available models and estimated Kittl credits: ${JSON.stringify(options.models)}.`, false, "kittl_selection", 500)
+      const selection = JSON.parse(result.text) as { concept_index: number; model_id: string; aspect_ratio: string; reason: string }
+      const model = options.models.find((item) => item.id === selection.model_id)
+      if (!Number.isInteger(selection.concept_index) || selection.concept_index < 0 || selection.concept_index >= concepts.length || !model || !["1:1", "3:4", "4:3", "9:16", "16:9"].includes(selection.aspect_ratio) || model.aspectRatios.length > 0 && !model.aspectRatios.includes(selection.aspect_ratio)) throw new Error("Creation operator selected an unavailable concept, ratio or Kittl model.")
+      repository.recordKittlSelection(taskId, selection)
+      const generation = await startKittlGeneration(taskId, selection.concept_index, selection.model_id, selection.aspect_ratio)
+      repository.complete(taskId, `La investigación y el diseño están terminados. He iniciado una imagen en Kittl (trabajo ${generation.job_id}). Te llegará a este mismo chat de Telegram para aprobarla o pedir cambios. No he creado ningún listing.`)
     } else if (task.stage === "SPECIALIST") {
       if (!task.specialist_agent_id || !isConsultableAgent(task.specialist_agent_id) || !task.specialist_question) {
         throw new Error("Invalid specialist assignment.")

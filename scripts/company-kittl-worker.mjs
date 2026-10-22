@@ -5,11 +5,11 @@ const authSecret = process.env.AUTH_SECRET
 if (!base || !authSecret) throw new Error("COMPANY_PUBLIC_URL and AUTH_SECRET are required.")
 const workerToken = crypto.createHmac("sha256", authSecret).update("company-kittl-worker-v1").digest("hex")
 
-async function poll() {
-  const response = await fetch(`${base}/api/company/kittl/drain`, {
-    method: "POST", headers: { authorization: `Bearer ${workerToken}` }, signal: AbortSignal.timeout(90_000),
+async function drain(path) {
+  const response = await fetch(`${base}${path}`, {
+    method: "POST", headers: { authorization: `Bearer ${workerToken}` }, signal: AbortSignal.timeout(240_000),
   })
-  if (!response.ok) throw new Error(`Kittl worker request failed (${response.status}).`)
+  if (!response.ok) throw new Error(`Company worker ${path} failed (${response.status}).`)
   const body = await response.json()
   for (const item of body.results || []) {
     if (item.error) process.stderr.write(`Kittl job ${item.id}: ${item.status}: ${item.error}\n`)
@@ -17,6 +17,8 @@ async function poll() {
 }
 
 while (true) {
-  try { await poll() } catch (error) { process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`) }
+  for (const path of ["/api/company/telegram/drain", "/api/company/kittl/drain"]) {
+    try { await drain(path) } catch (error) { process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`) }
+  }
   await new Promise((resolve) => setTimeout(resolve, 20_000))
 }

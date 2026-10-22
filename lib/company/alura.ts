@@ -23,6 +23,18 @@ function safeCreditHeader(value: string | null) {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null
 }
 
+export async function aluraCreditsRemaining(apiKey = process.env.ALURA_API_KEY, fetcher: typeof fetch = fetch) {
+  if (!apiKey) throw new Error("ALURA_API_KEY is not configured.")
+  const response = await fetcher(`${ALURA_BASE_URL}/usage`, {
+    method: "GET", headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }, cache: "no-store",
+  })
+  if (!response.ok) throw new Error(`Alura usage check failed (${response.status}).`)
+  const payload = await response.json() as { credits?: { remaining?: unknown } }
+  const remaining = payload.credits?.remaining
+  if (!Number.isSafeInteger(remaining) || Number(remaining) < 0) throw new Error("Alura returned an invalid remaining credit balance.")
+  return Number(remaining)
+}
+
 export async function searchAluraProducts(query: string, options: { apiKey?: string; fetcher?: typeof fetch; signal?: AbortSignal } = {}): Promise<AluraResearch> {
   const apiKey = options.apiKey || process.env.ALURA_API_KEY
   if (!apiKey) throw new Error("ALURA_API_KEY is not configured.")

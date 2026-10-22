@@ -26,12 +26,12 @@ describe("Company circuit foundations", () => {
   it("stores distinct durable agent identities with versioned instructions", () => {
     const repo = setup()
     expect((db!.prepare("SELECT COUNT(*) AS total FROM company_agents").get() as { total: number }).total).toBe(16)
-    expect(repo.agentConfig("ceo")).toMatchObject({ id: "ceo", name: "James", active_instruction_version: 3, tools: [] })
+    expect(repo.agentConfig("ceo")).toMatchObject({ id: "ceo", name: "James", active_instruction_version: 4, tools: [] })
     expect(repo.agentConfig("market_researcher")).toMatchObject({ id: "market_researcher", active_instruction_version: 2, tools: ["web_search", "alura_research"] })
     expect(repo.agentConfig("product_planner")).toMatchObject({ id: "product_planner", active_instruction_version: 3, tools: [] })
     expect(repo.agentConfig("visual_designer")).toMatchObject({ id: "visual_designer", active_instruction_version: 5, tools: [] })
     expect(repo.agentConfig("seo_specialist")).toMatchObject({ id: "seo_specialist", active_instruction_version: 1, tools: [] })
-    expect(repo.agentConfig("creation_operator")).toMatchObject({ id: "creation_operator", tools: ["kittl_generate", "kittl_download"] })
+    expect(repo.agentConfig("creation_operator")).toMatchObject({ id: "creation_operator", active_instruction_version: 2, tools: ["kittl_generate", "kittl_download"] })
     expect(repo.renameAgent("ceo", "Alex")).toMatchObject({ id: "ceo", name: "Alex" })
     expect(repo.agentConfig("ceo").name).toBe("Alex")
   })
@@ -266,6 +266,23 @@ describe("Company circuit foundations", () => {
     expect(() => repo.saveDesignReview(taskId, 1, "approved", "", "https://www.kittl.com/project/123")).toThrow(/not found/i)
     repo.saveDesignReview(taskId, 0, "revise", "Text unreadable", null)
     expect(repo.relevantDesignExamples("Halloween classroom wall art for teachers")).toEqual([])
+  })
+
+  it("routes only an explicit image request from design to the Kittl operator", () => {
+    const repo = setup()
+    const taskId = repo.addUserMessage(repo.createConversation(), "Investiga y crea una imagen")
+    repo.stage(taskId, "PRODUCT_PLAN", "DESIGN_READY", { designBrief: "Wall art digital", imageRequested: true })
+    expect(repo.task(taskId)?.image_requested).toBe(1)
+    expect(repo.claimStage(taskId, "PRODUCT_PLAN")).toBe(true)
+    repo.saveArtifact(taskId, "product_brief", "Brief digital")
+    expect(repo.claimStage(taskId, "VISUAL_DESIGN")).toBe(true)
+    const concept = { name: "Floral", visual_idea: "Flores", prompt: "Create a floral printable wall art design.", rationale: "Readable", text_mode: "none" as const, exact_text: "", typography: "", hierarchy: "" }
+    repo.saveArtifact(taskId, "design_concepts", "Concepto floral", { concepts: [concept] })
+    expect(repo.task(taskId)).toMatchObject({ stage: "KITTL_SELECT", status: "DESIGN_READY" })
+    expect(repo.claimStage(taskId, "KITTL_SELECT")).toBe(true)
+    repo.recordKittlSelection(taskId, { concept_index: 0, model_id: "real-model", aspect_ratio: "3:4", reason: "Adecuado al arte" })
+    expect(repo.artifact(taskId, "kittl_selection")?.data_json).toContain("real-model")
+    expect(() => repo.recordKittlSelection(taskId, { concept_index: 0, model_id: "again", aspect_ratio: "3:4", reason: "" })).toThrow()
   })
 
   it("reports real projects, units and incidents in the operations overview", () => {

@@ -28,7 +28,7 @@ if (action === "chat-id") {
     throw new Error("Set TELEGRAM_WEBHOOK_SECRET, TELEGRAM_ALLOWED_CHAT_ID and HTTPS COMPANY_PUBLIC_URL.")
   }
   const url = new URL("/api/company/telegram/webhook", baseUrl)
-  const result = await call("setWebhook", { url: url.toString(), secret_token: secret, allowed_updates: ["message"], drop_pending_updates: false })
+  const result = await call("setWebhook", { url: url.toString(), secret_token: secret, allowed_updates: ["message", "callback_query"], drop_pending_updates: false })
   console.log(result ? "Telegram webhook registered." : "Telegram webhook was not registered.")
 } else {
   throw new Error("Use chat-id or webhook.")

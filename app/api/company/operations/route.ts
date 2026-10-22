@@ -4,6 +4,7 @@ import { CompanyRepository } from "@/lib/company/repository"
 import { AutomationRepository } from "@/lib/automation/repository"
 import { COMPANY_ROLES } from "@/lib/company/roles"
 import { kittlConnectionStatus } from "@/lib/company/kittl"
+import { companyWorkerStatus } from "@/lib/company/worker-auth"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -26,8 +27,8 @@ export async function GET() {
     ...company.overview(), automation,
     roles: COMPANY_ROLES.map((role) => role.status === "active" ? { ...role, name: company.agentConfig(role.id).name } : role),
     providers: {
-      alura: { configured: Boolean(process.env.ALURA_API_KEY), enabled: process.env.COMPANY_RESEARCH_PROVIDER === "alura" && process.env.COMPANY_ALURA_RESEARCH_ENABLED === "1", credits: company.externalCredits("alura"), cap: Number(process.env.COMPANY_ALURA_CREDIT_CAP || 0) },
-      kittl: { ...kittlConnectionStatus(), enabled: kittlConnectionStatus().connected },
+      alura: { configured: Boolean(process.env.ALURA_API_KEY), enabled: Boolean(process.env.ALURA_API_KEY) && process.env.COMPANY_RESEARCH_PROVIDER !== "web" && process.env.COMPANY_ALURA_RESEARCH_ENABLED !== "0", credits: company.externalCredits("alura"), cap: Number(process.env.COMPANY_ALURA_CREDIT_CAP || 100) },
+      kittl: { ...kittlConnectionStatus(), enabled: kittlConnectionStatus().connected, worker: companyWorkerStatus() },
     },
   })
 }

@@ -22,19 +22,22 @@ export async function POST(request: Request) {
       await processKittlCallback(update, allowedChatId, token)
       return new Response(null, { status: 200 })
     }
-    if (update.message?.chat?.type === "private" && String(update.message.chat.id) === allowedChatId &&
+    const revision = update.message?.chat?.type === "private" && String(update.message.chat.id) === allowedChatId &&
       Number.isSafeInteger(update.update_id) && update.message.text?.trim() &&
       getCompanyDatabase().transaction(() => {
-        if (repository.telegramUpdate(update.update_id)) return false
-        if (!saveKittlFeedback(allowedChatId, update.message!.text!)) return false
-        getCompanyDatabase().prepare("INSERT INTO company_telegram_updates(update_id,chat_id,status,created_at,updated_at) VALUES(?,?,'FEEDBACK',?,?)")
-          .run(update.update_id, allowedChatId, new Date().toISOString(), new Date().toISOString())
-        return true
-      })()) {
+        if (repository.telegramUpdate(update.update_id)) return null
+        const prior = saveKittlFeedback(allowedChatId, update.message!.text!)
+        if (!prior) return null
+        const taskId = repository.createImageRevision(allowedChatId, prior, update.message!.text!, update.update_id)
+        return { started: !!taskId }
+      })()
+    if (revision) {
       after(async () => {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
-          body: JSON.stringify({ chat_id: allowedChatId, text: "Cambios guardados en Company. No generaré otra imagen ni gastaré créditos hasta que autorices una nueva versión." }),
+          body: JSON.stringify({ chat_id: allowedChatId, text: revision.started
+            ? "Cambios recibidos. El equipo creativo está preparando una nueva versión; te la enviaré aquí para revisarla."
+            : "Cambios guardados. Se alcanzó el límite de tres revisiones automáticas; habla con James para decidir cómo continuar." }),
         })
       })
       return new Response(null, { status: 200 })

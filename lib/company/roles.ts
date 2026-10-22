@@ -6,7 +6,7 @@ export const COMPANY_ROLES = [
   { id: "product_planner", name: "Planificador de producto", department: "Producto", status: "active" },
   { id: "creative_lead", name: "Dirección creativa", department: "Creativo", status: "consultative" },
   { id: "visual_designer", name: "Diseñador visual", department: "Creativo", status: "active" },
-  { id: "creation_operator", name: "Operador de creación", department: "Creativo", status: "blocked" },
+  { id: "creation_operator", name: "Operador de creación", department: "Creativo", status: "active" },
   { id: "production_lead", name: "Responsable de producción", department: "Producción", status: "consultative" },
   { id: "commerce_lead", name: "Responsable comercial Etsy", department: "Comercial", status: "consultative" },
   { id: "seo_specialist", name: "Especialista SEO", department: "Comercial", status: "consultative" },

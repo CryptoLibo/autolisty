@@ -41,6 +41,7 @@ export function openCompanyDatabase(databasePath?: string) {
     CREATE INDEX IF NOT EXISTS company_external_credits_provider_idx ON company_external_credits(provider, created_at);
     CREATE TABLE IF NOT EXISTS company_official_daily (project_id TEXT NOT NULL, day_utc TEXT NOT NULL, billed_usd REAL NOT NULL, usage_json TEXT NOT NULL, costs_json TEXT NOT NULL, fetched_at TEXT NOT NULL, PRIMARY KEY(project_id, day_utc));
     CREATE TABLE IF NOT EXISTS company_integrations (id TEXT PRIMARY KEY, encrypted_state TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS company_worker_heartbeat (id TEXT PRIMARY KEY, seen_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS company_kittl_generations (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, concept_index INTEGER NOT NULL, prompt TEXT NOT NULL, model_id TEXT NOT NULL, workspace_id TEXT NOT NULL, reservation_id TEXT, job_id TEXT, status TEXT NOT NULL, image_url TEXT, edit_url TEXT, credit_cost INTEGER, telegram_message_id INTEGER, review_status TEXT, feedback TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(task_id) REFERENCES company_tasks(id));
     CREATE INDEX IF NOT EXISTS company_kittl_generations_status_idx ON company_kittl_generations(status, updated_at);
     CREATE TABLE IF NOT EXISTS company_telegram_chats (chat_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(conversation_id) REFERENCES company_conversations(id));
@@ -56,6 +57,19 @@ export function openCompanyDatabase(databasePath?: string) {
   }
   if (!taskColumns.some((column) => column.name === "specialist_question")) {
     db.exec("ALTER TABLE company_tasks ADD COLUMN specialist_question TEXT")
+  }
+  if (!taskColumns.some((column) => column.name === "image_requested")) {
+    db.exec("ALTER TABLE company_tasks ADD COLUMN image_requested INTEGER NOT NULL DEFAULT 0")
+  }
+  if (!taskColumns.some((column) => column.name === "revision_root_id")) {
+    db.exec("ALTER TABLE company_tasks ADD COLUMN revision_root_id TEXT")
+  }
+  const generationColumns = db.pragma("table_info(company_kittl_generations)") as Array<{ name: string }>
+  if (!generationColumns.some((column) => column.name === "aspect_ratio")) {
+    db.exec("ALTER TABLE company_kittl_generations ADD COLUMN aspect_ratio TEXT NOT NULL DEFAULT '1:1'")
+  }
+  if (!generationColumns.some((column) => column.name === "image_path")) {
+    db.exec("ALTER TABLE company_kittl_generations ADD COLUMN image_path TEXT")
   }
   const artifactColumns = db.pragma("table_info(company_artifacts)") as Array<{ name: string }>
   if (!artifactColumns.some((column) => column.name === "data_json")) {

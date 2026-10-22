@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { openCompanyDatabase } from "./db"
 import { CompanyRepository } from "./repository"
 import { acceptTelegramUpdate, processKittlCallback } from "./telegram"
-import { drainKittlGenerations, refreshKittlGeneration } from "./kittl-generation"
+import { drainKittlGenerations, refreshKittlGeneration, saveKittlFeedback } from "./kittl-generation"
 
 describe("Kittl review in the existing Telegram chat", () => {
   const previousChat = process.env.TELEGRAM_ALLOWED_CHAT_ID
@@ -55,22 +58,41 @@ describe("Kittl review in the existing Telegram chat", () => {
     } finally { fixture.close() }
   })
 
+  it("turns explicit Telegram feedback into one bounded revision in the same conversation and project", async () => {
+    const fixture = setup()
+    try {
+      const send = vi.fn<typeof fetch>(async () => new Response('{"ok":true}'))
+      await processKittlCallback({ update_id: 2, callback_query: { id: "callback", data: `kg:r:${fixture.id}`, message: { chat: { id: 123, type: "private" } } } }, "123", "test", send)
+      const prior = saveKittlFeedback("123", "Más contraste y sin borde")
+      if (!prior) throw new Error("Expected saved feedback")
+      const revision = fixture.repo.createImageRevision("123", prior, "Más contraste y sin borde", 3)
+      expect(revision).toBeTruthy()
+      expect(fixture.repo.task(revision!)).toMatchObject({ conversation_id: fixture.conversation, stage: "PRODUCT_PLAN", image_requested: 1, revision_root_id: fixture.id })
+      expect(fixture.repo.telegramUpdate(3)).toMatchObject({ task_id: revision, status: "PENDING" })
+      expect(fixture.repo.createImageRevision("123", prior, "Más contraste y sin borde", 3)).toBeNull()
+      expect(fixture.repo.listConversations()).toHaveLength(1)
+    } finally { fixture.close() }
+  })
+
   it("uploads the PNG once with inline review buttons", async () => {
     const fixture = setup()
+    const assets = fs.mkdtempSync(path.join(os.tmpdir(), "company-kittl-test-"))
     try {
       fixture.db.prepare("UPDATE company_kittl_generations SET status='READY',telegram_message_id=NULL WHERE id=?").run(fixture.id)
       const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1])
       const send = vi.fn<typeof fetch>(async (input) => String(input).includes("sendPhoto")
         ? new Response('{"ok":true,"result":{"message_id":44}}', { status: 200 })
         : new Response(png, { status: 200, headers: { "content-type": "image/png" } }))
-      expect((await refreshKittlGeneration(fixture.id, "token", "123", send))?.status).toBe("SENT")
+      expect((await refreshKittlGeneration(fixture.id, "token", "123", send, assets))?.status).toBe("SENT")
+      const saved = fixture.db.prepare("SELECT image_path FROM company_kittl_generations WHERE id=?").get(fixture.id) as { image_path: string }
+      expect(fs.readFileSync(saved.image_path)).toEqual(Buffer.from(png))
       expect(send).toHaveBeenCalledTimes(2)
       const form = send.mock.calls[1][1]?.body as FormData
       expect(form.get("chat_id")).toBe("123")
       expect(JSON.parse(String(form.get("reply_markup"))).inline_keyboard[0][0].text).toBe("Aprobar")
-      await refreshKittlGeneration(fixture.id, "token", "123", send)
+      await refreshKittlGeneration(fixture.id, "token", "123", send, assets)
       expect(send).toHaveBeenCalledTimes(2)
-    } finally { fixture.close() }
+    } finally { fixture.close(); fs.rmSync(assets, { recursive: true, force: true }) }
   })
 
   it("keeps a ready image retryable if download fails before Telegram is called", async () => {

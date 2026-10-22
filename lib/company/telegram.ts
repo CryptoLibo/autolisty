@@ -57,14 +57,13 @@ export async function processTelegramUpdate(
   if (!update?.task_id || !["PENDING", "REPLY_READY"].includes(update.status)) return
   if (update.status === "PENDING") {
     let task = repository.task(update.task_id)
-    for (let step = 0; step < 5 && task && !["COMPLETED", "NEEDS_REVIEW"].includes(task.status); step++) {
-      if (task.status === "RUNNING") break
+    if (task && !["COMPLETED", "NEEDS_REVIEW", "RUNNING"].includes(task.status)) {
       task = await runCompanyStage(repository, task.id)
     }
-    if (!task || task.status === "RUNNING") return
+    if (!task || !["COMPLETED", "NEEDS_REVIEW"].includes(task.status)) return
     const answer = task.status === "COMPLETED"
       ? repository.messages(task.conversation_id).filter((message) => message.role === "assistant").at(-1)?.content
-      : "La solicitud necesita revisión. No la repetiré automáticamente para evitar cargos duplicados."
+      : `La solicitud necesita revisión: ${(task.last_error || "causa no identificada").slice(0, 300)}. No la repetiré automáticamente para evitar cargos duplicados.`
     repository.telegramReplyReady(updateId, answer || "No se obtuvo una respuesta.")
   }
   const ready = repository.telegramUpdate(updateId)

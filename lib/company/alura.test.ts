@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest"
-import { searchAluraProducts } from "./alura"
+import { aluraCreditsRemaining, searchAluraProducts } from "./alura"
 
 describe("Alura read-only provider", () => {
+  it("checks the official balance with the free usage endpoint", async () => {
+    const fetcher = vi.fn(async (input: string) => {
+      expect(input).toBe("https://api.alura.io/v1/usage")
+      return new Response(JSON.stringify({ credits: { allowance: 100, used: 0, remaining: 100 } }), { headers: { "Alura-Credits-Cost": "0" } })
+    }) as unknown as typeof fetch
+    expect(await aluraCreditsRemaining("secret", fetcher)).toBe(100)
+  })
   it("uses the documented endpoint without exposing the key in output", async () => {
     const fetcher = vi.fn(async (_url: URL, init: RequestInit) => {
       expect(init.method).toBe("GET")

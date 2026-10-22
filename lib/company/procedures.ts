@@ -51,9 +51,9 @@ export const AGENT_PROCEDURES: Record<AgentId, AgentProcedure> = {
     escalate: "Texto, composición o referencia incompatibles con el brief.",
   },
   creation_operator: {
-    input: "Prompt aprobado y configuración del producto.",
+    input: "Encargo explícito de generar una imagen, brief, conceptos y catálogo MCP de Kittl.",
     output: "Arte descargado, procedencia Kittl, parámetros y créditos registrados.",
-    policy: "No generar sin OAuth, presupuesto y lista de herramientas Kittl comprobada; máximo de revisiones acotado.",
+    policy: "Generar una imagen por encargo con OAuth, trabajador activo y presupuesto comprobados; máximo tres revisiones automáticas solicitadas por el propietario.",
     escalate: "Autenticación, coste, descarga o calidad incierta.",
   },
   production_lead: {
