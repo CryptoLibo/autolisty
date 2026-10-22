@@ -13,6 +13,7 @@ export async function GET() {
   const unauthorized = await requireOwnerApi()
   if (unauthorized) return unauthorized
   const company = new CompanyRepository()
+  company.recoverInterrupted()
   let automation: { available: boolean; mode?: string; counts?: Record<string, number>; jobs?: Array<{ id: string; productCode: string; productType: string; status: string; lastError: string | null }> ; reason?: string }
   try {
     const repository = new AutomationRepository()

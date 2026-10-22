@@ -52,12 +52,13 @@ describe("Telegram Company adapter", () => {
     const db = openCompanyDatabase(":memory:")
     try {
       const repo = new CompanyRepository(db)
-      const update = acceptTelegramUpdate(repo, { update_id: 7, message: { chat: { id: 123, type: "private" }, text: "Investiga este nicho" } }, "123")!
+      const update = acceptTelegramUpdate(repo, { update_id: 7, message: { message_id: 77, chat: { id: 123, type: "private" }, text: "Investiga este nicho" } }, "123")!
       repo.failTask(update.task_id!, "Researcher is not permitted to use Alura.")
       const send = vi.fn<typeof fetch>(async () => new Response('{"ok":true}', { status: 200 }))
       await processTelegramUpdate(repo, 7, "test-token", send)
       expect(repo.telegramUpdate(7)?.status).toBe("SENT")
-      expect(JSON.parse(send.mock.calls[0][1]?.body as string)).toMatchObject({ chat_id: "123" })
+      expect(JSON.parse(send.mock.calls[0][1]?.body as string)).toMatchObject({ chat_id: "123", reply_parameters: { message_id: 77 } })
+      expect(JSON.parse(send.mock.calls[0][1]?.body as string).text).toContain("Encargo: Investiga este nicho")
       expect(JSON.parse(send.mock.calls[0][1]?.body as string).text).toContain("Alura")
     } finally { db.close() }
   })

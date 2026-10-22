@@ -71,6 +71,10 @@ export function openCompanyDatabase(databasePath?: string) {
   if (!generationColumns.some((column) => column.name === "image_path")) {
     db.exec("ALTER TABLE company_kittl_generations ADD COLUMN image_path TEXT")
   }
+  const telegramColumns = db.pragma("table_info(company_telegram_updates)") as Array<{ name: string }>
+  if (!telegramColumns.some((column) => column.name === "telegram_message_id")) {
+    db.exec("ALTER TABLE company_telegram_updates ADD COLUMN telegram_message_id INTEGER")
+  }
   const artifactColumns = db.pragma("table_info(company_artifacts)") as Array<{ name: string }>
   if (!artifactColumns.some((column) => column.name === "data_json")) {
     db.exec("ALTER TABLE company_artifacts ADD COLUMN data_json TEXT")

@@ -37,11 +37,13 @@ describe("Company image request through owner approval", () => {
       const taskId = repo.addUserMessage(conversation, "Investiga wall art floral para maestras y crea una imagen en Kittl para que yo la apruebe por Telegram")
       db.prepare("INSERT INTO company_worker_heartbeat(id,seen_at) VALUES('main',?)").run(new Date().toISOString())
 
-      const concept = { name: "Flores de lectura", visual_idea: "Flores y libros", prompt: "Create a finished portrait printable wall art illustration showing an open book surrounded by colorful spring flowers, balanced botanical details, crisp edges, warm daylight and a clear focal point for a teacher's classroom, with no lettering.", rationale: "Apto para aula", text_mode: "none", exact_text: "", typography: "", hierarchy: "" }
+      const concept = { name: "Flores de lectura", visual_idea: "Flores y libros", prompt: "Create a finished portrait printable wall art illustration showing an open book surrounded by colorful spring flowers, balanced botanical details, crisp edges and warm daylight. Set the exact phrase \"READ AND GROW\" in bold serif lettering at the top as the large headline, with the book beneath it.", rationale: "Apto para aula", text_mode: "included", exact_text: "READ AND GROW", typography: "bold serif", hierarchy: "large headline at the top" }
+      const incomplete = { ...concept, prompt: concept.prompt.replace(" at the top as the large headline", " as prominent lettering") }
       const outputs = [
         JSON.stringify({ action: "delegate_research_design_image", answer: "", research_question: "teacher floral wall art", design_brief: "Lámina digital vertical floral para maestras", specialist_agent_id: "", specialist_question: "" }),
         "Alura muestra ejemplos relacionados; las ventas son estimaciones, no hechos verificados.",
         JSON.stringify({ product: "Wall art digital", audience: "Maestras", use: "Aula", deliverables: ["PNG vertical"], constraints: ["Floral"], assumptions: [] }),
+        JSON.stringify({ concepts: [incomplete] }),
         JSON.stringify({ concepts: [concept] }),
         JSON.stringify({ concept_index: 0, model_id: "actual-model", aspect_ratio: "3:4", reason: "Adecuado para lámina vertical" }),
       ]
@@ -60,7 +62,8 @@ describe("Company image request through owner approval", () => {
 
       for (let step = 0; step < 5; step++) await runCompanyStage(repo, taskId)
       expect(repo.task(taskId)).toMatchObject({ status: "COMPLETED", image_requested: 1 })
-      expect((repo.calls(taskId) as Array<{ agent_id: string }>).map((call) => call.agent_id)).toEqual(["ceo", "market_researcher", "product_planner", "visual_designer", "creation_operator"])
+      expect((repo.calls(taskId) as Array<{ agent_id: string }>).map((call) => call.agent_id)).toEqual(["ceo", "market_researcher", "product_planner", "visual_designer", "visual_designer", "creation_operator"])
+      expect(repo.events(taskId).some((event) => event.event_type === "design_quality_revision")).toBe(true)
       expect(repo.externalCredits("alura").used).toBe(10)
       const row = db.prepare("SELECT id,aspect_ratio FROM company_kittl_generations WHERE task_id=?").get(taskId) as { id: string; aspect_ratio: string }
       expect(row.aspect_ratio).toBe("3:4")

@@ -61,21 +61,21 @@ export class CompanyRepository {
     return row?.conversation_id || null
   }
 
-  receiveTelegramUpdate(updateId: number, chatId: string, content: string) {
+  receiveTelegramUpdate(updateId: number, chatId: string, content: string, telegramMessageId?: number) {
     return this.db.transaction(() => {
       const existing = this.telegramUpdate(updateId)
       if (existing) return existing
       const taskId = this.addUserMessage(this.telegramConversation(chatId), content)
       const date = now()
-      this.db.prepare("INSERT INTO company_telegram_updates(update_id,chat_id,task_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?)")
-        .run(updateId, chatId, taskId, "PENDING", date, date)
+      this.db.prepare("INSERT INTO company_telegram_updates(update_id,chat_id,task_id,status,telegram_message_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?)")
+        .run(updateId, chatId, taskId, "PENDING", telegramMessageId || null, date, date)
       return this.telegramUpdate(updateId)!
     })()
   }
 
   telegramUpdate(updateId: number) {
-    return this.db.prepare("SELECT update_id,chat_id,task_id,status,reply_text FROM company_telegram_updates WHERE update_id=?").get(updateId) as
-      { update_id: number; chat_id: string; task_id: string | null; status: string; reply_text: string | null } | undefined
+    return this.db.prepare("SELECT update_id,chat_id,task_id,status,reply_text,telegram_message_id FROM company_telegram_updates WHERE update_id=?").get(updateId) as
+      { update_id: number; chat_id: string; task_id: string | null; status: string; reply_text: string | null; telegram_message_id: number | null } | undefined
   }
 
   pendingTelegramUpdates(chatId: string) {
@@ -528,7 +528,10 @@ export class CompanyRepository {
     const cutoff = new Date(Date.now() - 10 * 60_000).toISOString()
     const stale = this.db.prepare("SELECT id FROM company_tasks WHERE status='RUNNING' AND updated_at<?").all(cutoff) as Array<{ id: string }>
     for (const task of stale) this.failTask(task.id, "Interrupted during a model call; review before retry to avoid duplicate charges.")
-    return stale.length
+    const queuedCutoff = new Date(Date.now() - 30 * 60_000).toISOString()
+    const queued = this.db.prepare("SELECT id FROM company_tasks WHERE status IN ('PENDING','RESEARCH_READY','DESIGN_READY','SPECIALIST_READY','SYNTHESIS_READY') AND updated_at<?").all(queuedCutoff) as Array<{ id: string }>
+    for (const task of queued) this.failTask(task.id, "La tarea quedó detenida sin progreso durante más de 30 minutos. Revisa antes de volver a solicitarla.")
+    return stale.length + queued.length
   }
 
   calls(taskId: string) {

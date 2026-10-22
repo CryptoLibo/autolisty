@@ -2,7 +2,7 @@ import OpenAI from "openai"
 import { MODEL_PRICING_USD_PER_MILLION, type AgentId } from "./agents"
 import { estimateActualUsd, MAX_WEB_SEARCH_CALLS, reserveEstimateUsd } from "./budget"
 import { CompanyRepository } from "./repository"
-import { designConceptsText, type DesignConcept } from "./design-quality"
+import { designConceptsText, reviewDesignConcepts, type DesignConcept } from "./design-quality"
 import { DESIGN_PLAYBOOK, DESIGN_PLAYBOOK_VERSION } from "./design-playbook"
 import { aluraCreditsRemaining, searchAluraProducts } from "./alura"
 import { kittlOptions, startKittlGeneration } from "./kittl-generation"
@@ -207,9 +207,16 @@ export async function runCompanyStage(repository: CompanyRepository, taskId: str
       const brief = repository.artifact(taskId, "product_brief")
       if (!brief) throw new Error("Product brief missing.")
       const examples = repository.relevantDesignExamples(brief.content)
-      const result = await paidResponse(repository, taskId, "visual_designer", `Product brief: ${brief.content}\n${DESIGN_PLAYBOOK}\nPlaybook version: ${DESIGN_PLAYBOOK_VERSION}. ${examples.length ? `Relevant owner-approved examples, for reference rather than copying: ${JSON.stringify(examples)}` : "No approved examples yet."}\nPropose up to three distinct visual directions. Each Kittl prompt must be entirely in English except quoted design copy, and must describe the complete finished result. If text is part of the design, put the exact quoted words, typography and placement inside the prompt itself. Keep metadata consistent with it. Do not ask for an empty area or later text insertion. Do not claim market validation unless it appears in the brief.`, false, "design_concepts")
-      const content = designConceptsText(result.text)
-      repository.saveArtifact(taskId, "design_concepts", content, JSON.parse(result.text) as { concepts: DesignConcept[] })
+      const result = await paidResponse(repository, taskId, "visual_designer", `Product brief: ${brief.content}\n${DESIGN_PLAYBOOK}\nPlaybook version: ${DESIGN_PLAYBOOK_VERSION}. ${examples.length ? `Relevant owner-approved examples, for reference rather than copying: ${JSON.stringify(examples)}` : "No approved examples yet."}\nPropose up to three distinct visual directions. Each Kittl prompt must be entirely in English except quoted design copy, and must describe the complete finished result. If text is part of the design, put the exact quoted words, typography and placement inside the prompt itself. For every phrase, explicitly state where it appears (top, center, bottom, etc.) and its visual hierarchy in that same English prompt. Keep metadata consistent with it. Do not ask for an empty area or later text insertion. Do not claim market validation unless it appears in the brief.`, false, "design_concepts")
+      let concepts = (JSON.parse(result.text) as { concepts: DesignConcept[] }).concepts
+      const issues = reviewDesignConcepts(concepts)
+      if (issues.length) {
+        repository.event(taskId, "design_quality_revision", { issues })
+        const correction = await paidResponse(repository, taskId, "visual_designer", `Correct only these quality defects in your previous concepts: ${issues.join(" ")}. Preserve the product brief and each concept's artistic direction. The complete English Kittl prompt must contain every exact phrase, typography, and explicit placement or hierarchy. Return the full corrected concepts once. Previous concepts: ${JSON.stringify(concepts)}`, false, "design_concepts")
+        concepts = (JSON.parse(correction.text) as { concepts: DesignConcept[] }).concepts
+      }
+      const content = designConceptsText(JSON.stringify({ concepts }))
+      repository.saveArtifact(taskId, "design_concepts", content, { concepts })
     } else if (task.stage === "KITTL_SELECT") {
       if (!task.image_requested || !repository.agentConfig("creation_operator").tools.includes("kittl_generate")) throw new Error("Kittl generation is not authorized for this task.")
       const design = repository.artifact(taskId, "design_concepts")

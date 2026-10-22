@@ -52,6 +52,15 @@ describe("Company circuit foundations", () => {
     expect(new CompanyRepository(db).agentConfig("market_researcher").tools).toEqual([])
   })
 
+  it("moves abandoned queued work to incidents instead of counting it as active", () => {
+    const repo = setup()
+    const taskId = repo.addUserMessage(repo.createConversation(), "Investiga el nicho")
+    db!.prepare("UPDATE company_tasks SET updated_at=? WHERE id=?").run(new Date(Date.now() - 31 * 60_000).toISOString(), taskId)
+    expect(repo.recoverInterrupted()).toBe(1)
+    expect(repo.task(taskId)?.status).toBe("NEEDS_REVIEW")
+    expect(repo.overview().counts).toMatchObject({ running: 0, incidents: 1 })
+  })
+
   it("persists a conversation, task, events and completion without production actions", () => {
     const repo = setup()
     const conversationId = repo.createConversation()

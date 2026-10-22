@@ -5,7 +5,7 @@ import { reviewKittlGeneration, saveKittlFeedback } from "./kittl-generation"
 
 export type TelegramUpdate = {
   update_id: number
-  message?: { chat?: { id?: number; type?: string }; text?: string }
+  message?: { message_id?: number; chat?: { id?: number; type?: string }; text?: string }
   callback_query?: { id?: string; data?: string; message?: { chat?: { id?: number; type?: string } } }
 }
 
@@ -23,7 +23,7 @@ export function acceptTelegramUpdate(repository: CompanyRepository, update: Tele
   const text = update.message?.text?.trim()
   if (!text || text.length > 8000 || text.startsWith("/")) return null
   if (saveKittlFeedback(allowedChatId, text)) return null
-  return repository.receiveTelegramUpdate(update.update_id, allowedChatId, text)
+  return repository.receiveTelegramUpdate(update.update_id, allowedChatId, text, update.message?.message_id)
 }
 
 export async function processKittlCallback(update: TelegramUpdate, allowedChatId: string | undefined, token: string, send: typeof fetch = fetch) {
@@ -61,9 +61,10 @@ export async function processTelegramUpdate(
       task = await runCompanyStage(repository, task.id)
     }
     if (!task || !["COMPLETED", "NEEDS_REVIEW"].includes(task.status)) return
+    const ownerRequest = repository.messages(task.conversation_id).find((message) => message.id === task.owner_message_id)?.content || ""
     const answer = task.status === "COMPLETED"
       ? repository.messages(task.conversation_id).filter((message) => message.role === "assistant").at(-1)?.content
-      : `La solicitud necesita revisión: ${(task.last_error || "causa no identificada").slice(0, 300)}. No la repetiré automáticamente para evitar cargos duplicados.`
+      : `Encargo: ${ownerRequest.slice(0, 180)}\n\nLa solicitud necesita revisión: ${(task.last_error || "causa no identificada").slice(0, 300)}. No la repetiré automáticamente para evitar cargos duplicados.`
     repository.telegramReplyReady(updateId, answer || "No se obtuvo una respuesta.")
   }
   const ready = repository.telegramUpdate(updateId)
@@ -74,7 +75,7 @@ export async function processTelegramUpdate(
   const response = await send(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: ready.chat_id, text: reply }),
+    body: JSON.stringify({ chat_id: ready.chat_id, text: reply, ...(ready.telegram_message_id ? { reply_parameters: { message_id: ready.telegram_message_id, allow_sending_without_reply: true } } : {}) }),
     cache: "no-store",
   })
   if (!response.ok) throw new Error(`Telegram delivery failed (${response.status}); delivery status is uncertain.`)
