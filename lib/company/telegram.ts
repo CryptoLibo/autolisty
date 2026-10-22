@@ -38,6 +38,12 @@ export async function processKittlCallback(update: TelegramUpdate, allowedChatId
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ callback_query_id: query.id, text: changed ? verdict === "approved" ? "Diseño aprobado" : "Escribe los cambios que quieres hacer" : "Esta revisión ya fue registrada" }), cache: "no-store",
   })
+  if (changed) await send(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+    body: JSON.stringify({ chat_id: allowedChatId, text: verdict === "approved"
+      ? "Imagen aprobada y registrada en Company."
+      : "Escribe en este chat qué quieres cambiar en la imagen. Guardaré tus indicaciones para la siguiente versión." }),
+  })
   return true
 }
 

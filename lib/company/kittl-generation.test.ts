@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { openCompanyDatabase } from "./db"
 import { CompanyRepository } from "./repository"
 import { acceptTelegramUpdate, processKittlCallback } from "./telegram"
-import { refreshKittlGeneration } from "./kittl-generation"
+import { drainKittlGenerations, refreshKittlGeneration } from "./kittl-generation"
 
 describe("Kittl review in the existing Telegram chat", () => {
   const previousChat = process.env.TELEGRAM_ALLOWED_CHAT_ID
@@ -71,5 +71,22 @@ describe("Kittl review in the existing Telegram chat", () => {
       await refreshKittlGeneration(fixture.id, "token", "123", send)
       expect(send).toHaveBeenCalledTimes(2)
     } finally { fixture.close() }
+  })
+
+  it("keeps a ready image retryable if download fails before Telegram is called", async () => {
+    const fixture = setup()
+    try {
+      fixture.db.prepare("UPDATE company_kittl_generations SET status='READY',telegram_message_id=NULL WHERE id=?").run(fixture.id)
+      const send = vi.fn<typeof fetch>(async () => new Response("Not found", { status: 404 }))
+      await expect(refreshKittlGeneration(fixture.id, "token", "123", send)).rejects.toThrow()
+      expect(fixture.db.prepare("SELECT status FROM company_kittl_generations WHERE id=?").get(fixture.id)).toMatchObject({ status: "READY" })
+      expect(send).toHaveBeenCalledTimes(1)
+    } finally { fixture.close() }
+  })
+
+  it("does not revisit images already sent by the background drain", async () => {
+    const fixture = setup()
+    try { expect(await drainKittlGenerations()).toEqual([]) }
+    finally { fixture.close() }
   })
 })

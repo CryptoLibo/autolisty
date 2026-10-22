@@ -24,6 +24,20 @@ export function generationsForTask(taskId: string) {
   return getCompanyDatabase().prepare("SELECT * FROM company_kittl_generations WHERE task_id=? ORDER BY created_at DESC").all(taskId) as Generation[]
 }
 
+export async function drainKittlGenerations(limit = 10) {
+  const rows = getCompanyDatabase().prepare("SELECT id FROM company_kittl_generations WHERE status IN ('QUEUED','IN_PROGRESS','READY') ORDER BY updated_at LIMIT ?").all(limit) as Array<{ id: string }>
+  const results: Array<{ id: string; status: string; error?: string }> = []
+  for (const row of rows) {
+    try {
+      const current = await refreshKittlGeneration(row.id)
+      results.push({ id: row.id, status: current?.status || "MISSING" })
+    } catch (error) {
+      results.push({ id: row.id, status: generation(row.id)?.status || "UNKNOWN", error: error instanceof Error ? error.message : "Unknown error" })
+    }
+  }
+  return results
+}
+
 export async function kittlOptions() {
   const teamsResult = await callKittlTool("kittl-list-teams", {})
   const teams = firstArray(teamsResult, ["teams", "workspaces", "data"])
@@ -104,11 +118,17 @@ export async function refreshKittlGeneration(id: string, token = process.env.TEL
   if (ready.telegram_message_id) return ready
   const claimed = db.prepare("UPDATE company_kittl_generations SET status='SENDING',updated_at=? WHERE id=? AND status='READY'").run(stamp(), id).changes
   if (!claimed) return generation(id)
-  const imageResponse = await send(ready.image_url!, { redirect: "error", cache: "no-store" })
-  const length = Number(imageResponse.headers.get("content-length"))
-  if (!imageResponse.ok || imageResponse.headers.get("content-type")?.split(";")[0] !== "image/png" || length > 10_000_000) throw new Error("La imagen de Kittl no cumple el límite de Telegram.")
-  const bytes = new Uint8Array(await imageResponse.arrayBuffer())
-  if (bytes.length > 10_000_000 || bytes.length < 8 || ![137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)) throw new Error("El PNG de Kittl es inválido o demasiado grande.")
+  let bytes: Uint8Array<ArrayBuffer>
+  try {
+    const imageResponse = await send(ready.image_url!, { redirect: "error", cache: "no-store" })
+    const length = Number(imageResponse.headers.get("content-length"))
+    if (!imageResponse.ok || imageResponse.headers.get("content-type")?.split(";")[0] !== "image/png" || length > 10_000_000) throw new Error("La imagen de Kittl no cumple el límite de Telegram.")
+    bytes = new Uint8Array(await imageResponse.arrayBuffer())
+    if (bytes.length > 10_000_000 || bytes.length < 8 || ![137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)) throw new Error("El PNG de Kittl es inválido o demasiado grande.")
+  } catch (error) {
+    db.prepare("UPDATE company_kittl_generations SET status='READY',updated_at=? WHERE id=? AND status='SENDING'").run(stamp(), id)
+    throw error
+  }
   const form = new FormData()
   form.set("chat_id", chatId)
   form.set("photo", new Blob([bytes], { type: "image/png" }), `${id}.png`)
