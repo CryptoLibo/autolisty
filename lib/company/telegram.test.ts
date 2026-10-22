@@ -47,4 +47,18 @@ describe("Telegram Company adapter", () => {
       expect(repo.listConversations()).toHaveLength(1)
     } finally { db.close() }
   })
+
+  it("sends a failed task's reason to the same Telegram chat", async () => {
+    const db = openCompanyDatabase(":memory:")
+    try {
+      const repo = new CompanyRepository(db)
+      const update = acceptTelegramUpdate(repo, { update_id: 7, message: { chat: { id: 123, type: "private" }, text: "Investiga este nicho" } }, "123")!
+      repo.failTask(update.task_id!, "Researcher is not permitted to use Alura.")
+      const send = vi.fn<typeof fetch>(async () => new Response('{"ok":true}', { status: 200 }))
+      await processTelegramUpdate(repo, 7, "test-token", send)
+      expect(repo.telegramUpdate(7)?.status).toBe("SENT")
+      expect(JSON.parse(send.mock.calls[0][1]?.body as string)).toMatchObject({ chat_id: "123" })
+      expect(JSON.parse(send.mock.calls[0][1]?.body as string).text).toContain("Alura")
+    } finally { db.close() }
+  })
 })

@@ -86,6 +86,9 @@ export function openCompanyDatabase(databasePath?: string) {
     db.prepare("UPDATE company_agents SET active_instruction_version=? WHERE id=? AND active_instruction_version<?").run(agent.version, agent.id, agent.version)
     db.prepare("UPDATE company_agents SET model=? WHERE id=?").run(modelFor(agent.id), agent.id)
   }
+  // Upgrade the original Researcher contract without replacing other stored permissions.
+  db.prepare("UPDATE company_agents SET tools_json=? WHERE id='market_researcher' AND tools_json=?")
+    .run(JSON.stringify(AGENTS.market_researcher.tools), JSON.stringify(["web_search"]))
   db.prepare("UPDATE company_agents SET name='James' WHERE id='ceo' AND name='CEO'").run()
   return db
 }

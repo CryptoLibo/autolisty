@@ -36,6 +36,22 @@ describe("Company circuit foundations", () => {
     expect(repo.agentConfig("ceo").name).toBe("Alex")
   })
 
+  it("upgrades the original Researcher permissions in an existing database", () => {
+    tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "company-test-"))
+    const file = path.join(tempDirectory, "company.sqlite")
+    db = openCompanyDatabase(file)
+    db.prepare("UPDATE company_agents SET tools_json=? WHERE id='market_researcher'").run('["web_search"]')
+    db.close(); db = undefined
+
+    db = openCompanyDatabase(file)
+    expect(new CompanyRepository(db).agentConfig("market_researcher").tools).toEqual(["web_search", "alura_research"])
+    db.prepare("UPDATE company_agents SET tools_json=? WHERE id='market_researcher'").run('[]')
+    db.close(); db = undefined
+
+    db = openCompanyDatabase(file)
+    expect(new CompanyRepository(db).agentConfig("market_researcher").tools).toEqual([])
+  })
+
   it("persists a conversation, task, events and completion without production actions", () => {
     const repo = setup()
     const conversationId = repo.createConversation()
