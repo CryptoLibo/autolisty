@@ -21,11 +21,24 @@ const firstArray = (value: unknown, keys: string[]): RecordValue[] => {
   }
   return []
 }
+const markdownModels = (value: string): RecordValue[] => {
+  const imageSection = value.match(/### Image Models\s*([\s\S]*?)(?=\n### (?:Video Models|[^\n]+)|$)/i)?.[1]
+  if (!imageSection) return []
+  return imageSection.split(/(?=^\d+\.\s+\*\*)/m).flatMap((block) => {
+    const name = block.match(/^\d+\.\s+\*\*([^*]+)\*\*/m)?.[1]?.trim()
+    const modelId = block.match(/\bModel ID:\s*`?([a-zA-Z0-9_-]+)`?/i)?.[1]
+    if (!name || !modelId) return []
+    const cost = block.match(/baseTokenCostEstimate:\s*(\d+)\s+tokens?\s+per generation/i)?.[1]
+    const parameters = block.match(/\bParameters:\s*([^\n]+)/i)?.[1] || ""
+    const aspectRatios = parameters.match(/aspectRatio:\s*([^,]+)/i)?.[1]?.match(/\d+:\d+/g) || []
+    return [{ modelId, name, baseTokenCostEstimate: cost === undefined ? null : Number(cost), aspectRatios }]
+  })
+}
 const modelRecords = (value: unknown, depth = 0): RecordValue[] => {
   if (depth > 10 || value === null || value === undefined) return []
   if (typeof value === "string") {
     const candidate = value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
-    if (!/^[\[{]/.test(candidate)) return []
+    if (!/^[\[{]/.test(candidate)) return markdownModels(value)
     try { return modelRecords(JSON.parse(candidate), depth + 1) } catch { return [] }
   }
   if (typeof value !== "object") return []

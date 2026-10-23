@@ -49,7 +49,13 @@ describe("Company image request through owner approval", () => {
       mocks.response.mockImplementation(async () => ({ status: "completed", output_text: outputs.shift(), output: [], usage: { input_tokens: 100, output_tokens: 100, input_tokens_details: { cached_tokens: 0 } }, id: crypto.randomUUID() }))
       mocks.kittl.mockImplementation(async (name: string) => {
         if (name === "kittl-list-teams") return { teams: [{ id: "team" }] }
-        if (name === "kittl-list-media-generation-models") return { models: [{ modelId: "actual-model", name: "GPT Image 2.5 Flare", baseTokenCostEstimate: 5 }] }
+        if (name === "kittl-list-media-generation-models") return { message: `## Available AI Models
+### Image Models
+1. **GPT Image 2.5 Flare** [RECOMMENDED] (gpt-image-2-5-flare)
+   Model ID: \`cmtx60zxn1l4h0j9fu5i05jyg\`
+   baseTokenCostEstimate: 5 tokens per generation | Speed: ~25s
+   Parameters: aspectRatio: 21:9 | 16:9 | 1:1 | 3:4 | 9:16, background: opaque | transparent
+### Video Models` }
         if (name === "kittl-get-token-balance") return { balance: 100 }
         if (name === "kittl-generate-media") return { jobId: "job-1", creditCost: 5 }
         if (name === "kittl-get-media-generation-status") return { status: "COMPLETE", terminal: true, url: "https://cache.kittl.com/test.png" }
@@ -67,6 +73,7 @@ describe("Company image request through owner approval", () => {
       const row = db.prepare("SELECT id,aspect_ratio FROM company_kittl_generations WHERE task_id=?").get(taskId) as { id: string; aspect_ratio: string }
       expect(row.aspect_ratio).toBe("3:4")
       expect(mocks.kittl.mock.calls.filter(([name]) => name === "kittl-generate-media")).toHaveLength(1)
+      expect(mocks.kittl.mock.calls.find(([name]) => name === "kittl-generate-media")?.[1]).toMatchObject({ modelId: "cmtx60zxn1l4h0j9fu5i05jyg", aspectRatio: "3:4" })
       const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1])
       const send = vi.fn<typeof fetch>(async (url) => String(url).includes("sendPhoto")
         ? new Response('{"ok":true,"result":{"message_id":44}}')

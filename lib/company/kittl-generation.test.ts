@@ -16,6 +16,25 @@ describe("Kittl review in the existing Telegram chat", () => {
     expect(parseKittlModels({ structuredContent: { message: "Models available" }, content: [{ type: "text", text: "```json\n{\"models\":[{\"id\":\"flare\",\"name\":\"GPT Image 2.5 Flare\",\"creditCost\":5}]}\n```" }] }))
       .toEqual([{ id: "flare", name: "GPT Image 2.5 Flare", credits: 5, description: "", aspectRatios: [] }])
     expect(parseKittlModels({ models: [{ modelId: "unknown", name: "Unknown" }] })).toEqual([{ id: "unknown", name: "Unknown", credits: null, description: "", aspectRatios: [] }])
+    const markdown = `## Available AI Models
+### Image Models
+1. **Flux Schnell** (flux-schnell)
+   Model ID: \`cmbay1olp1dpl3m0i6i7q2b0a\`
+   baseTokenCostEstimate: 0 tokens per generation | Speed: ~8s
+   Parameters: aspectRatio: 21:9 | 16:9 | 1:1 | 3:4, background: transparent | opaque
+
+2. **GPT Image 2.5 Flare** [RECOMMENDED] (gpt-image-2-5-flare)
+   Model ID: \`cmtx60zxn1l4h0j9fu5i05jyg\`
+   baseTokenCostEstimate: 5 tokens per generation | Speed: ~25s
+   Parameters: aspectRatio: 21:9 | 16:9 | 1:1 | 3:4 | 9:16, background: opaque | transparent
+### Video Models
+1. **Video Model** (video)
+   Model ID: \`video-id\`
+   baseTokenCostEstimate: 50 tokens per second`
+    expect(parseKittlModels({ message: markdown })).toEqual([
+      { id: "cmbay1olp1dpl3m0i6i7q2b0a", name: "Flux Schnell", credits: 0, description: "", aspectRatios: ["21:9", "16:9", "1:1", "3:4"] },
+      { id: "cmtx60zxn1l4h0j9fu5i05jyg", name: "GPT Image 2.5 Flare", credits: 5, description: "", aspectRatios: ["21:9", "16:9", "1:1", "3:4", "9:16"] },
+    ])
   })
   const previousChat = process.env.TELEGRAM_ALLOWED_CHAT_ID
   afterEach(() => { process.env.TELEGRAM_ALLOWED_CHAT_ID = previousChat })
