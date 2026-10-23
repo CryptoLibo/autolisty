@@ -12,6 +12,6 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   const { id } = await params
   const repository = new CompanyRepository()
   if (!repository.task(id)) return NextResponse.json({ error: "Task not found." }, { status: 404 })
-  const task = await runCompanyStage(repository, id)
+  const task = await runCompanyStage(repository, id, "owner_web")
   return NextResponse.json({ task, budget: repository.spend() })
 }

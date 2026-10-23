@@ -58,7 +58,7 @@ export async function processTelegramUpdate(
   if (update.status === "PENDING") {
     let task = repository.task(update.task_id)
     if (task && !["COMPLETED", "NEEDS_REVIEW", "RUNNING"].includes(task.status)) {
-      task = await runCompanyStage(repository, task.id)
+      task = await runCompanyStage(repository, task.id, "allowed_telegram")
     }
     if (!task || !["COMPLETED", "NEEDS_REVIEW"].includes(task.status)) return
     const answer = task.status === "COMPLETED"

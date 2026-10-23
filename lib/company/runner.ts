@@ -7,6 +7,7 @@ import { DESIGN_PLAYBOOK, DESIGN_PLAYBOOK_VERSION } from "./design-playbook"
 import { aluraCreditsRemaining, searchAluraProducts } from "./alura"
 import { kittlOptions, PILOT_KITTL_MODEL, startKittlGeneration } from "./kittl-generation"
 import { AGENT_PROCEDURES, CONSULTABLE_AGENT_IDS, isConsultableAgent } from "./procedures"
+import { executeJamesTool, formatJobsResult, type JamesToolAccess } from "./tools"
 
 type Source = { title: string; url: string }
 type ResponseFormat = "ceo_decision" | "product_brief" | "design_concepts" | "kittl_selection" | null
@@ -15,7 +16,7 @@ const RESPONSE_SCHEMAS = {
   ceo_decision: {
     type: "object", additionalProperties: false, required: ["action", "answer", "research_question", "design_brief", "specialist_agent_id", "specialist_question"],
     properties: {
-      action: { type: "string", enum: ["answer", "delegate_research", "delegate_design", "delegate_research_design", "delegate_research_design_image", "delegate_design_image", "delegate_specialist"] },
+      action: { type: "string", enum: ["answer", "get_jobs", "delegate_research", "delegate_design", "delegate_research_design", "delegate_research_design_image", "delegate_design_image", "delegate_specialist"] },
       answer: { type: "string" }, research_question: { type: "string" }, design_brief: { type: "string" },
       specialist_agent_id: { type: "string", enum: ["", ...CONSULTABLE_AGENT_IDS] }, specialist_question: { type: "string" },
     },
@@ -145,7 +146,7 @@ function specialistContext(repository: CompanyRepository, conversationId: string
   return JSON.stringify(context)
 }
 
-export async function runCompanyStage(repository: CompanyRepository, taskId: string) {
+export async function runCompanyStage(repository: CompanyRepository, taskId: string, toolAccess?: JamesToolAccess) {
   const task = repository.task(taskId)
   if (!task) throw new Error("Task not found.")
   if (task.status === "COMPLETED" || task.status === "NEEDS_REVIEW") return task
@@ -153,9 +154,14 @@ export async function runCompanyStage(repository: CompanyRepository, taskId: str
 
   try {
     if (task.stage === "CEO_DECIDE") {
-      const result = await paidResponse(repository, taskId, "ceo", `Decide how to respond to the owner's latest message. Use existing research if current and relevant. If asked for product/design ideas, delegate design. If the owner explicitly asks for a finished image or says to create/generate the design in Kittl, use delegate_research_design_image when market evidence is needed or delegate_design_image when it is not. These image actions authorize exactly one Kittl image for owner review, never a listing or publication. Research first only if current external evidence is needed; never search when the owner forbids it. For Alura, research_question should be a short Etsy search phrase, not a sentence. For a concrete question belonging to another department, delegate one bounded consultation to the appropriate specialist: ${CONSULTABLE_AGENT_IDS.join(", ")}. Do not delegate a trivial question. If asked only to discuss or explain, answer without delegation. For design, provide a bounded brief carrying owner constraints. Leave unused fields empty. Return answer in Spanish if action is answer.\nContext: ${contextFor(repository, task.conversation_id)}`, false, "ceo_decision")
+      const result = await paidResponse(repository, taskId, "ceo", `Decide how to respond to the owner's latest message. If the owner asks about current Automation jobs, their status, progress or queue, choose get_jobs; this is a read-only tool, not a specialist consultation. Use existing research if current and relevant. If asked for product/design ideas, delegate design. If the owner explicitly asks for a finished image or says to create/generate the design in Kittl, use delegate_research_design_image when market evidence is needed or delegate_design_image when it is not. These image actions authorize exactly one Kittl image for owner review, never a listing or publication. Research first only if current external evidence is needed; never search when the owner forbids it. For Alura, research_question should be a short Etsy search phrase, not a sentence. For a concrete question belonging to another department, delegate one bounded consultation to the appropriate specialist: ${CONSULTABLE_AGENT_IDS.join(", ")}. Do not delegate a trivial question. If asked only to discuss or explain, answer without delegation. For design, provide a bounded brief carrying owner constraints. Leave unused fields empty. Return answer in Spanish if action is answer.\nContext: ${contextFor(repository, task.conversation_id)}`, false, "ceo_decision")
       const decision = JSON.parse(result.text) as { action: string; answer: string; research_question: string; design_brief: string; specialist_agent_id: string; specialist_question: string }
-      if (["delegate_research", "delegate_research_design", "delegate_research_design_image"].includes(decision.action)) {
+      if (decision.action === "get_jobs") {
+        if (!toolAccess) throw new Error("James tool access denied.")
+        const snapshot = executeJamesTool({ name: "get_jobs" }, toolAccess)
+        repository.event(taskId, "james_tool_read", { tool: "get_jobs", available: snapshot.available })
+        repository.complete(taskId, formatJobsResult(snapshot))
+      } else if (["delegate_research", "delegate_research_design", "delegate_research_design_image"].includes(decision.action)) {
         if (!decision.research_question.trim()) throw new Error("CEO delegated without a research question.")
         if (decision.action !== "delegate_research" && !decision.design_brief.trim()) throw new Error("CEO delegated design without a brief.")
         repository.stage(taskId, "RESEARCH", "RESEARCH_READY", {

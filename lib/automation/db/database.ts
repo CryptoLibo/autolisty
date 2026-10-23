@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import Database from "better-sqlite3"
-import { runAutomationMigrations } from "./migrations"
+import { AUTOMATION_SCHEMA_VERSION, runAutomationMigrations } from "./migrations"
 
 const DEFAULT_DATABASE_PATH = path.join(
   process.cwd(),
@@ -45,6 +45,16 @@ export function openAutomationDatabase(databasePath?: string) {
   database.pragma("journal_mode = WAL")
   database.pragma("synchronous = FULL")
   runAutomationMigrations(database)
+  return database
+}
+
+export function openAutomationReadDatabase(databasePath?: string) {
+  const database = new Database(resolveDatabasePath(databasePath), { readonly: true, fileMustExist: true })
+  const version = Number(database.pragma("user_version", { simple: true }))
+  if (version !== AUTOMATION_SCHEMA_VERSION) {
+    database.close()
+    throw new Error("Automation database schema is not ready for read-only access.")
+  }
   return database
 }
 
