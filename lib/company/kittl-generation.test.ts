@@ -5,9 +5,16 @@ import path from "node:path"
 import { openCompanyDatabase } from "./db"
 import { CompanyRepository } from "./repository"
 import { acceptTelegramUpdate, processKittlCallback } from "./telegram"
-import { drainKittlGenerations, refreshKittlGeneration, saveKittlFeedback } from "./kittl-generation"
+import { drainKittlGenerations, parseKittlModels, refreshKittlGeneration, saveKittlFeedback } from "./kittl-generation"
 
 describe("Kittl review in the existing Telegram chat", () => {
+  it("reads nested MCP catalog text without inventing model prices", () => {
+    const nested = { result: { content: [{ type: "text", text: JSON.stringify({ data: { imageModels: [
+      { modelId: "flux-schnell", name: "Flux Schnell", baseTokenCostEstimate: 0, aspectRatios: ["1:1", "3:4"] },
+    ] } }) }] } }
+    expect(parseKittlModels(nested)).toEqual([{ id: "flux-schnell", name: "Flux Schnell", credits: 0, description: "", aspectRatios: ["1:1", "3:4"] }])
+    expect(parseKittlModels({ models: [{ modelId: "unknown", name: "Unknown" }] })).toEqual([])
+  })
   const previousChat = process.env.TELEGRAM_ALLOWED_CHAT_ID
   afterEach(() => { process.env.TELEGRAM_ALLOWED_CHAT_ID = previousChat })
 

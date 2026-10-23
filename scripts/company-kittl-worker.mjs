@@ -14,11 +14,13 @@ async function drain(path) {
   for (const item of body.results || []) {
     if (item.error) process.stderr.write(`Kittl job ${item.id}: ${item.status}: ${item.error}\n`)
   }
+  return Number(body.processed || 0)
 }
 
 while (true) {
+  let processed = 0
   for (const path of ["/api/company/telegram/drain", "/api/company/kittl/drain"]) {
-    try { await drain(path) } catch (error) { process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`) }
+    try { processed += await drain(path) } catch (error) { process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`) }
   }
-  await new Promise((resolve) => setTimeout(resolve, 20_000))
+  await new Promise((resolve) => setTimeout(resolve, processed ? 2_000 : 10_000))
 }

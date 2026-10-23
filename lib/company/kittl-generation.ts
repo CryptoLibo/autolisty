@@ -20,8 +20,44 @@ const firstArray = (value: unknown, keys: string[]): RecordValue[] => {
   }
   return []
 }
+const modelRecords = (value: unknown, depth = 0): RecordValue[] => {
+  if (depth > 10 || value === null || value === undefined) return []
+  if (typeof value === "string") {
+    if (!/^[\s]*[\[{]/.test(value)) return []
+    try { return modelRecords(JSON.parse(value), depth + 1) } catch { return [] }
+  }
+  if (typeof value !== "object") return []
+  if (Array.isArray(value)) {
+    const records = value.map(object)
+    if (records.some((item) => item.modelId || item.id) && records.some((item) => item.name || item.displayName || item.baseTokenCostEstimate !== undefined)) return records
+    for (const item of value) {
+      const nested = modelRecords(item, depth + 1)
+      if (nested.length) return nested
+    }
+    return []
+  }
+  const record = object(value)
+  for (const key of ["models", "imageModels", "items", "results", "data", "result", "content", "output"]) {
+    if (!(key in record)) continue
+    const nested = modelRecords(record[key], depth + 1)
+    if (nested.length) return nested
+  }
+  for (const nestedValue of Object.values(record)) {
+    const nested = modelRecords(nestedValue, depth + 1)
+    if (nested.length) return nested
+  }
+  return []
+}
 const text = (value: unknown) => typeof value === "string" ? value : ""
 const integer = (value: unknown) => value !== null && value !== undefined && value !== "" && Number.isSafeInteger(Number(value)) ? Number(value) : null
+
+export function parseKittlModels(raw: unknown) {
+  return modelRecords(raw).map((item) => ({
+    id: text(item.modelId || item.id), name: text(item.name || item.displayName || item.modelId || item.id), credits: integer(item.baseTokenCostEstimate ?? item.creditCost ?? item.tokenCost ?? object(item.pricing).baseTokenCostEstimate),
+    description: text(item.description || item.bestFor).slice(0, 180),
+    aspectRatios: Array.isArray(item.aspectRatios) ? item.aspectRatios.filter((ratio): ratio is string => typeof ratio === "string").slice(0, 12) : [],
+  })).filter((item) => item.id && item.credits !== null && item.credits >= 0)
+}
 
 export function generation(id: string) {
   return getCompanyDatabase().prepare("SELECT * FROM company_kittl_generations WHERE id=?").get(id) as Generation | undefined
@@ -67,12 +103,13 @@ export async function kittlOptions() {
   const workspaceId = text(teams[0]?.workspaceId || teams[0]?.defaultTeamId || teams[0]?.id || object(teamsResult).workspaceId || object(teamsResult).defaultTeamId)
   if (!workspaceId) throw new Error("Kittl no devolvió un workspace utilizable.")
   const raw = await callKittlTool("kittl-list-media-generation-models", { workspaceId, typeFilter: "image" })
-  const models = firstArray(raw, ["models", "data", "results"]).map((item) => ({
-    id: text(item.modelId || item.id), name: text(item.name || item.displayName || item.modelId || item.id), credits: integer(item.baseTokenCostEstimate ?? item.creditCost ?? item.tokenCost),
-    description: text(item.description || item.bestFor).slice(0, 180),
-    aspectRatios: Array.isArray(item.aspectRatios) ? item.aspectRatios.filter((ratio): ratio is string => typeof ratio === "string").slice(0, 12) : [],
-  })).filter((item) => item.id && item.credits !== null && item.credits >= 0)
-  if (!models.length) throw new Error("Kittl no devolvió modelos de imagen con coste conocido.")
+  const records = modelRecords(raw)
+  const models = parseKittlModels(raw)
+  if (!models.length) {
+    const rootKeys = Object.keys(object(raw)).slice(0, 12).join(", ") || "sin claves JSON"
+    const modelKeys = Object.keys(records[0] || {}).slice(0, 12).join(", ") || "sin lista de modelos"
+    throw new Error(`No pude leer el catálogo de modelos de Kittl sin inventar su coste. Estructura: ${rootKeys}; campos: ${modelKeys}.`)
+  }
   return { workspaceId, models }
 }
 

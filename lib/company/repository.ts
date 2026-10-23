@@ -238,7 +238,7 @@ export class CompanyRepository {
       (SELECT COUNT(*) FROM company_projects) AS projects,
       (SELECT COUNT(*) FROM company_design_units) AS units,
       (SELECT COUNT(*) FROM company_listings) AS listings,
-      (SELECT COUNT(*) FROM company_tasks WHERE status NOT IN ('COMPLETED','NEEDS_REVIEW')) AS running,
+      (SELECT COUNT(*) FROM company_tasks WHERE status IN ('PENDING','RUNNING','RESEARCH_READY','DESIGN_READY','SPECIALIST_READY','SYNTHESIS_READY')) AS running,
       (SELECT COUNT(*) FROM company_tasks WHERE status='NEEDS_REVIEW') AS incidents,
       (SELECT COUNT(*) FROM company_design_reviews WHERE verdict='approved') AS approvedDesigns`).get() as {
       projects: number; units: number; listings: number; running: number; incidents: number; approvedDesigns: number
@@ -253,7 +253,23 @@ export class CompanyRepository {
       GROUP BY l.id ORDER BY l.created_at DESC LIMIT 30`).all() as Array<{
         id: string; project_id: string; product_code: string | null; status: string; created_at: string; project_title: string; unit_count: number
       }>
-    return { counts, projects, listings, budget: this.spend() }
+    const activeTasks = this.db.prepare(`SELECT t.id,t.status,t.stage,t.updated_at,m.content AS request
+      FROM company_tasks t JOIN company_messages m ON m.id=t.owner_message_id
+      WHERE t.status IN ('PENDING','RUNNING','RESEARCH_READY','DESIGN_READY','SPECIALIST_READY','SYNTHESIS_READY')
+      ORDER BY t.updated_at DESC LIMIT 20`).all() as Array<{ id: string; status: string; stage: string; updated_at: string; request: string }>
+    return { counts, projects, listings, activeTasks, budget: this.spend() }
+  }
+
+  cancelQueuedTask(taskId: string) {
+    return this.db.transaction(() => {
+      const cancelled = this.db.prepare(`UPDATE company_tasks SET status='CANCELLED',last_error='Cancelada por el propietario.',updated_at=?
+        WHERE id=? AND status IN ('PENDING','RESEARCH_READY','DESIGN_READY','SPECIALIST_READY','SYNTHESIS_READY')`).run(now(), taskId).changes
+      if (!cancelled) return false
+      this.db.prepare("UPDATE company_telegram_updates SET status='ABANDONED',updated_at=? WHERE task_id=? AND status IN ('PENDING','REPLY_READY')")
+        .run(now(), taskId)
+      this.event(taskId, "task_cancelled", { by: "owner" })
+      return true
+    })()
   }
 
   complete(taskId: string, answer: string) {

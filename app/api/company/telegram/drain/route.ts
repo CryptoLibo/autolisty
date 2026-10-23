@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server"
-import { requireOwnerApi } from "@/lib/auth/owner"
 import { CompanyRepository } from "@/lib/company/repository"
 import { processTelegramUpdate } from "@/lib/company/telegram"
 import { authorizedCompanyWorker } from "@/lib/company/worker-auth"
@@ -7,10 +6,7 @@ import { authorizedCompanyWorker } from "@/lib/company/worker-auth"
 export const runtime = "nodejs"
 
 export async function POST(request: Request) {
-  if (!authorizedCompanyWorker(request)) {
-    const unauthorized = await requireOwnerApi()
-    if (unauthorized) return unauthorized
-  }
+  if (!authorizedCompanyWorker(request)) return new Response(null, { status: 403 })
   const chatId = process.env.TELEGRAM_ALLOWED_CHAT_ID
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!chatId || !token) return NextResponse.json({ error: "Telegram is not configured." }, { status: 503 })

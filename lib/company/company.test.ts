@@ -318,4 +318,18 @@ describe("Company circuit foundations", () => {
     expect(repo.overview().counts).toMatchObject({ projects: 1, units: 1, listings: 0, incidents: 1, running: 0 })
     expect(repo.overview().projects[0]).toMatchObject({ title: "One wall art design", units: 1 })
   })
+
+  it("cancels only a queued task and removes its stale Telegram delivery", () => {
+    const repo = setup()
+    const update = repo.receiveTelegramUpdate(88, "123", "Encargo antiguo")
+    expect(repo.overview().counts.running).toBe(1)
+    expect(repo.cancelQueuedTask(update.task_id!)).toBe(true)
+    expect(repo.task(update.task_id!)?.status).toBe("CANCELLED")
+    expect(repo.telegramUpdate(88)?.status).toBe("ABANDONED")
+    expect(repo.overview().counts).toMatchObject({ running: 0, incidents: 0 })
+    expect(repo.cancelQueuedTask(update.task_id!)).toBe(false)
+    const running = repo.addUserMessage(repo.telegramConversation("123"), "Encargo nuevo")
+    expect(repo.claimStage(running, "CEO_DECIDE")).toBe(true)
+    expect(repo.cancelQueuedTask(running)).toBe(false)
+  })
 })

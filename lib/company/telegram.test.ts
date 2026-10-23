@@ -57,8 +57,9 @@ describe("Telegram Company adapter", () => {
       const send = vi.fn<typeof fetch>(async () => new Response('{"ok":true}', { status: 200 }))
       await processTelegramUpdate(repo, 7, "test-token", send)
       expect(repo.telegramUpdate(7)?.status).toBe("SENT")
-      expect(JSON.parse(send.mock.calls[0][1]?.body as string)).toMatchObject({ chat_id: "123", reply_parameters: { message_id: 77 } })
-      expect(JSON.parse(send.mock.calls[0][1]?.body as string).text).toContain("Encargo: Investiga este nicho")
+      expect(JSON.parse(send.mock.calls[0][1]?.body as string)).toMatchObject({ chat_id: "123" })
+      expect(JSON.parse(send.mock.calls[0][1]?.body as string)).not.toHaveProperty("reply_parameters")
+      expect(JSON.parse(send.mock.calls[0][1]?.body as string).text).not.toContain("Investiga este nicho")
       expect(JSON.parse(send.mock.calls[0][1]?.body as string).text).toContain("Alura")
     } finally { db.close() }
   })
