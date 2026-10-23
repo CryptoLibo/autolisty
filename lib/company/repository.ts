@@ -424,12 +424,20 @@ export class CompanyRepository {
 
   reuseRecentReport(taskId: string, question: string, days = 7) {
     const normalize = (value: string) => value.normalize("NFKC").toLocaleLowerCase("es").replace(/\s+/g, " ").trim()
+    const current = this.db.prepare(`SELECT m.content AS request FROM company_tasks t JOIN company_messages m ON m.id=t.owner_message_id WHERE t.id=?`)
+      .get(taskId) as { request: string } | undefined
     const cutoff = new Date(Date.now() - days * 86_400_000).toISOString()
-    const rows = this.db.prepare(`SELECT t.id AS source_task_id,t.research_question,r.content,r.sources_json
+    const rows = this.db.prepare(`SELECT t.id AS source_task_id,t.research_question,m.content AS request,r.content,r.sources_json
       FROM company_reports r JOIN company_tasks t ON t.id=r.task_id
-      WHERE t.id<>? AND t.status='COMPLETED' AND r.created_at>=?
-      ORDER BY r.created_at DESC LIMIT 50`).all(taskId, cutoff) as Array<{ source_task_id: string; research_question: string; content: string; sources_json: string }>
-    const match = rows.find((row) => row.research_question && normalize(row.research_question) === normalize(question))
+      JOIN company_messages m ON m.id=t.owner_message_id
+      WHERE t.id<>? AND r.created_at>=?
+      ORDER BY r.created_at DESC LIMIT 100`).all(taskId, cutoff) as Array<{ source_task_id: string; research_question: string; request: string; content: string; sources_json: string }>
+    const words = (value: string) => normalize(value).split(/[^\p{L}\p{N}]+/u).filter(Boolean).sort().join(" ")
+    const match = rows.find((row) => row.research_question && (
+      normalize(row.research_question) === normalize(question) ||
+      words(row.research_question) === words(question) ||
+      current && normalize(row.request) === normalize(current.request)
+    ))
     if (!match) return false
     this.saveReport(taskId, match.content, JSON.parse(match.sources_json) as Array<{ title: string; url: string }>)
     this.event(taskId, "research_reused", { sourceTaskId: match.source_task_id })

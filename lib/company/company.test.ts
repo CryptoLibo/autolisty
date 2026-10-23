@@ -76,6 +76,22 @@ describe("Company circuit foundations", () => {
     expect(repo.events(taskId).length).toBeGreaterThan(2)
   })
 
+  it("reuses paid research when an identical request previously failed after research", () => {
+    const repo = setup()
+    const conversation = repo.createConversation()
+    const request = "Investiga nichos vertical wall art en Q4 y crea un diseño"
+    const first = repo.addUserMessage(conversation, request)
+    repo.stage(first, "RESEARCH", "RESEARCH_READY", { researchQuestion: "vertical wall art Q4", designBrief: "Diseño vertical" })
+    repo.saveReport(first, "Resultados de Alura", [{ title: "Ejemplo", url: "https://www.etsy.com/listing/123" }])
+    repo.failTask(first, "Kittl no devolvió modelos")
+    const second = repo.addUserMessage(conversation, request)
+    repo.stage(second, "RESEARCH", "RESEARCH_READY", { researchQuestion: "Q4 wall art vertical", designBrief: "Diseño vertical" })
+    expect(repo.reuseRecentReport(second, "Q4 wall art vertical")).toBe(true)
+    expect(repo.report(second)?.content).toBe("Resultados de Alura")
+    expect(repo.events(second).some((event) => event.event_type === "research_reused")).toBe(true)
+    expect(repo.externalCredits("alura").used).toBe(0)
+  })
+
   it("persists specialist delegation, its result and individual attribution", () => {
     const repo = setup()
     const conversationId = repo.createConversation()

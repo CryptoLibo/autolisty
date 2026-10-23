@@ -9,8 +9,9 @@ export async function GET() {
   const unauthorized = await requireOwnerApi()
   if (unauthorized) return unauthorized
   try {
-    const tools = (await listKittlTools()).filter((tool) => ["kittl-list-teams", "kittl-list-media-generation-models", "kittl-get-token-balance", "kittl-generate-media", "kittl-get-media-generation-status"].includes(tool.name))
-    return NextResponse.json({ tools, catalog: await inspectKittlCatalog() }, { headers: { "Cache-Control": "no-store" } })
+    const tools = await listKittlTools()
+    const catalog = await inspectKittlCatalog().catch((error: unknown) => ({ error: error instanceof Error ? error.message : "Error consultando el catálogo" }))
+    return NextResponse.json({ tools, catalog }, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error consultando Kittl" }, { status: 502, headers: { "Cache-Control": "no-store" } })
   }
