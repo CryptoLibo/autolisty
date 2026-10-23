@@ -316,7 +316,11 @@ describe("Company circuit foundations", () => {
     repo.stage(taskId, "PRODUCT_PLAN", "DESIGN_READY", { designBrief: "One wall art design" })
     repo.failTask(taskId, "Needs a product decision")
     expect(repo.overview().counts).toMatchObject({ projects: 1, units: 1, listings: 0, incidents: 1, running: 0 })
+    expect(repo.overview().incidentTasks[0]).toMatchObject({ id: taskId, last_error: "Needs a product decision" })
     expect(repo.overview().projects[0]).toMatchObject({ title: "One wall art design", units: 1 })
+    expect(repo.cancelQueuedTask(taskId)).toBe(true)
+    expect(repo.overview().counts).toMatchObject({ incidents: 0, running: 0 })
+    expect(repo.task(taskId)?.status).toBe("CANCELLED")
   })
 
   it("cancels only a queued task and removes its stale Telegram delivery", () => {

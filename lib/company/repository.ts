@@ -257,13 +257,18 @@ export class CompanyRepository {
       FROM company_tasks t JOIN company_messages m ON m.id=t.owner_message_id
       WHERE t.status IN ('PENDING','RUNNING','RESEARCH_READY','DESIGN_READY','SPECIALIST_READY','SYNTHESIS_READY')
       ORDER BY t.updated_at DESC LIMIT 20`).all() as Array<{ id: string; status: string; stage: string; updated_at: string; request: string }>
-    return { counts, projects, listings, activeTasks, budget: this.spend() }
+    const incidentTasks = this.db.prepare(`SELECT t.id,t.status,t.stage,t.updated_at,t.last_error,m.content AS request
+      FROM company_tasks t JOIN company_messages m ON m.id=t.owner_message_id
+      WHERE t.status='NEEDS_REVIEW' ORDER BY t.updated_at DESC LIMIT 20`).all() as Array<{
+      id: string; status: string; stage: string; updated_at: string; last_error: string | null; request: string
+    }>
+    return { counts, projects, listings, activeTasks, incidentTasks, budget: this.spend() }
   }
 
   cancelQueuedTask(taskId: string) {
     return this.db.transaction(() => {
       const cancelled = this.db.prepare(`UPDATE company_tasks SET status='CANCELLED',last_error='Cancelada por el propietario.',updated_at=?
-        WHERE id=? AND status IN ('PENDING','RESEARCH_READY','DESIGN_READY','SPECIALIST_READY','SYNTHESIS_READY')`).run(now(), taskId).changes
+        WHERE id=? AND status IN ('PENDING','RESEARCH_READY','DESIGN_READY','SPECIALIST_READY','SYNTHESIS_READY','NEEDS_REVIEW')`).run(now(), taskId).changes
       if (!cancelled) return false
       this.db.prepare("UPDATE company_telegram_updates SET status='ABANDONED',updated_at=? WHERE task_id=? AND status IN ('PENDING','REPLY_READY')")
         .run(now(), taskId)

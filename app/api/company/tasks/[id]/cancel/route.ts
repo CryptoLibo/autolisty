@@ -9,6 +9,6 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   if (unauthorized) return unauthorized
   const { id } = await params
   const repository = new CompanyRepository()
-  if (!repository.cancelQueuedTask(id)) return NextResponse.json({ error: "Solo se puede cancelar una tarea pendiente; una llamada en curso debe terminar primero." }, { status: 409 })
+  if (!repository.cancelQueuedTask(id)) return NextResponse.json({ error: "Solo se puede cerrar una tarea pendiente o una incidencia; una llamada en curso debe terminar primero." }, { status: 409 })
   return NextResponse.json({ cancelled: true })
 }

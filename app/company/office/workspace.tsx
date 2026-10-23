@@ -31,6 +31,7 @@ function timeLabel(date: string) {
 function taskLabel(task: Task) {
   if (task.status === "NEEDS_REVIEW") return "Necesita atención"
   if (task.status === "COMPLETED") return "Completada"
+  if (task.status === "CANCELLED") return "Cancelada"
   if (task.stage === "RESEARCH") return "Investigando"
   if (task.stage === "PRODUCT_PLAN") return "Planificando producto"
   if (task.stage === "VISUAL_DESIGN") return "Diseñando conceptos"
@@ -138,10 +139,10 @@ export default function OfficeWorkspace() {
   const planner = office?.agents.find((agent) => agent.id === "product_planner")
   const designer = office?.agents.find((agent) => agent.id === "visual_designer")
   const latestTask = snapshot?.tasks.at(-1)
-  const ceoState: WorkState = latestTask?.status === "NEEDS_REVIEW" ? "attention" : latestTask && !["COMPLETED"].includes(latestTask.status) && latestTask.stage !== "RESEARCH" ? "working" : "idle"
-  const researcherState: WorkState = latestTask && !["COMPLETED", "NEEDS_REVIEW"].includes(latestTask.status) && latestTask.stage === "RESEARCH" ? "working" : "idle"
-  const plannerState: WorkState = latestTask && !["COMPLETED", "NEEDS_REVIEW"].includes(latestTask.status) && latestTask.stage === "PRODUCT_PLAN" ? "working" : "idle"
-  const designerState: WorkState = latestTask && !["COMPLETED", "NEEDS_REVIEW"].includes(latestTask.status) && latestTask.stage === "VISUAL_DESIGN" ? "working" : "idle"
+  const ceoState: WorkState = latestTask?.status === "NEEDS_REVIEW" ? "attention" : latestTask && !["COMPLETED", "CANCELLED"].includes(latestTask.status) && latestTask.stage !== "RESEARCH" ? "working" : "idle"
+  const researcherState: WorkState = latestTask && !["COMPLETED", "NEEDS_REVIEW", "CANCELLED"].includes(latestTask.status) && latestTask.stage === "RESEARCH" ? "working" : "idle"
+  const plannerState: WorkState = latestTask && !["COMPLETED", "NEEDS_REVIEW", "CANCELLED"].includes(latestTask.status) && latestTask.stage === "PRODUCT_PLAN" ? "working" : "idle"
+  const designerState: WorkState = latestTask && !["COMPLETED", "NEEDS_REVIEW", "CANCELLED"].includes(latestTask.status) && latestTask.stage === "VISUAL_DESIGN" ? "working" : "idle"
   const latestReport = snapshot?.tasks.slice().reverse().find((task) => task.report)?.report
   const latestDesignTask = snapshot?.tasks.slice().reverse().find((task) => task.artifacts?.some((artifact) => artifact.kind === "design_concepts"))
   const designData = latestDesignTask?.artifacts.find((artifact) => artifact.kind === "design_concepts")?.data_json
@@ -150,7 +151,7 @@ export default function OfficeWorkspace() {
     { agent: ceo, state: ceoState }, { agent: researcher, state: researcherState },
     { agent: planner, state: plannerState }, { agent: designer, state: designerState },
   ]
-  const openTasks = snapshot?.tasks.filter((task) => !["COMPLETED", "NEEDS_REVIEW"].includes(task.status)) || []
+  const openTasks = snapshot?.tasks.filter((task) => !["COMPLETED", "NEEDS_REVIEW", "CANCELLED"].includes(task.status)) || []
   const attentionTasks = snapshot?.tasks.filter((task) => task.status === "NEEDS_REVIEW") || []
   const currentTask = openTasks.at(-1)
   const taskSteps = ["CEO_DECIDE", "RESEARCH", "PRODUCT_PLAN", "VISUAL_DESIGN", "SPECIALIST", "CEO_SYNTHESIZE"]
@@ -159,7 +160,7 @@ export default function OfficeWorkspace() {
   return <div className={styles.shell}>
     <header className={styles.topbar}>
       <div className={styles.brand}><Link href="/" aria-label="Volver a Autolisty" title="Volver a Autolisty"><ArrowLeft size={17}/></Link><div className={styles.brandMark}>AL</div><div><strong>Autolisty Company</strong><span>OFICINA · DIRECCIÓN</span></div></div>
-      <div className={styles.topMeta}><span className={styles.headerCount}><strong>{office?.agents.filter((agent) => agent.status === "active").length || 0}</strong> operativos / {office?.agents.length || 0} puestos</span><span className={styles.headerCount}><strong>{snapshot?.tasks.filter((task) => task.status !== "COMPLETED").length || 0}</strong> en curso</span><span className={styles.liveDot}/><span>{office ? "Conectado" : "Conectando"}</span><Link href="/company/operations" title="Operaciones" aria-label="Operaciones"><Building2 size={17}/></Link><button title="Abrir chat con James" aria-label="Abrir chat con James" onClick={() => setFocus("ceo")}><MessageSquare size={17}/></button><button title="Actualizar" aria-label="Actualizar" onClick={() => { refreshOffice(); if (conversationId) refreshConversation(conversationId) }}><RefreshCw size={17}/></button></div>
+      <div className={styles.topMeta}><span className={styles.headerCount}><strong>{office?.agents.filter((agent) => agent.status === "active").length || 0}</strong> operativos / {office?.agents.length || 0} puestos</span><span className={styles.headerCount}><strong>{openTasks.length}</strong> en curso</span><span className={styles.liveDot}/><span>{office ? "Conectado" : "Conectando"}</span><Link href="/company/operations" title="Operaciones" aria-label="Operaciones"><Building2 size={17}/></Link><button title="Abrir chat con James" aria-label="Abrir chat con James" onClick={() => setFocus("ceo")}><MessageSquare size={17}/></button><button title="Actualizar" aria-label="Actualizar" onClick={() => { refreshOffice(); if (conversationId) refreshConversation(conversationId) }}><RefreshCw size={17}/></button></div>
     </header>
     <div className={styles.body}>
       <nav className={styles.rail} aria-label="Áreas de la oficina">
@@ -186,8 +187,8 @@ export default function OfficeWorkspace() {
         {focus === "ceo" && <>
           <div className={styles.conversationBar}><button onClick={() => setShowConversations((value) => !value)} title="Conversaciones"><MessageSquare size={16}/><span>{snapshot?.telegramLinked ? "Conversación compartida" : "Conversación"}</span></button><button onClick={createConversation} title="Nueva conversación" aria-label="Nueva conversación"><Plus size={16}/></button>{conversationId && <button onClick={linkTelegram} disabled={snapshot?.telegramLinked} title={snapshot?.telegramLinked ? "Telegram vinculado" : "Vincular Telegram"} aria-label={snapshot?.telegramLinked ? "Telegram vinculado" : "Vincular Telegram"}>{snapshot?.telegramLinked ? <Check size={16}/> : <Link2 size={16}/>}</button>}</div>
           {showConversations && <div className={styles.conversationMenu}>{office?.conversations.map((item) => <button key={item.id} className={item.id === conversationId ? styles.selected : ""} onClick={() => { setConversationId(item.id); setSnapshot(null); setShowConversations(false) }}><span>{item.first_message || "Nueva conversación"}</span><small>{timeLabel(item.updated_at)}</small></button>)}</div>}
-          <div className={styles.messages}>{snapshot?.messages.map((message) => <div key={message.id} className={message.role === "user" ? styles.userMessage : styles.assistantMessage}><strong>{message.role === "user" ? "Tú" : ceo?.name || "James"}</strong><p>{message.content}</p></div>)}{!snapshot?.messages.length && <div className={styles.empty}>No hay mensajes en esta conversación.</div>}{latestTask && latestTask.status !== "COMPLETED" && <div className={styles.taskStatus}>{taskLabel(latestTask)}{latestTask.last_error ? `: ${latestTask.last_error}` : ""}</div>}<div ref={messagesEnd}/></div>
-          <div className={styles.composer}><textarea aria-label="Mensaje a James" placeholder="Escribe a James..." value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send() } }} disabled={busy || !!latestTask && !["COMPLETED", "NEEDS_REVIEW"].includes(latestTask.status)} rows={3}/><button title="Enviar" aria-label="Enviar" onClick={send} disabled={!draft.trim() || busy}><ArrowUp size={18}/></button></div>
+          <div className={styles.messages}>{snapshot?.messages.map((message) => <div key={message.id} className={message.role === "user" ? styles.userMessage : styles.assistantMessage}><strong>{message.role === "user" ? "Tú" : ceo?.name || "James"}</strong><p>{message.content}</p></div>)}{!snapshot?.messages.length && <div className={styles.empty}>No hay mensajes en esta conversación.</div>}{latestTask && !["COMPLETED", "CANCELLED"].includes(latestTask.status) && <div className={styles.taskStatus}>{taskLabel(latestTask)}{latestTask.last_error ? `: ${latestTask.last_error}` : ""}</div>}<div ref={messagesEnd}/></div>
+          <div className={styles.composer}><textarea aria-label="Mensaje a James" placeholder="Escribe a James..." value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send() } }} disabled={busy || !!latestTask && !["COMPLETED", "NEEDS_REVIEW", "CANCELLED"].includes(latestTask.status)} rows={3}/><button title="Enviar" aria-label="Enviar" onClick={send} disabled={!draft.trim() || busy}><ArrowUp size={18}/></button></div>
         </>}
         {focus === "research" && <div className={styles.infoScroll}><div className={styles.infoRow}><span>Estado</span><strong>{researcherState === "working" ? "Investigando" : "Disponible"}</strong></div><div className={styles.infoRow}><span>Especialidad</span><strong>Mercado y fuentes</strong></div><h3>Último informe</h3>{latestReport ? <><p className={styles.reportText}>{latestReport.content}</p><h3>Fuentes</h3>{(JSON.parse(latestReport.sources_json) as Array<{ title: string; url: string }>).map((source) => <a className={styles.source} href={source.url} key={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</> : <p className={styles.empty}>Sin informes en esta conversación.</p>}</div>}
         {(focus === "product" || focus === "creative") && <div className={styles.infoScroll}>
