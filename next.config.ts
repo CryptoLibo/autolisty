@@ -23,6 +23,18 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        source: "/company",
+        headers: [
+          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
+        ],
+      },
+      {
+        source: "/company/:path*",
+        headers: [
+          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
+        ],
+      },
     ]
   },
 };
