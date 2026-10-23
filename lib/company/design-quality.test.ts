@@ -15,11 +15,12 @@ describe("design quality contract", () => {
     expect(designConceptsText(JSON.stringify({ concepts: [concept] }))).toContain('"READING IS MAGIC" in bold high-contrast serif')
   })
 
-  it("rejects vague text specifications and long prompts", () => {
+  it("rejects missing text metadata without imposing an arbitrary word count", () => {
     const invalid = { ...concept, exact_text: "", typography: "", prompt: `${concept.prompt} ${"adjetivo ".repeat(60)}` }
     expect(reviewDesignConcepts([invalid])).toEqual(expect.arrayContaining([
-      expect.stringContaining("palabras exactas"), expect.stringContaining("25 y 90 palabras"),
+      expect.stringContaining("palabras exactas"),
     ]))
+    expect(reviewDesignConcepts([{ ...concept, prompt: `${concept.prompt} ${"adjective ".repeat(60)}` }])).toEqual([])
   })
 
   it("allows text-free concepts only with empty typography fields", () => {

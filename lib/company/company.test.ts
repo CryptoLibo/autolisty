@@ -26,10 +26,10 @@ describe("Company circuit foundations", () => {
   it("stores distinct durable agent identities with versioned instructions", () => {
     const repo = setup()
     expect((db!.prepare("SELECT COUNT(*) AS total FROM company_agents").get() as { total: number }).total).toBe(16)
-    expect(repo.agentConfig("ceo")).toMatchObject({ id: "ceo", name: "James", active_instruction_version: 4, tools: [] })
+    expect(repo.agentConfig("ceo")).toMatchObject({ id: "ceo", name: "James", active_instruction_version: 5, tools: [] })
     expect(repo.agentConfig("market_researcher")).toMatchObject({ id: "market_researcher", active_instruction_version: 2, tools: ["web_search", "alura_research"] })
     expect(repo.agentConfig("product_planner")).toMatchObject({ id: "product_planner", active_instruction_version: 3, tools: [] })
-    expect(repo.agentConfig("visual_designer")).toMatchObject({ id: "visual_designer", active_instruction_version: 5, tools: [] })
+    expect(repo.agentConfig("visual_designer")).toMatchObject({ id: "visual_designer", active_instruction_version: 6, tools: [] })
     expect(repo.agentConfig("seo_specialist")).toMatchObject({ id: "seo_specialist", active_instruction_version: 1, tools: [] })
     expect(repo.agentConfig("creation_operator")).toMatchObject({ id: "creation_operator", active_instruction_version: 2, tools: ["kittl_generate", "kittl_download"] })
     expect(repo.renameAgent("ceo", "Alex")).toMatchObject({ id: "ceo", name: "Alex" })

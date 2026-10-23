@@ -22,8 +22,6 @@ export function reviewDesignConcepts(concepts: DesignConcept[]): string[] {
     const name = concept.name.trim().toLocaleLowerCase("es")
     if (names.has(name)) issues.push(`${label}: nombre duplicado.`)
     names.add(name)
-    const words = concept.prompt.trim().split(/\s+/).length
-    if (words < 25 || words > 90) issues.push(`${label}: el prompt debe tener entre 25 y 90 palabras.`)
     if (/\b(?:leave|reserve)\s+(?:a\s+)?(?:blank\s+)?space\s+for\s+(?:the\s+)?(?:text|lettering|title|headline)\b|\b(?:add|insert)\s+(?:the\s+)?text\s+later\b/i.test(concept.prompt)) {
       issues.push(`${label}: el prompt deja el texto para después.`)
     }
