@@ -140,7 +140,7 @@ export async function listKittlTools() {
   const { client, transport } = clientWithProvider(state)
   try {
     await client.connect(transport)
-    return (await client.listTools()).tools.map((tool) => ({ name: tool.name, description: tool.description || "" }))
+    return (await client.listTools()).tools.map((tool) => ({ name: tool.name, description: tool.description || "", inputSchema: tool.inputSchema }))
   } finally {
     await client.close().catch(() => {})
   }
@@ -155,8 +155,10 @@ export async function callKittlTool(name: string, args: Record<string, unknown>)
     await client.connect(transport)
     const result = await client.callTool({ name, arguments: args })
     if (result.isError) throw new Error(`Kittl rejected ${name}.`)
-    if (result.structuredContent && Object.keys(result.structuredContent).length) return result.structuredContent as unknown
     const blocks = result.content as Array<{ type: string; text?: string }>
+    if (result.structuredContent && Object.keys(result.structuredContent).length) {
+      return { ...result.structuredContent, content: blocks }
+    }
     const text = blocks.filter((block) => block.type === "text").map((block) => block.text || "").join("\n")
     try { return JSON.parse(text) as unknown } catch { return { message: text } }
   } finally {

@@ -9,6 +9,7 @@ import { requireCompanyWorkerAlive } from "./worker-auth"
 type RecordValue = Record<string, unknown>
 export type Generation = { id: string; task_id: string; concept_index: number; prompt: string; model_id: string; workspace_id: string; aspect_ratio: string; reservation_id: string | null; job_id: string | null; status: string; image_url: string | null; image_path: string | null; edit_url: string | null; credit_cost: number | null; telegram_message_id: number | null; review_status: string | null; feedback: string | null }
 const stamp = () => new Date().toISOString()
+export const PILOT_KITTL_MODEL = "GPT Image 2.5 Flare"
 const object = (value: unknown): RecordValue => value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {}
 const firstArray = (value: unknown, keys: string[]): RecordValue[] => {
   if (Array.isArray(value)) return value.map(object)
@@ -23,8 +24,9 @@ const firstArray = (value: unknown, keys: string[]): RecordValue[] => {
 const modelRecords = (value: unknown, depth = 0): RecordValue[] => {
   if (depth > 10 || value === null || value === undefined) return []
   if (typeof value === "string") {
-    if (!/^[\s]*[\[{]/.test(value)) return []
-    try { return modelRecords(JSON.parse(value), depth + 1) } catch { return [] }
+    const candidate = value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
+    if (!/^[\[{]/.test(candidate)) return []
+    try { return modelRecords(JSON.parse(candidate), depth + 1) } catch { return [] }
   }
   if (typeof value !== "object") return []
   if (Array.isArray(value)) {
@@ -37,6 +39,7 @@ const modelRecords = (value: unknown, depth = 0): RecordValue[] => {
     return []
   }
   const record = object(value)
+  if ((record.modelId || record.id) && (record.name || record.displayName || record.baseTokenCostEstimate !== undefined)) return [record]
   for (const key of ["models", "imageModels", "items", "results", "data", "result", "content", "output"]) {
     if (!(key in record)) continue
     const nested = modelRecords(record[key], depth + 1)
@@ -56,7 +59,7 @@ export function parseKittlModels(raw: unknown) {
     id: text(item.modelId || item.id), name: text(item.name || item.displayName || item.modelId || item.id), credits: integer(item.baseTokenCostEstimate ?? item.creditCost ?? item.tokenCost ?? object(item.pricing).baseTokenCostEstimate),
     description: text(item.description || item.bestFor).slice(0, 180),
     aspectRatios: Array.isArray(item.aspectRatios) ? item.aspectRatios.filter((ratio): ratio is string => typeof ratio === "string").slice(0, 12) : [],
-  })).filter((item) => item.id && item.credits !== null && item.credits >= 0)
+  })).filter((item) => item.id && (item.credits === null || item.credits >= 0))
 }
 
 export function generation(id: string) {
@@ -103,17 +106,34 @@ export async function kittlOptions() {
   const workspaceId = text(teams[0]?.workspaceId || teams[0]?.defaultTeamId || teams[0]?.id || object(teamsResult).workspaceId || object(teamsResult).defaultTeamId)
   if (!workspaceId) throw new Error("Kittl no devolvió un workspace utilizable.")
   const raw = await callKittlTool("kittl-list-media-generation-models", { workspaceId, typeFilter: "image" })
-  const records = modelRecords(raw)
-  const models = parseKittlModels(raw)
+  let records = modelRecords(raw)
+  let models = parseKittlModels(raw)
+  if (!records.length) {
+    const unfiltered = await callKittlTool("kittl-list-media-generation-models", { workspaceId })
+    records = modelRecords(unfiltered)
+    models = parseKittlModels(unfiltered)
+  }
   if (!models.length) {
     const rootKeys = Object.keys(object(raw)).slice(0, 12).join(", ") || "sin claves JSON"
     const modelKeys = Object.keys(records[0] || {}).slice(0, 12).join(", ") || "sin lista de modelos"
-    throw new Error(`No pude leer el catálogo de modelos de Kittl sin inventar su coste. Estructura: ${rootKeys}; campos: ${modelKeys}.`)
+    const message = text(object(raw).message || object(object(raw).structuredContent).message).slice(0, 300)
+    throw new Error(`Kittl no devolvió una lista de modelos con ID. ${message ? `Respuesta: ${message}. ` : ""}Estructura: ${rootKeys}; campos: ${modelKeys}.`)
   }
   return { workspaceId, models }
 }
 
-export async function startKittlGeneration(taskId: string, conceptIndex: number, modelId: string, aspectRatio = "1:1") {
+export async function inspectKittlCatalog() {
+  const teamsResult = await callKittlTool("kittl-list-teams", {})
+  const teams = firstArray(teamsResult, ["teams", "workspaces", "data"])
+  const workspaceId = text(teams[0]?.workspaceId || teams[0]?.defaultTeamId || teams[0]?.id || object(teamsResult).workspaceId || object(teamsResult).defaultTeamId)
+  if (!workspaceId) return { workspaceId: null, teamsResult }
+  const filtered = await callKittlTool("kittl-list-media-generation-models", { workspaceId, typeFilter: "image" })
+  const unfiltered = await callKittlTool("kittl-list-media-generation-models", { workspaceId })
+    .catch((error: unknown) => ({ error: error instanceof Error ? error.message : "Error sin filtro" }))
+  return { workspaceId, filtered, unfiltered, parsedModels: parseKittlModels(filtered).length ? parseKittlModels(filtered) : parseKittlModels(unfiltered) }
+}
+
+export async function startKittlGeneration(taskId: string, conceptIndex: number, modelId: string, aspectRatio = "1:1", preflight?: Awaited<ReturnType<typeof kittlOptions>>) {
   if (!["1:1", "3:4", "4:3", "9:16", "16:9"].includes(aspectRatio)) throw new Error("Proporción de imagen no admitida.")
   if (!process.env.TELEGRAM_BOT_TOKEN || !/^-?\d+$/.test(process.env.TELEGRAM_ALLOWED_CHAT_ID || "")) throw new Error("Configura Telegram antes de generar una imagen en Kittl.")
   requireCompanyWorkerAlive()
@@ -126,15 +146,15 @@ export async function startKittlGeneration(taskId: string, conceptIndex: number,
   if (!Array.isArray(concepts) || !Number.isInteger(conceptIndex) || conceptIndex < 0 || conceptIndex >= concepts.length) throw new Error("Concepto no encontrado.")
   const prompt = text(object(concepts[conceptIndex]).prompt)
   if (!prompt) throw new Error("El concepto no tiene prompt.")
-  const options = await kittlOptions()
+  const options = preflight || await kittlOptions()
   const model = options.models.find((item) => item.id === modelId)
-  if (!model || model.credits === null) throw new Error("Modelo no disponible.")
-  const credits = model.credits
-  const balanceResult = object(await callKittlTool("kittl-get-token-balance", { workspaceId: options.workspaceId }))
-  const balance = integer(balanceResult.balance ?? balanceResult.tokenBalance ?? balanceResult.remaining ?? object(balanceResult.data).balance)
-  if (balance !== null && balance < credits) throw new Error("No hay créditos suficientes en Kittl.")
+  if (!model) throw new Error("Modelo no disponible.")
   const dailyCap = Number(process.env.COMPANY_KITTL_DAILY_CAP || 200)
   if (!Number.isSafeInteger(dailyCap) || dailyCap < 1 || dailyCap > 400) throw new Error("COMPANY_KITTL_DAILY_CAP debe estar entre 1 y 400.")
+  const credits = model.credits ?? dailyCap
+  const balanceResult = object(await callKittlTool("kittl-get-token-balance", { workspaceId: options.workspaceId }))
+  const balance = integer(balanceResult.balance ?? balanceResult.tokenBalance ?? balanceResult.remaining ?? object(balanceResult.data).balance)
+  if (balance !== null && (model.credits === null ? balance < 1 : balance < credits)) throw new Error("No hay créditos suficientes en Kittl.")
   const db = getCompanyDatabase()
   const today = stamp().slice(0, 10)
   const id = crypto.randomUUID()

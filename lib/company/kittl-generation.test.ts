@@ -13,7 +13,9 @@ describe("Kittl review in the existing Telegram chat", () => {
       { modelId: "flux-schnell", name: "Flux Schnell", baseTokenCostEstimate: 0, aspectRatios: ["1:1", "3:4"] },
     ] } }) }] } }
     expect(parseKittlModels(nested)).toEqual([{ id: "flux-schnell", name: "Flux Schnell", credits: 0, description: "", aspectRatios: ["1:1", "3:4"] }])
-    expect(parseKittlModels({ models: [{ modelId: "unknown", name: "Unknown" }] })).toEqual([])
+    expect(parseKittlModels({ structuredContent: { message: "Models available" }, content: [{ type: "text", text: "```json\n{\"models\":[{\"id\":\"flare\",\"name\":\"GPT Image 2.5 Flare\",\"creditCost\":5}]}\n```" }] }))
+      .toEqual([{ id: "flare", name: "GPT Image 2.5 Flare", credits: 5, description: "", aspectRatios: [] }])
+    expect(parseKittlModels({ models: [{ modelId: "unknown", name: "Unknown" }] })).toEqual([{ id: "unknown", name: "Unknown", credits: null, description: "", aspectRatios: [] }])
   })
   const previousChat = process.env.TELEGRAM_ALLOWED_CHAT_ID
   afterEach(() => { process.env.TELEGRAM_ALLOWED_CHAT_ID = previousChat })

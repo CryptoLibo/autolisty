@@ -45,12 +45,11 @@ describe("Company image request through owner approval", () => {
         JSON.stringify({ product: "Wall art digital", audience: "Maestras", use: "Aula", deliverables: ["PNG vertical"], constraints: ["Floral"], assumptions: [] }),
         JSON.stringify({ concepts: [incomplete] }),
         JSON.stringify({ concepts: [concept] }),
-        JSON.stringify({ concept_index: 0, model_id: "actual-model", aspect_ratio: "3:4", reason: "Adecuado para lámina vertical" }),
       ]
       mocks.response.mockImplementation(async () => ({ status: "completed", output_text: outputs.shift(), output: [], usage: { input_tokens: 100, output_tokens: 100, input_tokens_details: { cached_tokens: 0 } }, id: crypto.randomUUID() }))
       mocks.kittl.mockImplementation(async (name: string) => {
         if (name === "kittl-list-teams") return { teams: [{ id: "team" }] }
-        if (name === "kittl-list-media-generation-models") return { models: [{ modelId: "actual-model", name: "Image Model", baseTokenCostEstimate: 5 }] }
+        if (name === "kittl-list-media-generation-models") return { models: [{ modelId: "actual-model", name: "GPT Image 2.5 Flare", baseTokenCostEstimate: 5 }] }
         if (name === "kittl-get-token-balance") return { balance: 100 }
         if (name === "kittl-generate-media") return { jobId: "job-1", creditCost: 5 }
         if (name === "kittl-get-media-generation-status") return { status: "COMPLETE", terminal: true, url: "https://cache.kittl.com/test.png" }
@@ -62,7 +61,7 @@ describe("Company image request through owner approval", () => {
 
       for (let step = 0; step < 5; step++) await runCompanyStage(repo, taskId)
       expect(repo.task(taskId)).toMatchObject({ status: "COMPLETED", image_requested: 1 })
-      expect((repo.calls(taskId) as Array<{ agent_id: string }>).map((call) => call.agent_id)).toEqual(["ceo", "market_researcher", "product_planner", "visual_designer", "visual_designer", "creation_operator"])
+      expect((repo.calls(taskId) as Array<{ agent_id: string }>).map((call) => call.agent_id)).toEqual(["ceo", "market_researcher", "product_planner", "visual_designer", "visual_designer"])
       expect(repo.events(taskId).some((event) => event.event_type === "design_quality_revision")).toBe(true)
       expect(repo.externalCredits("alura").used).toBe(10)
       const row = db.prepare("SELECT id,aspect_ratio FROM company_kittl_generations WHERE task_id=?").get(taskId) as { id: string; aspect_ratio: string }

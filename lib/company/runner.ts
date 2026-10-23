@@ -5,7 +5,7 @@ import { CompanyRepository } from "./repository"
 import { designConceptsText, reviewDesignConcepts, type DesignConcept } from "./design-quality"
 import { DESIGN_PLAYBOOK, DESIGN_PLAYBOOK_VERSION } from "./design-playbook"
 import { aluraCreditsRemaining, searchAluraProducts } from "./alura"
-import { kittlOptions, startKittlGeneration } from "./kittl-generation"
+import { kittlOptions, PILOT_KITTL_MODEL, startKittlGeneration } from "./kittl-generation"
 import { AGENT_PROCEDURES, CONSULTABLE_AGENT_IDS, isConsultableAgent } from "./procedures"
 
 type Source = { title: string; url: string }
@@ -224,12 +224,16 @@ export async function runCompanyStage(repository: CompanyRepository, taskId: str
       if (!concepts?.length) throw new Error("Design concepts are missing.")
       if (repository.artifact(taskId, "kittl_selection")) throw new Error("Kittl selection already exists; inspect the job before retrying.")
       const options = await kittlOptions()
-      const result = await paidResponse(repository, taskId, "creation_operator", `Select exactly one concept and one real Kittl image model for this owner-authorized request. Do not rewrite the English prompt. Prefer quality appropriate to the digital product without wasting credits. Return the zero-based concept index, exact model ID and a suitable aspect ratio supported by that model when its supported ratios are listed; vertical wall art should generally be portrait (3:4), horizontal art landscape, and square products 1:1. Product brief: ${repository.artifact(taskId, "product_brief")?.content || ""}. Concepts: ${JSON.stringify(concepts.map((concept, index) => ({ index, name: concept.name, prompt: concept.prompt })))}. Available models and estimated Kittl credits: ${JSON.stringify(options.models)}.`, false, "kittl_selection", 500)
-      const selection = JSON.parse(result.text) as { concept_index: number; model_id: string; aspect_ratio: string; reason: string }
-      const model = options.models.find((item) => item.id === selection.model_id)
-      if (!Number.isInteger(selection.concept_index) || selection.concept_index < 0 || selection.concept_index >= concepts.length || !model || !["1:1", "3:4", "4:3", "9:16", "16:9"].includes(selection.aspect_ratio) || model.aspectRatios.length > 0 && !model.aspectRatios.includes(selection.aspect_ratio)) throw new Error("Creation operator selected an unavailable concept, ratio or Kittl model.")
+      const ownerRequest = repository.messages(task.conversation_id).find((message) => message.id === task.owner_message_id)?.content || ""
+      const explicitlyNamed = options.models.filter((item) => ownerRequest.toLowerCase().includes(item.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length)[0]
+      const preferredName = process.env.COMPANY_KITTL_PILOT_MODEL || PILOT_KITTL_MODEL
+      const model = explicitlyNamed || options.models.find((item) => item.name.trim().toLowerCase() === preferredName.toLowerCase())
+      if (!model) throw new Error(`El modelo ${preferredName} no aparece en el catálogo de Kittl. No usaré otro sin tu permiso.`)
+      const aspectRatio = model.aspectRatios.length ? ["3:4", "9:16"].find((ratio) => model.aspectRatios.includes(ratio)) : "3:4"
+      if (!aspectRatio) throw new Error(`${model.name} no admite una proporción vertical.`)
+      const selection = { concept_index: 0, model_id: model.id, aspect_ratio: aspectRatio, reason: `Modelo ${model.name} solicitado o configurado para esta prueba.` }
       repository.recordKittlSelection(taskId, selection)
-      const generation = await startKittlGeneration(taskId, selection.concept_index, selection.model_id, selection.aspect_ratio)
+      const generation = await startKittlGeneration(taskId, selection.concept_index, selection.model_id, selection.aspect_ratio, options)
       repository.complete(taskId, `La investigación y el diseño están terminados. He iniciado una imagen en Kittl (trabajo ${generation.job_id}). Te llegará a este mismo chat de Telegram para aprobarla o pedir cambios. No he creado ningún listing.`)
     } else if (task.stage === "SPECIALIST") {
       if (!task.specialist_agent_id || !isConsultableAgent(task.specialist_agent_id) || !task.specialist_question) {
