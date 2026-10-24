@@ -15,9 +15,6 @@ const PUBLIC_API_PATHS = new Set([
   "/api/contact",
   "/api/etsy/auth/callback",
   "/api/pinterest/auth/callback",
-  "/api/company/telegram/webhook",
-  "/api/company/telegram/drain",
-  "/api/company/kittl/drain",
 ])
 
 function isPublicPath(pathname: string) {
@@ -51,9 +48,6 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
     pathname.startsWith("/api/") &&
     !pathname.startsWith("/api/auth/") &&
     !pathname.startsWith("/api/automation/agent/") &&
-    pathname !== "/api/company/telegram/webhook" &&
-    pathname !== "/api/company/telegram/drain" &&
-    pathname !== "/api/company/kittl/drain" &&
     !["GET", "HEAD", "OPTIONS"].includes(request.method) &&
     request.headers.get("origin") !== expectedOrigin
   ) {

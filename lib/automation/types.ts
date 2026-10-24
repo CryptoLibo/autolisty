@@ -62,7 +62,6 @@ export type AutomationPipelineMode = (typeof AUTOMATION_PIPELINE_MODES)[number]
 
 export type AutomationJob = {
   id: string
-  companyListingId: string | null
   productCode: string
   productType: ProductType
   sourcePrompt: string
@@ -87,7 +86,6 @@ export type CreateAutomationJobInput = {
   productType: ProductType
   sourcePrompt: string
   productCode?: string
-  companyListingId?: string
 }
 
 export type AutomationJobFile = {

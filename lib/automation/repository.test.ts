@@ -24,26 +24,13 @@ describe("automation repository", () => {
     expect(repository.listJobEvents(job.id)).toHaveLength(1)
   })
 
-  it("accepts a Company listing code without generating a replacement", () => {
+  it("accepts an existing product code without generating a replacement", () => {
     database = openAutomationDatabase(":memory:")
     const repository = new AutomationRepository(database)
     const input = { productType: "png_designs" as const, sourcePrompt: "Approved design", productCode: "LBCreaStudio-ABC123" }
     expect(repository.createJob(input).productCode).toBe(input.productCode)
     expect(() => repository.createJob(input)).toThrow(/already assigned/)
     expect(() => repository.createJob({ ...input, productCode: "invalid" })).toThrow(/Invalid product code/)
-  })
-
-  it("uses the Company listing ID as an idempotency key", () => {
-    database = openAutomationDatabase(":memory:")
-    const repository = new AutomationRepository(database)
-    const input = {
-      productType: "png_designs" as const, sourcePrompt: "Approved design",
-      productCode: "LBCreaStudio-DEF456", companyListingId: "f4ea8109-99a4-4dfd-8433-33561c455623",
-    }
-    const first = repository.createJob(input)
-    expect(repository.createJob(input).id).toBe(first.id)
-    expect(repository.listJobs()).toHaveLength(1)
-    expect(() => repository.createJob({ ...input, sourcePrompt: "Changed" })).toThrow(/different Automation job/)
   })
 
   it("records transitions atomically", () => {
