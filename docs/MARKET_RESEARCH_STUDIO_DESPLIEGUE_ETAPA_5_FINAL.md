@@ -41,9 +41,11 @@ const Database = require("better-sqlite3");
   const copy = new Database(output, { readonly: true, fileMustExist: true });
   try {
     if (copy.pragma("integrity_check", { simple: true }) !== "ok") throw Error("Backup integrity failed");
+    const digest = crypto.createHash("sha256");
+    for await (const chunk of fs.createReadStream(output)) digest.update(chunk);
     console.log(JSON.stringify({ file: output, bytes: fs.statSync(output).size,
       version: copy.pragma("user_version", { simple: true }), integrity: "ok",
-      sha256: crypto.createHash("sha256").update(fs.readFileSync(output)).digest("hex") }));
+      sha256: digest.digest("hex") }));
   } finally { copy.close(); }
 })().catch(error => { console.error(error.message); process.exitCode = 1; });
 NODE

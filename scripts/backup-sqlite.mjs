@@ -19,7 +19,9 @@ try {
   const saved = new Database(destination, { readonly: true, fileMustExist: true })
   try {
     if (saved.pragma("integrity_check", { simple: true }) !== "ok") throw new Error("Backup integrity check failed.")
-    const hash = createHash("sha256").update(fs.readFileSync(destination)).digest("hex")
+    const digest = createHash("sha256")
+    for await (const chunk of fs.createReadStream(destination)) digest.update(chunk)
+    const hash = digest.digest("hex")
     process.stdout.write(JSON.stringify({
       source, destination, version: saved.pragma("user_version", { simple: true }),
       bytes: fs.statSync(destination).size, sha256: hash, integrity: "ok",

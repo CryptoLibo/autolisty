@@ -43,11 +43,13 @@ async function run() {
 await run()
 if (process.argv.includes("--loop")) {
   let running = false
-  setInterval(() => {
+  const timer = setInterval(() => {
     if (running) { process.stderr.write("Research maintenance missed a tick because the prior pass is still running.\n"); return }
     running = true
     void run().catch((error) => {
       process.stderr.write(`Research maintenance failed: ${error instanceof Error ? error.message : "unknown"}\n`)
+      process.exitCode = 1
+      clearInterval(timer)
     }).finally(() => { running = false })
   }, 5 * 60 * 1000)
 }
