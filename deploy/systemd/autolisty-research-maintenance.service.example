@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=deploy
 WorkingDirectory=/home/deploy/autolisty
-Environment=AUTOMATION_DB_PATH=/home/deploy/autolisty/data/autolisty-automation.sqlite
+Environment=AUTOMATION_DB_PATH=/var/lib/autolisty/automation.sqlite
 ExecStart=/usr/bin/node /home/deploy/autolisty/scripts/research-maintenance.mjs --loop
 Restart=always
 RestartSec=5
