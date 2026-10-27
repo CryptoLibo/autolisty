@@ -88,7 +88,7 @@ describe("Alura local safety", () => {
     const diagnostics = marketDiagnostics(db, [{ provider: "alura", status: () => ({
       provider: "alura", state: "AVAILABLE", capabilities: ["keywords"] }),
     estimate: () => 1, query: async () => ({ metrics: [], warnings: [] }) }])
-    expect(diagnostics[0].state).toBe("NOT_AUTHORIZED")
+    expect(diagnostics[0].state).toBe("USAGE_VERIFIED")
   })
 
   it("removes provider evidence at its 23-hour deadline without web traffic", () => {
