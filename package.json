@@ -5,10 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
-    "postbuild": "node scripts/retire-legacy-processes.mjs",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "research:maintenance": "node scripts/research-maintenance.mjs --loop"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1004.0",

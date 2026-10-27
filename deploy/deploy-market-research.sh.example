@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+cd /home/deploy/autolisty
+test "$(git branch --show-current)" = main
+test -f .env.local
+test -n "${AUTOMATION_DB_PATH:-}"
+test "${AUTOMATION_DB_PATH#/}" != "$AUTOMATION_DB_PATH"
+test -f "$AUTOMATION_DB_PATH"
+test -r "$AUTOMATION_DB_PATH"
+git fetch origin main
+git merge --ff-only origin/main
+npm ci
+npm run build
+pm2 restart autolisty --update-env
+pm2 save
