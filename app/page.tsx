@@ -2,8 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AutomationWorkspace } from "@/app/_components/AutomationWorkspace";
-import { MarketResearchWorkspace } from "@/app/_components/MarketResearchWorkspace";
-import { CreativePromptWorkspace } from "@/app/_components/CreativePromptWorkspace";
+import { DashboardWorkspace } from "@/app/_components/DashboardWorkspace";
 import { SiteFooter } from "@/app/_components/SiteFooter";
 import { signOutOfAutolisty } from "@/app/actions/auth";
 import { generateListingId } from "@/lib/utils/generateListingId";
@@ -186,7 +185,7 @@ type EtsyAttributeInspectionResponse = {
   error?: string;
 };
 
-type AppSection = "prompt" | "image" | "single" | "batch" | "automation";
+type AppSection = "prompt" | "references" | "image" | "single" | "batch" | "automation";
 
 type PromptLabResult = {
   summary: string;
@@ -295,6 +294,7 @@ function readStoredActiveSection(): AppSection {
   if (value === "batch") return "batch";
   if (value === "single") return "single";
   if (value === "image") return "image";
+  if (value === "references") return "references";
   if (value === "automation") return "automation";
   return "prompt";
 }
@@ -985,8 +985,6 @@ export default function Page() {
   const promptLabInputRef = useRef<HTMLInputElement | null>(null);
   const [activeSection, setActiveSection] = useState<AppSection>(readStoredActiveSection);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [studioView, setStudioView] = useState<"research" | "creative" | "references">("research");
-  const [marketPromptSource, setMarketPromptSource] = useState<{ investigationId: string; opportunityId: string; brief: string } | null>(null);
   const [promptLabReferenceFiles, setPromptLabReferenceFiles] = useState<File[]>([]);
   const [promptLabReferencePreviews, setPromptLabReferencePreviews] = useState<string[]>([]);
   const [promptLabLoading, setPromptLabLoading] = useState(false);
@@ -1385,7 +1383,7 @@ export default function Page() {
   }, [activeSection]);
 
   useEffect(() => {
-    if (activeSection !== "prompt") return;
+    if (activeSection !== "references") return;
 
     function hasFilePayload(event: DragEvent) {
       const types = Array.from(event.dataTransfer?.types || []);
@@ -4717,7 +4715,9 @@ export default function Page() {
             </div>
             <div className="text-sm font-medium text-neutral-100">
               {activeSection === "prompt"
-                ? "Market Research Studio"
+                ? "Dashboard"
+                : activeSection === "references"
+                  ? "Prompt Lab"
                 : activeSection === "image"
                   ? "Image Lab"
                 : activeSection === "single"
@@ -4760,11 +4760,21 @@ export default function Page() {
 
                 <div className="space-y-3 overflow-y-auto pr-1">
                   <SidebarNavItem
-                    title="Market Research Studio"
-                    subtitle="Save investigations or analyze visual references."
+                    title="Dashboard"
+                    subtitle="Business overview and operational health."
                     active={activeSection === "prompt"}
                     onClick={() => {
                       setActiveSection("prompt");
+                      setWorkspaceOpen(false);
+                    }}
+                    icon={<LayoutDashboard size={18} />}
+                  />
+                  <SidebarNavItem
+                    title="Prompt Lab"
+                    subtitle="Analyze visual references and build prompts."
+                    active={activeSection === "references"}
+                    onClick={() => {
+                      setActiveSection("references");
                       setWorkspaceOpen(false);
                     }}
                     icon={<Sparkles size={18} />}
@@ -4825,7 +4835,7 @@ export default function Page() {
       ) : null}
 
       <div className="mx-auto max-w-7xl px-5 py-5 sm:px-6 lg:px-8">
-        <div className="flex flex-col items-center gap-3 pb-8 pt-20 text-center sm:pt-2">
+        {activeSection !== "prompt" && <div className="flex flex-col items-center gap-3 pb-8 pt-20 text-center sm:pt-2">
           <Image
             src="/logo-final.png"
             alt="Autolisty"
@@ -4844,29 +4854,14 @@ export default function Page() {
               Listing ID: {listingId}
             </div>
           ) : null}
-        </div>
+        </div>}
 
         <div>
-          {activeSection === "prompt" ? (
+          {activeSection === "prompt" ? <DashboardWorkspace /> : activeSection === "references" ? (
             <div className="space-y-6">
               <div className="border-b border-neutral-800 pb-4">
-                <h1 className="text-xl font-semibold text-neutral-100">Market Research Studio</h1>
-                <div className="mt-4 inline-flex border border-neutral-700" role="tablist" aria-label="Studio mode">
-                  <button type="button" role="tab" aria-selected={studioView === "research"} onClick={() => setStudioView("research")}
-                    className={`px-4 py-2 text-sm ${studioView === "research" ? "bg-[#eeba2b] text-black" : "text-neutral-300 hover:bg-neutral-800"}`}>
-                    Investigate market
-                  </button>
-                  <button type="button" role="tab" aria-selected={studioView === "creative"} onClick={() => setStudioView("creative")}
-                    className={`px-4 py-2 text-sm ${studioView === "creative" ? "bg-[#eeba2b] text-black" : "text-neutral-300 hover:bg-neutral-800"}`}>
-                    Create prompts
-                  </button>
-                  <button type="button" role="tab" aria-selected={studioView === "references"} onClick={() => setStudioView("references")}
-                    className={`px-4 py-2 text-sm ${studioView === "references" ? "bg-[#eeba2b] text-black" : "text-neutral-300 hover:bg-neutral-800"}`}>
-                    Analyze references
-                  </button>
-                </div>
+                <h1 className="text-xl font-semibold text-neutral-100">Prompt Lab</h1>
               </div>
-              {studioView === "research" ? <MarketResearchWorkspace onCreatePrompts={(source) => { setMarketPromptSource(source); setStudioView("creative"); }} /> : studioView === "creative" ? <CreativePromptWorkspace key={marketPromptSource?.opportunityId || "manual"} marketSource={marketPromptSource} /> : (
               <Card
                 title="Analyze references"
                 accent
@@ -5295,7 +5290,6 @@ export default function Page() {
                   </div>
                 </div>
               </Card>
-              )}
             </div>
           ) : activeSection === "image" ? (
             <div className="space-y-6">
