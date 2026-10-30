@@ -6,6 +6,8 @@ import {
   PINTEREST_AUTH_COOKIE,
 } from "@/lib/pinterest/auth"
 import { ensureFreshPinterestToken, pinterestFetch } from "@/lib/pinterest/client"
+import { getAutomationDatabase } from "@/lib/automation/db/database"
+import { recordPublishedPin } from "@/lib/dashboard/pinterest-analytics"
 
 export const runtime = "nodejs"
 
@@ -82,18 +84,28 @@ export async function POST(req: Request) {
       }
 
       const data = await response.json()
+      let trackingWarning: string | undefined
+      try {
+        recordPublishedPin(getAutomationDatabase(),{
+          pinId:String(data.id),boardId:String(data.board_id || boardId),title:pin.title,
+          destinationUrl:destinationLink,imageUrl:pin.imageUrl,
+        })
+      } catch {
+        trackingWarning = "Pin publicado, pero no se pudo guardar su vínculo analítico. No lo publiques de nuevo."
+      }
       results.push({
         id: pin.id,
         ok: true,
         pinId: data.id,
         boardId: data.board_id || boardId,
         url: data.url || null,
+        trackingWarning,
       })
     }
 
     return NextResponse.json({ results })
-  } catch (error: any) {
-    return new Response(error?.message || "Failed to publish Pinterest pins", {
+  } catch {
+    return new Response("Failed to publish Pinterest pins", {
       status: 500,
     })
   }

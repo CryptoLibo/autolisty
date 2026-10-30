@@ -48,6 +48,16 @@ export async function GET(req: Request) {
       code,
       codeVerifier,
     })
+    const existingRaw = cookieStore.get(PINTEREST_AUTH_COOKIE)?.value
+    let existingScopes: string[] = []
+    try {
+      const existing = existingRaw ? JSON.parse(existingRaw) as { scope?: unknown } : null
+      if (Array.isArray(existing?.scope)) existingScopes = existing.scope.filter((value): value is string => typeof value === "string")
+    } catch { /* A malformed old cookie cannot grant permissions. */ }
+    const requiredScopes = new Set(["user_accounts:read", "boards:read", "boards:write", "pins:read", "pins:write", ...existingScopes])
+    if ([...requiredScopes].some((scope) => !token.scope.includes(scope))) {
+      throw new Error("Pinterest no concedió todos los permisos actuales; la conexión anterior se conserva.")
+    }
 
     cookieStore.set(PINTEREST_AUTH_COOKIE, JSON.stringify(token), {
       httpOnly: true,
@@ -60,11 +70,11 @@ export async function GET(req: Request) {
 
     redirectUrl.searchParams.set("pinterest_connected", "1")
     return NextResponse.redirect(redirectUrl)
-  } catch (authError: any) {
+  } catch {
     cookieStore.delete(PINTEREST_PKCE_COOKIE)
     redirectUrl.searchParams.set(
       "pinterest_error",
-      authError?.message || "Failed to complete Pinterest auth"
+      "Failed to complete Pinterest auth"
     )
     return NextResponse.redirect(redirectUrl)
   }

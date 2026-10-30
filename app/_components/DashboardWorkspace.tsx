@@ -8,6 +8,7 @@ import type { getCatalogSnapshot } from "@/lib/dashboard/etsy-catalog"
 import { ProductionTrend, StatusDonut } from "./dashboard/DashboardCharts"
 import { EtsySalesPanel, type Sales } from "./dashboard/EtsySalesPanel"
 import { FinancePanel } from "./dashboard/FinancePanel"
+import { PinterestAnalyticsPanel, type PinterestSnapshot } from "./dashboard/PinterestAnalyticsPanel"
 import { LoadingPanel, MetricTile, PendingSource, SectionHeading, SourceBadge } from "./dashboard/DashboardPrimitives"
 
 type Section = "overview" | "sales" | "costs" | "traffic" | "advertising" | "pinterest" | "operations"
@@ -106,6 +107,9 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
   const [sales, setSales] = useState<Sales | null>(null)
   const [salesError, setSalesError] = useState<string | null>(null)
   const [syncingSales, setSyncingSales] = useState(false)
+  const [pinterest, setPinterest] = useState<PinterestSnapshot | null>(null)
+  const [pinterestError, setPinterestError] = useState<string | null>(null)
+  const [syncingPinterest, setSyncingPinterest] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -150,6 +154,16 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
     return () => controller.abort()
   }, [period, reloadId])
 
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetch(`/api/dashboard/pinterest?period=${period}`, {cache:"no-store",signal:controller.signal})
+      .then(async (response) => { const body = await response.json() as PinterestSnapshot & {error?:string}
+        if (!response.ok) throw new Error(body.error || "No se pudo leer Pinterest.");return body })
+      .then((result) => {setPinterest(result);setPinterestError(null)})
+      .catch((reason:unknown) => {if (!controller.signal.aborted) setPinterestError(reason instanceof Error ? reason.message : "No se pudo leer Pinterest.")})
+    return () => controller.abort()
+  },[period,reloadId])
+
   const syncCatalog = async () => {
     setSyncing(true)
     setCatalogError(null)
@@ -175,12 +189,23 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
       setSalesError(reason instanceof Error ? reason.message : "No se pudieron sincronizar las ventas.")
     } finally { setSyncingSales(false) }
   }
+  const syncPinterest = async () => {
+    setSyncingPinterest(true);setPinterestError(null)
+    try {
+      const response = await fetch("/api/dashboard/pinterest/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({period})})
+      const body = await response.json() as {error?:string}
+      if (!response.ok) throw new Error(body.error || "No se pudo sincronizar Pinterest.")
+      setReloadId((value)=>value+1)
+    } catch (reason) {setPinterestError(reason instanceof Error ? reason.message : "No se pudo sincronizar Pinterest.")}
+    finally {setSyncingPinterest(false)}
+  }
 
   const changePeriod = (next: DashboardPeriod) => { if (next !== period) { setLoading(true); setPeriod(next) } }
   const refresh = () => { setLoading(true); setReloadId((value) => value + 1) }
   const currentData = data?.period === period ? data : null
   const currentCatalog = catalog?.period === period ? catalog : null
   const currentSales = sales?.period === period ? sales : null
+  const currentPinterest = pinterest?.period === period ? pinterest : null
   const salesCurrency = currentSales?.authorized && currentSales.complete && currentSales.current?.financialComplete &&
     Object.entries(currentSales.current.currencies).length === 1 ? Object.entries(currentSales.current.currencies)[0] : null
 
@@ -226,6 +251,7 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
     </div>}
     {catalogError && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{catalogError}</div>}
     {salesError && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{salesError}</div>}
+    {pinterestError && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{pinterestError}</div>}
 
     {section === "overview" && <div className="space-y-8">
       <section className="space-y-4">
@@ -243,6 +269,11 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
       </section>
       <EtsySalesPanel sales={currentSales} syncing={syncingSales} onSync={syncSales} compact />
       <CatalogSection catalog={currentCatalog} syncing={syncing} onSync={syncCatalog} />
+      <section className="border-t border-white/10 pt-6"><SectionHeading eyebrow="PINTEREST" title="Alcance orgánico" action={<button type="button" onClick={()=>setSection("pinterest")} className="inline-flex items-center gap-1 text-sm text-[#eeba2b]">Ver Pinterest <ArrowRight size={15}/></button>}/>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3"><MetricTile label="Impresiones" value={currentPinterest?.totals?.impressions == null ? "--" : formatCount(currentPinterest.totals.impressions)} context="Período verificado por Pinterest" icon={Eye}/>
+          <MetricTile label="Clics salientes" value={currentPinterest?.totals?.outboundClicks == null ? "--" : formatCount(currentPinterest.totals.outboundClicks)} context="No son ventas atribuidas" icon={MousePointer2}/>
+          <MetricTile label="Guardados" value={currentPinterest?.totals?.saves == null ? "--" : formatCount(currentPinterest.totals.saves)} context={currentPinterest?.lastSuccessAt ? `Actualizado ${formatDate(currentPinterest.lastSuccessAt)}` : "Sin sincronizar"} icon={BarChart3}/></div>
+      </section>
       <section className="space-y-5 border-t border-white/10 pt-6">
         <SectionHeading eyebrow="OPERACIONES" title="Producción en marcha" action={<button type="button" onClick={() => setSection("operations")}
           className="inline-flex items-center gap-1 text-sm font-medium text-[#eeba2b] hover:text-[#f7d875]">Ver operaciones <ArrowRight size={15} /></button>} />
@@ -256,7 +287,6 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
           <PendingSource title="Rentabilidad" description="Comisiones, reembolsos y gastos todavía no conciliados." source="Etsy y registros financieros" icon={ReceiptText} />
           <PendingSource title="Tráfico y conversión" description="Visitas, fuentes y rendimiento del catálogo." source="Etsy Analytics" icon={Eye} />
           <PendingSource title="Publicidad" description="Inversión, clics y retorno de campañas." source="Cuentas publicitarias" icon={Megaphone} />
-          <PendingSource title="Pinterest" description="Impresiones, guardados y clics salientes." source="Pinterest Analytics" icon={BarChart3} />
         </div>
       </section>
     </div>}
@@ -271,7 +301,8 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
     {section === "sales" && <div className="space-y-8"><EtsySalesPanel sales={currentSales} syncing={syncingSales} onSync={syncSales} />
       <CatalogSection catalog={currentCatalog} syncing={syncing} onSync={syncCatalog} /></div>}
     {section === "costs" && <FinancePanel period={period} />}
-    {section !== "overview" && section !== "operations" && section !== "sales" && section !== "costs" && <PendingSection section={section} />}
+    {section === "pinterest" && <PinterestAnalyticsPanel data={currentPinterest} syncing={syncingPinterest} onSync={syncPinterest} />}
+    {section !== "overview" && section !== "operations" && section !== "sales" && section !== "costs" && section !== "pinterest" && <PendingSection section={section} />}
     <footer className="border-t border-white/8 pt-4 text-xs text-neutral-500">
       Los conteos de Automation corresponden a trabajos creados en el periodo y muestran su estado actual. No son datos de ventas.
     </footer>

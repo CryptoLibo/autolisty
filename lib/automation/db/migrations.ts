@@ -719,6 +719,81 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    version: 14,
+    sql: `
+      CREATE TABLE dashboard_pinterest_sync (
+        account_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('running','complete','partial','failed')),
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        last_success_at TEXT,
+        coverage_from TEXT,
+        coverage_to TEXT,
+        error_code TEXT,
+        pins_complete INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE dashboard_pinterest_daily (
+        account_id TEXT NOT NULL,
+        day TEXT NOT NULL,
+        impressions INTEGER,
+        saves INTEGER,
+        pin_clicks INTEGER,
+        outbound_clicks INTEGER,
+        engagements INTEGER,
+        fetched_at TEXT NOT NULL,
+        PRIMARY KEY (account_id,day)
+      );
+      CREATE TABLE dashboard_pinterest_pins (
+        pin_id TEXT PRIMARY KEY,
+        account_id TEXT,
+        board_id TEXT,
+        title TEXT,
+        image_url TEXT,
+        destination_url TEXT,
+        listing_id INTEGER,
+        listing_source TEXT,
+        published_at TEXT,
+        published_via_autolisty INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX dashboard_pinterest_pins_listing_idx ON dashboard_pinterest_pins(listing_id);
+      CREATE TABLE dashboard_pinterest_top_pins (
+        account_id TEXT NOT NULL,
+        period TEXT NOT NULL CHECK (period IN ('7d','30d','90d')),
+        pin_id TEXT NOT NULL,
+        impressions INTEGER,
+        saves INTEGER,
+        pin_clicks INTEGER,
+        outbound_clicks INTEGER,
+        engagements INTEGER,
+        fetched_at TEXT NOT NULL,
+        PRIMARY KEY (account_id,period,pin_id)
+      );
+      CREATE TABLE dashboard_pinterest_top_sync (
+        account_id TEXT NOT NULL,
+        period TEXT NOT NULL CHECK (period IN ('7d','30d','90d')),
+        status TEXT NOT NULL CHECK (status IN ('complete','partial')),
+        fetched_at TEXT NOT NULL,
+        coverage_from TEXT NOT NULL,
+        coverage_to TEXT NOT NULL,
+        PRIMARY KEY (account_id,period)
+      );
+      CREATE TABLE dashboard_pinterest_periods (
+        account_id TEXT NOT NULL,
+        period TEXT NOT NULL CHECK (period IN ('7d','30d','90d')),
+        coverage_from TEXT NOT NULL,
+        coverage_to TEXT NOT NULL,
+        impressions INTEGER,
+        saves INTEGER,
+        pin_clicks INTEGER,
+        outbound_clicks INTEGER,
+        engagements INTEGER,
+        fetched_at TEXT NOT NULL,
+        PRIMARY KEY (account_id,period)
+      );
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

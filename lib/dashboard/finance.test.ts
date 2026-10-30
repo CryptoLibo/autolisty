@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { readFileSync } from "node:fs"
 import Database from "better-sqlite3"
 import { openAutomationDatabase } from "../automation/db/database"
-import { runAutomationMigrations } from "../automation/db/migrations"
+import { AUTOMATION_SCHEMA_VERSION, runAutomationMigrations } from "../automation/db/migrations"
 import { createExpense, financeSnapshot, importStatement, parseAmount, previewStatement, reconcileExpense, revertStatement, updateExpense, voidExpense } from "./finance"
 
 const header = 'Date,Type,Title,Info,Currency,Amount,"Fees & Taxes",Net,"Tax Details"'
@@ -20,7 +20,7 @@ describe("finance", () => {
     const db = new Database(":memory:")
     try {
       expect(runAutomationMigrations(db,12)).toBe(12)
-      expect(runAutomationMigrations(db)).toBe(13)
+      expect(runAutomationMigrations(db)).toBe(AUTOMATION_SCHEMA_VERSION)
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name='finance_csv_imports'").get()).toBeTruthy()
     } finally { db.close() }
   })

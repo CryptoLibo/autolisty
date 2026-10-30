@@ -142,7 +142,7 @@ export async function refreshPinterestToken(refreshToken: string) {
   return normalizePinterestToken(data)
 }
 
-function normalizePinterestToken(data: any): PinterestTokenPayload {
+function normalizePinterestToken(data: Record<string, unknown>): PinterestTokenPayload {
   const accessToken = String(data.access_token || "")
   const refreshToken =
     typeof data.refresh_token === "string" ? data.refresh_token : undefined
@@ -152,7 +152,7 @@ function normalizePinterestToken(data: any): PinterestTokenPayload {
     ? data.scope.map((item: unknown) => String(item))
     : typeof data.scope === "string"
       ? data.scope.split(/[,\s]+/).filter(Boolean)
-      : [...PINTEREST_SCOPES]
+      : []
 
   if (!accessToken) {
     throw new Error("Pinterest token response is missing access_token")

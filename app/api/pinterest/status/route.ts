@@ -53,18 +53,17 @@ export async function GET() {
         account_type: user.account_type,
       },
       boards: Array.isArray(boardsResponse.items)
-        ? boardsResponse.items.map((board: any) => ({
+        ? boardsResponse.items.map((board: { id: string; name: string; privacy?: string }) => ({
             id: board.id,
             name: board.name,
             privacy: board.privacy,
           }))
         : [],
     })
-  } catch (error: any) {
-    cookieStore.delete(PINTEREST_AUTH_COOKIE)
+  } catch {
     return NextResponse.json(
-      { connected: false, error: error?.message || "Invalid Pinterest session" },
-      { status: 401 }
+      { connected: true, error: "No se pudo consultar Pinterest; la conexión se conserva. Reautoriza si el token caducó." },
+      { status: 503 }
     )
   }
 }
