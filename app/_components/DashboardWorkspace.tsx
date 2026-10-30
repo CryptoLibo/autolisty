@@ -8,7 +8,8 @@ import type { getCatalogSnapshot } from "@/lib/dashboard/etsy-catalog"
 import { ProductionTrend, StatusDonut } from "./dashboard/DashboardCharts"
 import { EtsySalesPanel, type Sales } from "./dashboard/EtsySalesPanel"
 import { FinancePanel } from "./dashboard/FinancePanel"
-import { PinterestAnalyticsPanel, type PinterestSnapshot } from "./dashboard/PinterestAnalyticsPanel"
+import { PinterestAnalyticsPanel, pinterestIssueText, type PinterestSnapshot } from "./dashboard/PinterestAnalyticsPanel"
+import { AdvertisingPanel, TrafficPanel, type AdvertisingData, type TrafficData } from "./dashboard/TrafficAdvertisingPanels"
 import { LoadingPanel, MetricTile, PendingSource, SectionHeading, SourceBadge } from "./dashboard/DashboardPrimitives"
 
 type Section = "overview" | "sales" | "costs" | "traffic" | "advertising" | "pinterest" | "operations"
@@ -19,24 +20,6 @@ const sections: Array<{ id: Section; label: string }> = [
   { id: "advertising", label: "Publicidad" }, { id: "pinterest", label: "Pinterest" },
   { id: "operations", label: "Operaciones" },
 ]
-
-const pendingSections = {
-  sales: { title: "Ventas e ingresos", description: "Pedidos, ingresos y productos vendidos se incorporarán cuando conectemos la analítica comercial de Etsy.",
-    source: "Pedidos de Etsy", icon: ShoppingBag,
-    metrics: [{ label: "Ingresos", icon: DollarSign }, { label: "Pedidos", icon: ShoppingBag }, { label: "Ticket medio", icon: TrendingUp }] },
-  costs: { title: "Gastos y rentabilidad", description: "Las comisiones y los gastos necesitan registros verificables antes de calcular beneficios.",
-    source: "Comisiones de Etsy y gastos registrados", icon: Wallet,
-    metrics: [{ label: "Gastos", icon: ReceiptText }, { label: "Beneficio neto", icon: Wallet }, { label: "Margen", icon: TrendingUp }] },
-  traffic: { title: "Tráfico y conversión", description: "Las visitas, las fuentes y la conversión requieren datos analíticos de la tienda.",
-    source: "Estadísticas de Etsy", icon: Eye,
-    metrics: [{ label: "Visitas", icon: Eye }, { label: "Conversión", icon: TrendingUp }, { label: "Fuentes", icon: MousePointer2 }] },
-  advertising: { title: "Publicidad", description: "Inversión, clics y retorno solo se mostrarán cuando exista una fuente de campañas autorizada.",
-    source: "Etsy Ads y otras plataformas autorizadas", icon: Megaphone,
-    metrics: [{ label: "Inversión", icon: Wallet }, { label: "Clics", icon: MousePointer2 }, { label: "ROAS", icon: TrendingUp }] },
-  pinterest: { title: "Pinterest", description: "Publicar pines no equivale a disponer de analítica. Esta se añadirá con una fuente verificada.",
-    source: "Pinterest Analytics", icon: BarChart3,
-    metrics: [{ label: "Impresiones", icon: Eye }, { label: "Clics salientes", icon: MousePointer2 }, { label: "Guardados", icon: PackageCheck }] },
-} as const
 
 function formatCount(value: number) { return new Intl.NumberFormat("es-ES").format(value) }
 function formatDate(value: string) { return new Intl.DateTimeFormat("es-ES", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) }
@@ -78,22 +61,6 @@ function OperationsContent({ data, onOpenAutomation }: { data: DashboardOverview
   </div>
 }
 
-function PendingSection({ section }: { section: keyof typeof pendingSections }) {
-  const item = pendingSections[section]
-  return <div className="space-y-7">
-    <SectionHeading eyebrow="ANALITICA COMERCIAL" title={item.title} description={item.description}
-      action={<SourceBadge state="not_implemented" />} />
-    <div className="grid gap-3 sm:grid-cols-3">
-      {item.metrics.map((metric) => <MetricTile key={metric.label} label={metric.label} value="--" context="Sin fuente verificada"
-        icon={metric.icon} title="Esta métrica no se calcula hasta disponer de datos de origen verificados." />)}
-    </div>
-    <div className="border-y border-white/10 py-1">
-      <PendingSource title={item.title} description="La estructura está preparada; todavía no se recopilan datos para esta sección."
-        source={item.source} icon={item.icon} />
-    </div>
-  </div>
-}
-
 export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () => void }) {
   const [section, setSection] = useState<Section>("overview")
   const [period, setPeriod] = useState<DashboardPeriod>("30d")
@@ -110,6 +77,11 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
   const [pinterest, setPinterest] = useState<PinterestSnapshot | null>(null)
   const [pinterestError, setPinterestError] = useState<string | null>(null)
   const [syncingPinterest, setSyncingPinterest] = useState(false)
+  const [advertising, setAdvertising] = useState<AdvertisingData | null>(null)
+  const [advertisingError, setAdvertisingError] = useState<string | null>(null)
+  const [traffic, setTraffic] = useState<TrafficData | null>(null)
+  const [trafficError, setTrafficError] = useState<string | null>(null)
+  const [savingTraffic, setSavingTraffic] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -164,6 +136,36 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
     return () => controller.abort()
   },[period,reloadId])
 
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetch(`/api/dashboard/advertising?period=${period}`, {cache:"no-store",signal:controller.signal})
+      .then(async response => {if (!response.ok) throw new Error("No se pudieron leer los gastos publicitarios.");return await response.json() as AdvertisingData})
+      .then(result => {setAdvertising(result);setAdvertisingError(null)})
+      .catch(() => {if (!controller.signal.aborted) setAdvertisingError("No se pudieron leer los gastos publicitarios.")})
+    return () => controller.abort()
+  },[period,reloadId])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetch(`/api/dashboard/traffic?period=${period}`, {cache:"no-store",signal:controller.signal})
+      .then(async response => {if (!response.ok) throw new Error("No se pudieron leer las estadísticas de tráfico.");return await response.json() as TrafficData})
+      .then(result => {setTraffic(result);setTrafficError(null)})
+      .catch(() => {if (!controller.signal.aborted) setTrafficError("No se pudieron leer las estadísticas de tráfico.")})
+    return () => controller.abort()
+  },[period,reloadId])
+
+  const saveTraffic = async (values: Record<"visits"|"listingViews"|"etsySearchVisits"|"etsyAdsVisits"|"socialVisits"|"pinterestVisits",string>) => {
+    setSavingTraffic(true);setTrafficError(null)
+    try {
+      const data=Object.fromEntries(Object.entries(values).map(([key,value])=>[key,value===""?null:Number(value)]))
+      const response=await fetch("/api/dashboard/traffic",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({period,data})})
+      const body=await response.json() as TrafficData & {error?:string}
+      if (!response.ok) throw new Error(body.error || "No se pudo guardar la observación.")
+      setTraffic(body)
+    } catch (error) {setTrafficError(error instanceof Error?error.message:"No se pudo guardar la observación.");throw error}
+    finally {setSavingTraffic(false)}
+  }
+
   const syncCatalog = async () => {
     setSyncing(true)
     setCatalogError(null)
@@ -193,11 +195,11 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
     setSyncingPinterest(true);setPinterestError(null)
     try {
       const response = await fetch("/api/dashboard/pinterest/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({period})})
-      const body = await response.json() as {error?:string}
-      if (!response.ok) throw new Error(body.error || "No se pudo sincronizar Pinterest.")
-      setReloadId((value)=>value+1)
+      const body = await response.json() as {error?:string;stage?:string;httpStatus?:number|null;providerCode?:number|null}
+      if (!response.ok) throw new Error(body.error === "sync_recent_or_running" ? "Ya hay una sincronización reciente o en curso. Espera diez minutos." :
+        pinterestIssueText({stage:body.stage ?? "sync",code:body.error ?? "connection_failed",httpStatus:body.httpStatus ?? null,providerCode:body.providerCode ?? null}))
     } catch (reason) {setPinterestError(reason instanceof Error ? reason.message : "No se pudo sincronizar Pinterest.")}
-    finally {setSyncingPinterest(false)}
+    finally {setSyncingPinterest(false);setReloadId((value)=>value+1)}
   }
 
   const changePeriod = (next: DashboardPeriod) => { if (next !== period) { setLoading(true); setPeriod(next) } }
@@ -252,6 +254,8 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
     {catalogError && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{catalogError}</div>}
     {salesError && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{salesError}</div>}
     {pinterestError && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{pinterestError}</div>}
+    {advertisingError && section === "advertising" && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{advertisingError}</div>}
+    {trafficError && section === "traffic" && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{trafficError}</div>}
 
     {section === "overview" && <div className="space-y-8">
       <section className="space-y-4">
@@ -302,7 +306,8 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
       <CatalogSection catalog={currentCatalog} syncing={syncing} onSync={syncCatalog} /></div>}
     {section === "costs" && <FinancePanel period={period} />}
     {section === "pinterest" && <PinterestAnalyticsPanel data={currentPinterest} syncing={syncingPinterest} onSync={syncPinterest} />}
-    {section !== "overview" && section !== "operations" && section !== "sales" && section !== "costs" && section !== "pinterest" && <PendingSection section={section} />}
+    {section === "traffic" && <TrafficPanel data={traffic?.period===period?traffic:null} onSave={saveTraffic} saving={savingTraffic} />}
+    {section === "advertising" && <AdvertisingPanel data={advertising?.period===period?advertising:null} />}
     <footer className="border-t border-white/8 pt-4 text-xs text-neutral-500">
       Los conteos de Automation corresponden a trabajos creados en el periodo y muestran su estado actual. No son datos de ventas.
     </footer>

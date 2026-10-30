@@ -59,6 +59,7 @@ describe("Pinterest analytics", () => {
       const mock = api({pins:[{pin_id:"456",metrics:values}]})
       const result = await syncPinterestAnalytics(db,token,"30d",mock.fetcher,now)
       expect(result).toMatchObject({status:"complete",topPins:1,pinsComplete:true})
+      expect(mock.calls.find(path=>path.startsWith("/user_account/analytics/top_pins"))).toContain("created_in_last_n_days=30")
       expect(mock.calls.filter(path=>path.startsWith("/user_account/analytics?"))).toHaveLength(3)
       const snapshot = getPinterestSnapshot(db,"30d",true,true,now)
       expect(snapshot.totals).toMatchObject({impressions:100,saves:5,outboundClicks:3,engagementRate:0.12})
@@ -84,10 +85,40 @@ describe("Pinterest analytics", () => {
       const mock = api()
       mock.fetcher.mockImplementationOnce(async()=>Response.json({id:"123"}))
       mock.fetcher.mockImplementationOnce(async()=>new Response("limited",{status:429}))
-      await expect(syncPinterestAnalytics(db,token,"30d",mock.fetcher,later)).rejects.toMatchObject({code:"rate_limited"})
+      const result=await syncPinterestAnalytics(db,token,"30d",mock.fetcher,later)
+      expect(result.status).toBe("partial")
       const snapshot=getPinterestSnapshot(db,"30d",true,true,later)
-      expect(snapshot.status).toBe("failed")
+      expect(snapshot.status).toBe("partial")
+      expect(snapshot.issues).toContainEqual({stage:"account_7d",code:"rate_limited",httpStatus:429,providerCode:null})
       expect(snapshot.totals?.impressions).toBe(100)
+    } finally {db.close()}
+  })
+  it("keeps account metrics when top pins rejects an invalid parameter", async () => {
+    const db=openAutomationDatabase(":memory:")
+    try {
+      const mock=api()
+      mock.fetcher.mockImplementation(async(path:string)=>path.includes("top_pins")
+        ? Response.json({code:12,message:"invalid request"},{status:400}) : api().fetcher(path))
+      const result=await syncPinterestAnalytics(db,token,"30d",mock.fetcher,now)
+      expect(result.status).toBe("partial")
+      const snapshot=getPinterestSnapshot(db,"30d",true,true,now)
+      expect(snapshot.totals?.impressions).toBe(100)
+      expect(snapshot.issues).toContainEqual({stage:"top_pins",code:"pinterest_rejected",httpStatus:400,providerCode:12})
+      expect(snapshot.pins).toEqual([])
+    } finally {db.close()}
+  })
+  it("retains available periods when one account window is rejected", async () => {
+    const db=openAutomationDatabase(":memory:")
+    try {
+      const normal=api().fetcher
+      const fetcher=vi.fn(async(path:string)=>path.includes("/analytics?") &&
+        new URL(path,"https://api.pinterest.com").searchParams.get("start_date")==="2026-10-01"
+        ? Response.json({code:42,message:"invalid window"},{status:400}) : normal(path))
+      const result=await syncPinterestAnalytics(db,token,"30d",fetcher,now)
+      expect(result.status).toBe("partial")
+      expect(getPinterestSnapshot(db,"7d",true,true,now).totals?.impressions).toBe(100)
+      expect(getPinterestSnapshot(db,"30d",true,true,now).totals).toBeNull()
+      expect(getPinterestSnapshot(db,"30d",true,true,now).issues[0]).toMatchObject({stage:"account_30d",httpStatus:400,providerCode:42})
     } finally {db.close()}
   })
   it("never calls Pinterest when the token lacks read scope", async () => {

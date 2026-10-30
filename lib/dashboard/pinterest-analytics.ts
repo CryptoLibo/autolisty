@@ -24,7 +24,15 @@ type TopRow = { id: string; title: string | null; imageUrl: string | null; board
 type LinkedRow = { listingId: number; pinCount: number; impressions: number | null; saves: number | null; outboundClicks: number | null }
 
 export class PinterestAnalyticsError extends Error {
-  constructor(public readonly code: string, public readonly status = 502) { super(code) }
+  constructor(public readonly code: string, public readonly status = 502,
+    public readonly stage = "unknown", public readonly providerCode: number | null = null) { super(code) }
+}
+type Diagnostic = { stage: string; code: string; httpStatus: number | null; providerCode: number | null }
+function diagnostic(error: unknown, stage: string): Diagnostic {
+  return error instanceof PinterestAnalyticsError
+    ? { stage: error.stage === "unknown" ? stage : error.stage, code: error.code,
+      httpStatus: error.status >= 400 && error.status <= 599 ? error.status : null, providerCode: error.providerCode }
+    : { stage, code: "connection_failed", httpStatus: null, providerCode: null }
 }
 export function hasPinterestAnalyticsScopes(scopes: readonly string[]) {
   return PINTEREST_ANALYTICS_SCOPES.every((scope) => scopes.includes(scope))
@@ -51,13 +59,18 @@ function accountGroup(body: AccountResponse) {
   }
   return group
 }
-async function readResponse<T>(response: Response): Promise<T> {
+async function readResponse<T>(response: Response, stage: string): Promise<T> {
   if (!response.ok) {
     const code = response.status === 401 ? "authentication_expired" : response.status === 403 ? "permission_or_account_denied" :
       response.status === 429 ? "rate_limited" : response.status >= 500 ? "pinterest_unavailable" : "pinterest_rejected"
-    throw new PinterestAnalyticsError(code, response.status === 429 ? 429 : response.status === 401 || response.status === 403 ? response.status : 502)
+    let providerCode: number | null = null
+    try {
+      const body = await response.json() as { code?: unknown }
+      if (typeof body.code === "number" && Number.isSafeInteger(body.code)) providerCode = body.code
+    } catch { /* Do not persist provider messages, which may contain request details. */ }
+    throw new PinterestAnalyticsError(code, response.status, stage, providerCode)
   }
-  try { return await response.json() as T } catch { throw new PinterestAnalyticsError("invalid_json_response") }
+  try { return await response.json() as T } catch { throw new PinterestAnalyticsError("invalid_json_response", 502, stage) }
 }
 export function etsyListingIdFromUrl(value: string | null | undefined): number | null {
   if (!value || value.length > 2048) return null
@@ -85,7 +98,7 @@ export async function syncPinterestAnalytics(db: Database.Database, token: Pinte
   fetcher: typeof pinterestFetch = pinterestFetch, now = new Date()) {
   if (!PERIODS.includes(period)) throw new PinterestAnalyticsError("invalid_period",400)
   if (!hasPinterestAnalyticsScopes(token.scope)) throw new PinterestAnalyticsError("missing_scope",403)
-  const user = await readResponse<{id?: unknown;account_type?: unknown}>(await fetcher("/user_account",token))
+  const user = await readResponse<{id?: unknown;account_type?: unknown}>(await fetcher("/user_account",token),"account")
   if (typeof user.id !== "string" || !/^\d{1,32}$/.test(user.id)) throw new PinterestAnalyticsError("invalid_account_id")
   const accountId = user.id
   const startedAt = now.toISOString()
@@ -96,6 +109,7 @@ export async function syncPinterestAnalytics(db: Database.Database, token: Pinte
     WHERE (status!='running' OR started_at<?) AND (last_success_at IS NULL OR last_success_at<?)`)
     .run(accountId,startedAt,staleAt,recentAt)
   if (!acquired.changes) throw new PinterestAnalyticsError("sync_recent_or_running",409)
+  const issues: Diagnostic[] = []
   try {
     const accountData: Array<{ period: DashboardPeriod; from: string; end: string; summary: MetricValues;
       days: Array<{ day: string; values: MetricValues }> }> = []
@@ -103,37 +117,48 @@ export async function syncPinterestAnalytics(db: Database.Database, token: Pinte
       const {from,end} = datesFor(item,now)
       const query = new URLSearchParams({start_date:from,end_date:end,content_type:"ORGANIC",
         metric_types:METRICS.join(",")})
-      const response = accountGroup(await readResponse<AccountResponse>(await fetcher(`/user_account/analytics?${query}`,token)))
-      const days = response.daily_metrics!.filter((entry) => typeof entry.date === "string" && isDate(entry.date) && entry.date >= from && entry.date <= end && entry.data_status !== "PROCESSING")
-        .map((entry) => ({day:entry.date!,values:metrics(entry.metrics)}))
-      accountData.push({period:item,from,end,summary:metrics(response.summary_metrics),days})
+      try {
+        const response = accountGroup(await readResponse<AccountResponse>(await fetcher(`/user_account/analytics?${query}`,token),`account_${item}`))
+        const days = response.daily_metrics!.filter((entry) => typeof entry.date === "string" && isDate(entry.date) && entry.date >= from && entry.date <= end && entry.data_status !== "PROCESSING")
+          .map((entry) => ({day:entry.date!,values:metrics(entry.metrics)}))
+        accountData.push({period:item,from,end,summary:metrics(response.summary_metrics),days})
+      } catch (error) { issues.push(diagnostic(error,`account_${item}`)) }
     }
     const {from,end} = datesFor(period,now)
     const topQuery = new URLSearchParams({start_date:from,end_date:end,sort_by:"IMPRESSION",content_type:"ORGANIC",
-      metric_types:METRICS.join(","),num_of_pins:"50",created_in_last_n_days:"90"})
-    const top = await readResponse<TopResponse>(await fetcher(`/user_account/analytics/top_pins?${topQuery}`,token))
-    if (top.pins !== undefined && !Array.isArray(top.pins)) throw new PinterestAnalyticsError("invalid_top_pins_response")
+      metric_types:METRICS.join(","),num_of_pins:"50",created_in_last_n_days:"30"})
+    let top: TopResponse | null = null
+    try {
+      top = await readResponse<TopResponse>(await fetcher(`/user_account/analytics/top_pins?${topQuery}`,token),"top_pins")
+      if (top.pins !== undefined && !Array.isArray(top.pins)) throw new PinterestAnalyticsError("invalid_top_pins_response",502,"top_pins")
+    } catch (error) { issues.push(diagnostic(error,"top_pins")) }
     const seen = new Set<string>()
-    const topPins = (top.pins ?? []).filter((pin) => {
+    const topPins = (top?.pins ?? []).filter((pin) => {
       if (typeof pin.pin_id !== "string" || !/^\d{1,32}$/.test(pin.pin_id) || seen.has(pin.pin_id)) return false
       seen.add(pin.pin_id);return true
     }).slice(0,50)
     const pins: Pin[] = []; let bookmark: string | null = null; let pinsComplete = false
     const bookmarks = new Set<string>()
-    for (let page=0;page<MAX_PIN_PAGES;page++) {
-      const query = new URLSearchParams({page_size:"250"})
-      if (bookmark) query.set("bookmark",bookmark)
-      const response = await readResponse<{items?:Pin[];bookmark?:string|null}>(await fetcher(`/pins?${query}`,token))
-      if (!Array.isArray(response.items)) throw new PinterestAnalyticsError("invalid_pins_response")
-      pins.push(...response.items)
-      bookmark = typeof response.bookmark === "string" && response.bookmark ? response.bookmark : null
-      if (!bookmark) { pinsComplete=true;break }
-      if (bookmarks.has(bookmark)) throw new PinterestAnalyticsError("repeated_pagination_cursor")
-      bookmarks.add(bookmark)
-    }
+    try {
+      for (let page=0;page<MAX_PIN_PAGES;page++) {
+        const query = new URLSearchParams({page_size:"250"})
+        if (bookmark) query.set("bookmark",bookmark)
+        const response = await readResponse<{items?:Pin[];bookmark?:string|null}>(await fetcher(`/pins?${query}`,token),"pins")
+        if (!Array.isArray(response.items)) throw new PinterestAnalyticsError("invalid_pins_response",502,"pins")
+        pins.push(...response.items)
+        bookmark = typeof response.bookmark === "string" && response.bookmark ? response.bookmark : null
+        if (!bookmark) { pinsComplete=true;break }
+        if (bookmarks.has(bookmark)) throw new PinterestAnalyticsError("repeated_pagination_cursor",502,"pins")
+        bookmarks.add(bookmark)
+      }
+    } catch (error) { issues.push(diagnostic(error,"pins")) }
     const finishedAt = now.toISOString()
-    const validDays = accountData.find((item) => item.period === "90d")!.days
-    const complete = pinsComplete && accountData.every((item) => Object.values(item.summary).every((value) => value !== null))
+    const validDays = accountData.find((item) => item.period === "90d")?.days ??
+      accountData.find((item) => item.period === "30d")?.days ?? accountData.find((item) => item.period === "7d")?.days ?? []
+    const successful = accountData.length > 0 || top !== null || pins.length > 0 || pinsComplete
+    if (!successful) throw new PinterestAnalyticsError("all_analytics_failed",502,"sync")
+    const complete = issues.length === 0 && pinsComplete && accountData.length === 3 && top !== null &&
+      accountData.every((item) => Object.values(item.summary).every((value) => value !== null))
     db.transaction(() => {
       const savePeriod = db.prepare(`INSERT INTO dashboard_pinterest_periods
         (account_id,period,coverage_from,coverage_to,impressions,saves,pin_clicks,outbound_clicks,engagements,fetched_at)
@@ -148,14 +173,14 @@ export async function syncPinterestAnalytics(db: Database.Database, token: Pinte
         pin_clicks=excluded.pin_clicks,outbound_clicks=excluded.outbound_clicks,engagements=excluded.engagements,fetched_at=excluded.fetched_at`)
       for (const item of validDays) saveDay.run(accountId,item.day,item.values.impressions,item.values.saves,item.values.pinClicks,
         item.values.outboundClicks,item.values.engagements,finishedAt)
-      db.prepare("DELETE FROM dashboard_pinterest_top_pins WHERE account_id=? AND period=?").run(accountId,period)
+      if (top) db.prepare("DELETE FROM dashboard_pinterest_top_pins WHERE account_id=? AND period=?").run(accountId,period)
       const saveTop = db.prepare(`INSERT INTO dashboard_pinterest_top_pins
         (account_id,period,pin_id,impressions,saves,pin_clicks,outbound_clicks,engagements,fetched_at) VALUES (?,?,?,?,?,?,?,?,?)`)
       for (const item of topPins) {
         const value = metrics(item.metrics)
         saveTop.run(accountId,period,item.pin_id,value.impressions,value.saves,value.pinClicks,value.outboundClicks,value.engagements,finishedAt)
       }
-      db.prepare(`INSERT INTO dashboard_pinterest_top_sync (account_id,period,status,fetched_at,coverage_from,coverage_to)
+      if (top) db.prepare(`INSERT INTO dashboard_pinterest_top_sync (account_id,period,status,fetched_at,coverage_from,coverage_to)
         VALUES (?,?,?,?,?,?) ON CONFLICT(account_id,period) DO UPDATE SET status=excluded.status,fetched_at=excluded.fetched_at,
         coverage_from=excluded.coverage_from,coverage_to=excluded.coverage_to`).run(accountId,period,"complete",finishedAt,from,end)
       const savePin = db.prepare(`INSERT INTO dashboard_pinterest_pins
@@ -175,14 +200,14 @@ export async function syncPinterestAnalytics(db: Database.Database, token: Pinte
           listingId ? "destination_url" : null,typeof pin.created_at === "string" ? pin.created_at : null,finishedAt)
       }
       db.prepare(`UPDATE dashboard_pinterest_sync SET status=?,finished_at=?,last_success_at=?,coverage_from=?,coverage_to=?,
-        error_code=NULL,pins_complete=? WHERE account_id=?`).run(complete?"complete":"partial",finishedAt,finishedAt,
-        accountData[2].from,accountData[2].end,pinsComplete?1:0,accountId)
+        error_code=NULL,pins_complete=?,diagnostics_json=? WHERE account_id=?`).run(complete?"complete":"partial",finishedAt,finishedAt,
+        accountData.at(-1)?.from ?? null,accountData.at(-1)?.end ?? null,pinsComplete?1:0,JSON.stringify(issues),accountId)
     })()
-    return { status:complete?"complete":"partial",pinsFetched:pins.length,topPins:topPins.length,pinsComplete }
+    return { status:complete?"complete":"partial",pinsFetched:pins.length,topPins:topPins.length,pinsComplete,issues }
   } catch (error) {
     const code = error instanceof PinterestAnalyticsError ? error.code : "connection_failed"
-    db.prepare("UPDATE dashboard_pinterest_sync SET status='failed',finished_at=?,error_code=? WHERE account_id=?")
-      .run(new Date().toISOString(),code,accountId)
+    db.prepare("UPDATE dashboard_pinterest_sync SET status='failed',finished_at=?,error_code=?,diagnostics_json=? WHERE account_id=?")
+      .run(new Date().toISOString(),code,JSON.stringify(issues.length ? issues : [diagnostic(error,"sync")]),accountId)
     throw error instanceof PinterestAnalyticsError ? error : new PinterestAnalyticsError(code)
   }
 }
@@ -190,7 +215,7 @@ export async function syncPinterestAnalytics(db: Database.Database, token: Pinte
 export function getPinterestSnapshot(db: Database.Database, period: DashboardPeriod, connected: boolean,
   authorized: boolean, now = new Date()) {
   const sync = db.prepare(`SELECT * FROM dashboard_pinterest_sync ORDER BY COALESCE(last_success_at,started_at) DESC LIMIT 1`).get() as
-    {account_id:string;status:string;last_success_at:string|null;error_code:string|null;pins_complete:number;coverage_from:string|null;coverage_to:string|null}|undefined
+    {account_id:string;status:string;last_success_at:string|null;error_code:string|null;pins_complete:number;coverage_from:string|null;coverage_to:string|null;diagnostics_json:string|null}|undefined
   const accountId = sync?.account_id
   const target = datesFor(period,now)
   const summary = accountId ? db.prepare("SELECT * FROM dashboard_pinterest_periods WHERE account_id=? AND period=?").get(accountId,period) as
@@ -211,7 +236,10 @@ export function getPinterestSnapshot(db: Database.Database, period: DashboardPer
     SUM(t.impressions) AS impressions,SUM(t.saves) AS saves,SUM(t.outbound_clicks) AS outboundClicks
     FROM dashboard_pinterest_pins p JOIN dashboard_pinterest_top_pins t ON t.pin_id=p.pin_id AND t.account_id=? AND t.period=?
     WHERE p.listing_id IS NOT NULL GROUP BY p.listing_id ORDER BY outboundClicks DESC LIMIT 25`).all(accountId,period) as LinkedRow[] : []
+  let issues: Diagnostic[] = []
+  try { issues = sync?.diagnostics_json ? JSON.parse(sync.diagnostics_json) as Diagnostic[] : [] } catch { issues = [] }
   return { connected,authorized,period,status:sync?.status ?? "not_synced",lastSuccessAt:sync?.last_success_at ?? null,
+    issues,
     errorCode:sync?.error_code ?? null,pinsComplete:Boolean(sync?.pins_complete),coverage: exact ? "current" : summary ? "stale" : "none",
     from:summary?.coverage_from ?? null,to:summary?.coverage_to ?? null,
     totals:exact ? {impressions:summary!.impressions,saves:summary!.saves,pinClicks:summary!.pin_clicks,

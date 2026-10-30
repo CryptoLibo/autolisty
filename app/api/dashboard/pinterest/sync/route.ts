@@ -29,6 +29,9 @@ export async function POST(request: Request) {
   } catch (error) {
     const code = error instanceof PinterestAnalyticsError ? error.code : "connection_failed"
     const status = error instanceof PinterestAnalyticsError ? error.status : 503
-    return Response.json({error:code},{status,headers:{"Cache-Control":"private, no-store"}})
+    return Response.json({error:code,stage:error instanceof PinterestAnalyticsError?error.stage:"sync",
+      httpStatus:error instanceof PinterestAnalyticsError?error.status:null,
+      providerCode:error instanceof PinterestAnalyticsError?error.providerCode:null},
+      {status,headers:{"Cache-Control":"private, no-store"}})
   }
 }

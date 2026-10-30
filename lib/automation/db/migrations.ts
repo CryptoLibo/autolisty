@@ -794,6 +794,30 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    version: 15,
+    sql: `ALTER TABLE dashboard_pinterest_sync ADD COLUMN diagnostics_json TEXT;`,
+  },
+  {
+    version: 16,
+    sql: `
+      CREATE TABLE dashboard_etsy_traffic_observations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        period TEXT NOT NULL CHECK (period IN ('7d','30d','90d')),
+        from_day TEXT NOT NULL,
+        to_day TEXT NOT NULL,
+        visits INTEGER NOT NULL CHECK (visits >= 0),
+        listing_views INTEGER CHECK (listing_views >= 0),
+        etsy_search_visits INTEGER CHECK (etsy_search_visits >= 0),
+        etsy_ads_visits INTEGER CHECK (etsy_ads_visits >= 0),
+        social_visits INTEGER CHECK (social_visits >= 0),
+        pinterest_visits INTEGER CHECK (pinterest_visits >= 0),
+        source TEXT NOT NULL CHECK (source = 'etsy_shop_stats_manual'),
+        captured_at TEXT NOT NULL,
+        UNIQUE (period,from_day,to_day)
+      );
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

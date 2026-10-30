@@ -13,6 +13,18 @@ const metrics: Array<{key:Metric;label:string}> = [
   {key:"saves",label:"Guardados"},{key:"pinClicks",label:"Clics en pin"},{key:"engagements",label:"Interacciones"},
 ]
 const count = (value: number | null | undefined) => value == null ? "--" : new Intl.NumberFormat("es-ES").format(value)
+export function pinterestIssueText(issue: {stage:string;code:string;httpStatus:number|null;providerCode:number|null}) {
+  const stage = issue.stage.startsWith("account_") ? `métricas de ${issue.stage.slice(8)}` :
+    issue.stage === "top_pins" ? "pines destacados" : issue.stage === "pins" ? "metadatos de pines" :
+    issue.stage === "account" ? "cuenta" : "sincronización"
+  const action = issue.code === "authentication_expired" ? "Vuelve a conectar Pinterest." :
+    issue.code === "permission_or_account_denied" ? "Comprueba que tu cuenta empresarial y la aplicación tengan acceso a Analytics." :
+    issue.code === "rate_limited" ? "Espera antes de sincronizar de nuevo." :
+    issue.httpStatus === 400 ? "Pinterest rechazó los parámetros; consulta el diagnóstico y contacta con soporte." :
+    "Comprueba la conexión y vuelve a intentar más tarde."
+  const detail = issue.httpStatus ? `HTTP ${issue.httpStatus}` : issue.code
+  return `${stage}: ${detail}${issue.providerCode == null ? "" : `, código ${issue.providerCode}`}. ${action}`
+}
 const thumb = (value: string | null) => {
   try { const url = new URL(value ?? ""); return url.protocol === "https:" && url.hostname === "i.pinimg.com" ? url.toString() : null }
   catch { return null }
@@ -27,7 +39,7 @@ export function PinterestAnalyticsPanel({ data, syncing, onSync }: { data: Pinte
     .sort((a,b) => (b[sort] ?? -1) - (a[sort] ?? -1)),[data,search,sort])
   const maximum = Math.max(1,...(data?.daily ?? []).map((item) => item[metric] ?? 0))
   const state = !data ? "Cargando caché" : !data.connected ? "Pinterest sin conectar" : !data.authorized ? "Permisos de lectura insuficientes" :
-    data.status === "failed" ? `Falló la última sincronización (${data.errorCode ?? "error"}); se conservan los datos anteriores` :
+    data.status === "failed" ? "Falló la última sincronización; se conservan los datos anteriores" :
     data.status === "running" ? "Sincronizando" : data.coverage === "stale" ? "Datos del período anterior; sincroniza para actualizar" :
     data.coverage === "none" ? "Sin datos para este período" : data.status === "partial" ? "Datos parciales" : "Datos sincronizados"
   return <div className="space-y-7">
@@ -38,6 +50,9 @@ export function PinterestAnalyticsPanel({ data, syncing, onSync }: { data: Pinte
         <button type="button" onClick={onSync} disabled={syncing || !data?.authorized} className="inline-flex items-center gap-2 rounded border border-white/15 px-3 py-2 text-xs text-neutral-200 hover:border-[#eeba2b]/50 disabled:opacity-40"><RefreshCw size={14} className={syncing?"animate-spin":""}/> Sincronizar</button>
       </div>}/>
     <p className="text-xs text-neutral-400" role="status">{state}{data?.lastSuccessAt ? ` · Última actualización: ${new Intl.DateTimeFormat("es-ES",{dateStyle:"medium",timeStyle:"short"}).format(new Date(data.lastSuccessAt))}` : ""}</p>
+    {data?.issues?.length ? <div className="space-y-1 border-l-2 border-amber-400/70 pl-3 text-xs text-amber-100" role="alert">
+      {data.issues.map((issue,index)=><p key={`${issue.stage}-${index}`}>{pinterestIssueText(issue)}</p>)}
+    </div> : null}
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
       <MetricTile label="Impresiones" value={count(data?.totals?.impressions)} context="Veces en pantalla" icon={Eye}/>
       <MetricTile label="Guardados" value={count(data?.totals?.saves)} context="Guardados en tableros" icon={Pin}/>
@@ -55,7 +70,7 @@ export function PinterestAnalyticsPanel({ data, syncing, onSync }: { data: Pinte
         <p className="mt-2 text-xs text-neutral-400">{day ? `${day}: ${count(data.daily.find(item=>item.day===day)?.[metric])} ${metrics.find(item=>item.key===metric)?.label.toLowerCase()}` : `${data.daily[0].day} a ${data.daily.at(-1)?.day} · días devueltos por Pinterest`}</p></>
         : <p className="mt-4 text-sm text-neutral-500">No hay serie diaria verificada para este período.</p>}
     </section>
-    <section className="border-t border-white/10 pt-5"><SectionHeading eyebrow="TOP 50 / NO CATÁLOGO COMPLETO" title="Pines destacados" description="Pinterest limita esta consulta a 50 pines creados recientemente. No es un ranking de todos los pines de la cuenta."/>
+    <section className="border-t border-white/10 pt-5"><SectionHeading eyebrow="TOP 50 / NO CATÁLOGO COMPLETO" title="Pines destacados" description="Pinterest limita esta consulta a 50 pines creados en los últimos 30 días. No es un ranking de todos los pines de la cuenta."/>
       <div className="mt-4 flex flex-wrap gap-2"><label className="relative max-w-xs flex-1"><Search size={15} className="absolute left-3 top-2.5 text-neutral-500"/><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Buscar pin o listing" aria-label="Buscar pines" className="w-full rounded border border-white/15 bg-[#182229] py-2 pl-9 pr-3 text-sm text-white"/></label><select value={sort} onChange={event=>setSort(event.target.value as Metric)} aria-label="Ordenar pines" className="rounded border border-white/15 bg-[#182229] px-3 py-2 text-sm text-white">{metrics.map(item=><option key={item.key} value={item.key}>{item.label}</option>)}</select></div>
       {pins.length ? <div className="mt-3 max-h-[440px] overflow-auto divide-y divide-white/10 border-y border-white/10">{pins.map(item=><div key={item.id} className="flex items-center gap-3 py-3 text-xs">
         <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-white/5">{thumb(item.imageUrl) && <Image src={thumb(item.imageUrl)!} width={48} height={48} unoptimized alt="" className="h-full w-full object-cover"/>}</div>
