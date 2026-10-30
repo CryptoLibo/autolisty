@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AutomationWorkspace } from "@/app/_components/AutomationWorkspace";
 import { DashboardWorkspace } from "@/app/_components/DashboardWorkspace";
+import { AutolistyHeader } from "@/app/_components/AutolistyHeader";
 import { SiteFooter } from "@/app/_components/SiteFooter";
 import { signOutOfAutolisty } from "@/app/actions/auth";
 import { generateListingId } from "@/lib/utils/generateListingId";
@@ -38,7 +39,6 @@ import {
   Upload,
   X,
   FileText,
-  CheckCircle2,
   Layers3,
   LayoutDashboard,
   Menu,
@@ -4835,26 +4835,7 @@ export default function Page() {
       ) : null}
 
       <div className="mx-auto max-w-7xl px-5 py-5 sm:px-6 lg:px-8">
-        {activeSection !== "prompt" && <div className="flex flex-col items-center gap-3 pb-8 pt-20 text-center sm:pt-2">
-          <Image
-            src="/logo-final.png"
-            alt="Autolisty"
-            width={320}
-            height={70}
-            priority
-          />
-          <p className="max-w-2xl text-sm leading-relaxed text-neutral-400">
-            Autolisty brings together artwork prep, listing copy, mockups, social
-            assets, and delivery files in one organized creative workflow.
-          </p>
-
-          {listingId ? (
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-3 py-1 text-xs font-medium text-[#f1cc61]">
-              <CheckCircle2 size={14} />
-              Listing ID: {listingId}
-            </div>
-          ) : null}
-        </div>}
+        <AutolistyHeader listingId={activeSection === "single" ? listingId : null} />
 
         <div>
           {activeSection === "prompt" ? <DashboardWorkspace onOpenAutomation={() => setActiveSection("automation")} /> : activeSection === "references" ? (

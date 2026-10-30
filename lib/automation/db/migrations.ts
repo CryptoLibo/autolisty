@@ -541,6 +541,36 @@ const MIGRATIONS = [
       CREATE INDEX research_knowledge_expiry_idx ON research_knowledge(expires_at);
     `,
   },
+  {
+    version: 11,
+    sql: `
+      CREATE TABLE dashboard_etsy_sync (
+        shop_id INTEGER PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('running','complete','partial','failed')),
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        last_success_at TEXT,
+        error_code TEXT,
+        active_count INTEGER,
+        draft_count INTEGER,
+        inactive_count INTEGER,
+        details_complete INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE dashboard_etsy_listings (
+        shop_id INTEGER NOT NULL,
+        listing_id INTEGER NOT NULL,
+        state TEXT NOT NULL,
+        title TEXT NOT NULL,
+        price_amount INTEGER,
+        price_divisor INTEGER,
+        currency_code TEXT,
+        created_timestamp INTEGER,
+        synced_at TEXT NOT NULL,
+        PRIMARY KEY (shop_id, listing_id)
+      );
+      CREATE INDEX dashboard_etsy_listings_created_idx ON dashboard_etsy_listings(shop_id, created_timestamp);
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {
