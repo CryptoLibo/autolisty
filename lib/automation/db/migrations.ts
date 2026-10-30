@@ -623,6 +623,102 @@ const MIGRATIONS = [
       CREATE INDEX dashboard_etsy_transactions_receipt_idx ON dashboard_etsy_transactions(shop_id, receipt_id);
     `,
   },
+  {
+    version: 13,
+    sql: `
+      CREATE TABLE finance_expenses (
+        id TEXT PRIMARY KEY,
+        description TEXT NOT NULL,
+        category TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('fixed','variable','extraordinary')),
+        cadence TEXT,
+        amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+        currency TEXT NOT NULL,
+        occurred_on TEXT NOT NULL,
+        provider TEXT,
+        reference TEXT,
+        notes TEXT,
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','void')),
+        revision INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        voided_at TEXT
+      );
+      CREATE INDEX finance_expenses_date_idx ON finance_expenses(occurred_on,status);
+      CREATE TABLE finance_expense_events (
+        id TEXT PRIMARY KEY,
+        expense_id TEXT NOT NULL REFERENCES finance_expenses(id),
+        action TEXT NOT NULL CHECK (action IN ('created','updated','voided')),
+        before_json TEXT,
+        after_json TEXT,
+        occurred_at TEXT NOT NULL
+      );
+      CREATE INDEX finance_expense_events_expense_idx ON finance_expense_events(expense_id,occurred_at);
+      CREATE TABLE finance_etsy_ledger_sync (
+        shop_id INTEGER PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('running','complete','partial','failed')),
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        last_success_at TEXT,
+        coverage_from INTEGER,
+        coverage_to INTEGER,
+        error_code TEXT
+      );
+      CREATE TABLE finance_etsy_ledger_entries (
+        shop_id INTEGER NOT NULL,
+        entry_id INTEGER NOT NULL,
+        amount_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        occurred_at INTEGER NOT NULL,
+        ledger_type TEXT,
+        description TEXT,
+        reference_type TEXT,
+        reference_id TEXT,
+        parent_entry_id INTEGER,
+        synced_at TEXT NOT NULL,
+        PRIMARY KEY (shop_id,entry_id)
+      );
+      CREATE INDEX finance_etsy_ledger_date_idx ON finance_etsy_ledger_entries(shop_id,occurred_at);
+      CREATE TABLE finance_csv_imports (
+        id TEXT PRIMARY KEY,
+        file_hash TEXT NOT NULL UNIQUE,
+        filename TEXT NOT NULL,
+        row_count INTEGER NOT NULL,
+        accepted_count INTEGER NOT NULL,
+        rejected_count INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('active','reverted')),
+        created_at TEXT NOT NULL,
+        reverted_at TEXT
+      );
+      CREATE TABLE finance_csv_rows (
+        id TEXT PRIMARY KEY,
+        fingerprint TEXT NOT NULL UNIQUE,
+        occurred_on TEXT NOT NULL,
+        type TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        amount_minor INTEGER,
+        fees_minor INTEGER,
+        net_minor INTEGER,
+        classification TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('active','reverted')),
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX finance_csv_rows_date_idx ON finance_csv_rows(occurred_on,status);
+      CREATE TABLE finance_csv_import_rows (
+        import_id TEXT NOT NULL REFERENCES finance_csv_imports(id),
+        row_id TEXT NOT NULL REFERENCES finance_csv_rows(id),
+        PRIMARY KEY (import_id,row_id)
+      );
+      CREATE TABLE finance_reconciliations (
+        id TEXT PRIMARY KEY,
+        expense_id TEXT NOT NULL REFERENCES finance_expenses(id),
+        csv_row_id TEXT NOT NULL REFERENCES finance_csv_rows(id),
+        created_at TEXT NOT NULL,
+        UNIQUE (expense_id),
+        UNIQUE (csv_row_id)
+      );
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

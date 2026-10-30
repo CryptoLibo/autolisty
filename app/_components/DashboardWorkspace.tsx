@@ -7,6 +7,7 @@ import type { DashboardOverview, DashboardPeriod } from "@/lib/dashboard/overvie
 import type { getCatalogSnapshot } from "@/lib/dashboard/etsy-catalog"
 import { ProductionTrend, StatusDonut } from "./dashboard/DashboardCharts"
 import { EtsySalesPanel, type Sales } from "./dashboard/EtsySalesPanel"
+import { FinancePanel } from "./dashboard/FinancePanel"
 import { LoadingPanel, MetricTile, PendingSource, SectionHeading, SourceBadge } from "./dashboard/DashboardPrimitives"
 
 type Section = "overview" | "sales" | "costs" | "traffic" | "advertising" | "pinterest" | "operations"
@@ -269,7 +270,8 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
     </div>}
     {section === "sales" && <div className="space-y-8"><EtsySalesPanel sales={currentSales} syncing={syncingSales} onSync={syncSales} />
       <CatalogSection catalog={currentCatalog} syncing={syncing} onSync={syncCatalog} /></div>}
-    {section !== "overview" && section !== "operations" && section !== "sales" && <PendingSection section={section} />}
+    {section === "costs" && <FinancePanel period={period} />}
+    {section !== "overview" && section !== "operations" && section !== "sales" && section !== "costs" && <PendingSection section={section} />}
     <footer className="border-t border-white/8 pt-4 text-xs text-neutral-500">
       Los conteos de Automation corresponden a trabajos creados en el periodo y muestran su estado actual. No son datos de ventas.
     </footer>

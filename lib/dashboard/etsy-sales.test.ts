@@ -1,7 +1,7 @@
 import Database from "better-sqlite3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { openAutomationDatabase } from "../automation/db/database"
-import { runAutomationMigrations } from "../automation/db/migrations"
+import { AUTOMATION_SCHEMA_VERSION, runAutomationMigrations } from "../automation/db/migrations"
 import type { EtsyTokenPayload } from "../etsy/auth"
 import { getSalesSnapshot, syncEtsySales } from "./etsy-sales"
 
@@ -26,7 +26,7 @@ describe("Etsy sales cache", () => {
     databases.push(database)
     expect(runAutomationMigrations(database, 11)).toBe(11)
     database.prepare("INSERT INTO dashboard_etsy_sync(shop_id,status,started_at) VALUES (1,'complete','2026-10-01')").run()
-    expect(runAutomationMigrations(database)).toBe(12)
+    expect(runAutomationMigrations(database)).toBe(AUTOMATION_SCHEMA_VERSION)
     expect(database.prepare("SELECT shop_id FROM dashboard_etsy_sync").get()).toEqual({ shop_id: 1 })
   })
 
