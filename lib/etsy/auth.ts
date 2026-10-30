@@ -1,6 +1,6 @@
 import crypto from "crypto"
 
-export const ETSY_SCOPES = ["shops_r", "listings_r", "listings_w"] as const
+export const ETSY_SCOPES = ["shops_r", "listings_r", "listings_w", "transactions_r"] as const
 export const ETSY_AUTH_COOKIE = "etsy_auth"
 export const ETSY_PKCE_COOKIE = "etsy_pkce"
 export const ETSY_AUTH_BASE_URL = "https://www.etsy.com/oauth/connect"
@@ -101,8 +101,7 @@ export async function exchangeCodeForToken({
   })
 
   if (!response.ok) {
-    const message = await response.text()
-    throw new Error(message || "Failed to exchange Etsy authorization code")
+    throw new Error(`Etsy authorization failed (HTTP ${response.status})`)
   }
 
   const data = await response.json()
@@ -126,25 +125,25 @@ export async function refreshEtsyToken(refreshToken: string) {
   })
 
   if (!response.ok) {
-    const message = await response.text()
-    throw new Error(message || "Failed to refresh Etsy token")
+    throw new Error(`Etsy token refresh failed (HTTP ${response.status})`)
   }
 
   const data = await response.json()
   return normalizeTokenResponse(data)
 }
 
-function normalizeTokenResponse(data: any): EtsyTokenPayload {
-  const accessToken = String(data.access_token || "")
-  const refreshToken = String(data.refresh_token || "")
-  const expiresIn = Number(data.expires_in || 0)
-  const tokenType = String(data.token_type || "Bearer")
+function normalizeTokenResponse(data: unknown): EtsyTokenPayload {
+  const response = data && typeof data === "object" ? data as Record<string, unknown> : {}
+  const accessToken = String(response.access_token || "")
+  const refreshToken = String(response.refresh_token || "")
+  const expiresIn = Number(response.expires_in || 0)
+  const tokenType = String(response.token_type || "Bearer")
   const userId = accessToken.split(".")[0]
-  const scope = Array.isArray(data.scope)
-    ? data.scope.map((item: unknown) => String(item))
-    : typeof data.scope === "string"
-      ? data.scope.split(" ").filter(Boolean)
-      : [...ETSY_SCOPES]
+  const scope = Array.isArray(response.scope)
+    ? response.scope.map((item: unknown) => String(item))
+    : typeof response.scope === "string"
+      ? response.scope.split(" ").filter(Boolean)
+      : []
 
   if (!accessToken || !refreshToken || !userId) {
     throw new Error("Etsy token response is missing required fields")

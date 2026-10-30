@@ -3,14 +3,15 @@ import type { EtsyTokenPayload } from "../etsy/auth"
 import { etsyFetch } from "../etsy/client"
 import type { DashboardPeriod } from "./overview"
 
-type State = "active" | "draft" | "inactive"
+type State = "active" | "draft" | "inactive" | "expired" | "sold_out"
 type Listing = { listing_id: number; title?: string; state?: string; created_timestamp?: number;
   price?: { amount?: number; divisor?: number; currency_code?: string } }
 type SyncRow = { shop_id: number; status: string; started_at: string; finished_at: string | null;
   last_success_at: string | null; error_code: string | null; active_count: number | null;
-  draft_count: number | null; inactive_count: number | null; details_complete: number }
+  draft_count: number | null; inactive_count: number | null; expired_count: number | null;
+  sold_out_count: number | null; details_complete: number }
 
-const states: State[] = ["active", "draft", "inactive"]
+const states: State[] = ["active", "draft", "inactive", "expired", "sold_out"]
 const PAGE_SIZE = 100
 const MAX_PAGES = 10
 
@@ -29,7 +30,9 @@ export function getCatalogSnapshot(db: Database.Database, period: DashboardPerio
     connected, period, status: sync?.status || (connected ? "not_synced" : "not_connected"),
     lastSuccessAt: sync?.last_success_at || null, finishedAt: sync?.finished_at || null,
     errorCode: sync?.error_code || null, detailsComplete: Boolean(sync?.details_complete),
-    counts: sync?.last_success_at ? { active: sync.active_count, draft: sync.draft_count, inactive: sync.inactive_count } : null,
+    counts: sync?.last_success_at ? { active: sync.active_count, draft: sync.draft_count, inactive: sync.inactive_count,
+      expired: sync.expired_count, soldOut: sync.sold_out_count } : null,
+    renewalPending: sync?.last_success_at ? sync.expired_count : null,
     createdInPeriod: created?.count ?? null, listings,
   }
 }
@@ -55,11 +58,13 @@ export async function syncEtsyCatalog(db: Database.Database, shopId: number, tok
   if (!acquired.changes) throw new CatalogSyncError("sync_recent_or_running", 409)
 
   const collected: Listing[] = []
-  const counts: Record<State, number> = { active: 0, draft: 0, inactive: 0 }
+  const counts: Record<State, number> = { active: 0, draft: 0, inactive: 0, expired: 0, sold_out: 0 }
   let complete = true
+  let requests = 0
   try {
     for (const state of states) {
       for (let page = 0; page < MAX_PAGES; page++) {
+        if (requests++ && fetchPage === etsyFetch) await new Promise((resolve) => setTimeout(resolve, 250))
         const response = await fetchPage(`/application/shops/${shopId}/listings?state=${state}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`, token)
         if (!response.ok) throw new CatalogSyncError(classifyStatus(response.status), response.status === 429 ? 429 : 502)
         const body = await response.json() as { count?: unknown; results?: unknown }
@@ -90,9 +95,9 @@ export async function syncEtsyCatalog(db: Database.Database, shopId: number, tok
           Number.isSafeInteger(item.created_timestamp) ? item.created_timestamp : null, finishedAt)
       }
       db.prepare(`UPDATE dashboard_etsy_sync SET status=?,finished_at=?,last_success_at=?,error_code=NULL,
-        active_count=?,draft_count=?,inactive_count=?,details_complete=? WHERE shop_id=?`)
+        active_count=?,draft_count=?,inactive_count=?,expired_count=?,sold_out_count=?,details_complete=? WHERE shop_id=?`)
         .run(complete ? "complete" : "partial", finishedAt, finishedAt,
-          counts.active, counts.draft, counts.inactive, complete ? 1 : 0, shopId)
+          counts.active, counts.draft, counts.inactive, counts.expired, counts.sold_out, complete ? 1 : 0, shopId)
     })()
     return { status: complete ? "complete" : "partial", counts, fetched: collected.length }
   } catch (error) {

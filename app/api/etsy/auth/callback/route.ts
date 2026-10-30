@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import {
   ETSY_AUTH_COOKIE,
   ETSY_PKCE_COOKIE,
+  ETSY_SCOPES,
   exchangeCodeForToken,
   getEtsyRedirectUri,
 } from "@/lib/etsy/auth"
@@ -47,6 +48,10 @@ export async function GET(req: Request) {
       codeVerifier,
     })
 
+    if (!ETSY_SCOPES.every((scope) => token.scope.includes(scope))) {
+      throw new Error("Etsy did not grant all required permissions. The previous connection was preserved.")
+    }
+
     cookieStore.set(ETSY_AUTH_COOKIE, JSON.stringify(token), {
       httpOnly: true,
       secure: true,
@@ -58,11 +63,11 @@ export async function GET(req: Request) {
 
     redirectUrl.searchParams.set("etsy_connected", "1")
     return NextResponse.redirect(redirectUrl)
-  } catch (authError: any) {
+  } catch (authError: unknown) {
     cookieStore.delete(ETSY_PKCE_COOKIE)
     redirectUrl.searchParams.set(
       "etsy_error",
-      authError?.message || "Failed to complete Etsy auth"
+      authError instanceof Error ? authError.message : "Failed to complete Etsy auth"
     )
     return NextResponse.redirect(redirectUrl)
   }

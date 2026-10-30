@@ -6,6 +6,7 @@ import { Activity, ArrowRight, BarChart3, CircleAlert, DollarSign, Eye, Megaphon
 import type { DashboardOverview, DashboardPeriod } from "@/lib/dashboard/overview"
 import type { getCatalogSnapshot } from "@/lib/dashboard/etsy-catalog"
 import { ProductionTrend, StatusDonut } from "./dashboard/DashboardCharts"
+import { EtsySalesPanel, type Sales } from "./dashboard/EtsySalesPanel"
 import { LoadingPanel, MetricTile, PendingSource, SectionHeading, SourceBadge } from "./dashboard/DashboardPrimitives"
 
 type Section = "overview" | "sales" | "costs" | "traffic" | "advertising" | "pinterest" | "operations"
@@ -101,6 +102,9 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [sales, setSales] = useState<Sales | null>(null)
+  const [salesError, setSalesError] = useState<string | null>(null)
+  const [syncingSales, setSyncingSales] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -116,6 +120,19 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
         setError(reason instanceof Error ? reason.message : "No se pudieron cargar los datos.")
         setLoading(false)
       })
+    return () => controller.abort()
+  }, [period, reloadId])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetch(`/api/dashboard/etsy/sales?period=${period}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json() as Sales & { error?: string }
+        if (!response.ok) throw new Error(body.error || "No se pudieron leer las ventas.")
+        return body
+      })
+      .then((result) => { setSales(result); setSalesError(null) })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setSalesError(reason instanceof Error ? reason.message : "No se pudieron leer las ventas.") })
     return () => controller.abort()
   }, [period, reloadId])
 
@@ -145,9 +162,26 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
     } finally { setSyncing(false) }
   }
 
+  const syncSales = async () => {
+    setSyncingSales(true)
+    setSalesError(null)
+    try {
+      const response = await fetch("/api/dashboard/etsy/sales/sync", { method: "POST" })
+      const body = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(body.error || "No se pudieron sincronizar las ventas.")
+      setReloadId((value) => value + 1)
+    } catch (reason) {
+      setSalesError(reason instanceof Error ? reason.message : "No se pudieron sincronizar las ventas.")
+    } finally { setSyncingSales(false) }
+  }
+
   const changePeriod = (next: DashboardPeriod) => { if (next !== period) { setLoading(true); setPeriod(next) } }
   const refresh = () => { setLoading(true); setReloadId((value) => value + 1) }
   const currentData = data?.period === period ? data : null
+  const currentCatalog = catalog?.period === period ? catalog : null
+  const currentSales = sales?.period === period ? sales : null
+  const salesCurrency = currentSales?.authorized && currentSales.complete && currentSales.current?.financialComplete &&
+    Object.entries(currentSales.current.currencies).length === 1 ? Object.entries(currentSales.current.currencies)[0] : null
 
   return <div className="space-y-7 pb-12 text-neutral-100">
     <header className="flex flex-col gap-5 border-b border-white/10 pb-6 lg:flex-row lg:items-end lg:justify-between">
@@ -190,20 +224,24 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
       <button type="button" onClick={refresh} className="font-semibold underline underline-offset-2">Reintentar</button>
     </div>}
     {catalogError && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{catalogError}</div>}
+    {salesError && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{salesError}</div>}
 
     {section === "overview" && <div className="space-y-8">
       <section className="space-y-4">
-        <SectionHeading eyebrow="RESUMEN EJECUTIVO" title="Pulso del negocio" action={<SourceBadge state="not_implemented" />} />
+        <SectionHeading eyebrow="RESUMEN EJECUTIVO" title="Pulso del negocio" action={<SourceBadge state={currentSales?.complete && currentSales.authorized ? "available" : "not_implemented"} />} />
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <MetricTile label="Ingresos" value="--" context="Pedidos de Etsy pendientes" icon={DollarSign} />
-          <MetricTile label="Ventas" value="--" context="Pedidos de Etsy pendientes" icon={ShoppingBag} />
+          <MetricTile label="Importe de pedidos" value={salesCurrency ? new Intl.NumberFormat("es-ES", { style: "currency", currency: salesCurrency[0] }).format(salesCurrency[1].orderTotal) : "--"}
+            context="Pedidos pagados/completados; no beneficio" icon={DollarSign} />
+          <MetricTile label="Pedidos" value={currentSales?.authorized && currentSales.complete ? currentSales.current?.orders ?? "--" : "--"}
+            context="Recibos creados en el período" icon={ShoppingBag} />
           <MetricTile label="Beneficio neto" value="--" context="Gastos y ventas pendientes" icon={Wallet} />
           {currentData ? <MetricTile label="Producción" value={formatCount(currentData.total)} context="Trabajos creados en el periodo"
             icon={Activity} tone="gold" title="No representa ventas. Son trabajos reales creados en Automation." />
             : <MetricTile label="Producción" value="--" context="Consultando Automation" icon={Activity} tone="gold" />}
         </div>
       </section>
-      <CatalogSection catalog={catalog} syncing={syncing} onSync={syncCatalog} />
+      <EtsySalesPanel sales={currentSales} syncing={syncingSales} onSync={syncSales} compact />
+      <CatalogSection catalog={currentCatalog} syncing={syncing} onSync={syncCatalog} />
       <section className="space-y-5 border-t border-white/10 pt-6">
         <SectionHeading eyebrow="OPERACIONES" title="Producción en marcha" action={<button type="button" onClick={() => setSection("operations")}
           className="inline-flex items-center gap-1 text-sm font-medium text-[#eeba2b] hover:text-[#f7d875]">Ver operaciones <ArrowRight size={15} /></button>} />
@@ -214,7 +252,7 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
       <section className="border-t border-white/10 pt-6">
         <SectionHeading eyebrow="FUENTES" title="Cobertura de datos" description="Las métricas comerciales se añadirán al conectar fuentes verificadas." />
         <div className="mt-4 grid gap-x-8 lg:grid-cols-2">
-          <PendingSource title="Ventas y rentabilidad" description="Pedidos, ingresos, comisiones y gastos." source="Etsy y registros financieros" icon={ReceiptText} />
+          <PendingSource title="Rentabilidad" description="Comisiones, reembolsos y gastos todavía no conciliados." source="Etsy y registros financieros" icon={ReceiptText} />
           <PendingSource title="Tráfico y conversión" description="Visitas, fuentes y rendimiento del catálogo." source="Etsy Analytics" icon={Eye} />
           <PendingSource title="Publicidad" description="Inversión, clics y retorno de campañas." source="Cuentas publicitarias" icon={Megaphone} />
           <PendingSource title="Pinterest" description="Impresiones, guardados y clics salientes." source="Pinterest Analytics" icon={BarChart3} />
@@ -227,10 +265,10 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
         action={<SourceBadge state={error ? "error" : loading && !currentData ? "loading" : !currentData ? "not_connected" : currentData.total ? "available" : "empty"} />} />
       {loading && !currentData ? <LoadingPanel /> : currentData ? <OperationsContent data={currentData} onOpenAutomation={onOpenAutomation} />
         : <p className="text-sm text-neutral-400">No se pudo obtener el estado operativo.</p>}
-      <CatalogSection catalog={catalog} syncing={syncing} onSync={syncCatalog} compact />
+      <CatalogSection catalog={currentCatalog} syncing={syncing} onSync={syncCatalog} compact />
     </div>}
-    {section === "sales" && <div className="space-y-8"><PendingSection section="sales" />
-      <CatalogSection catalog={catalog} syncing={syncing} onSync={syncCatalog} /></div>}
+    {section === "sales" && <div className="space-y-8"><EtsySalesPanel sales={currentSales} syncing={syncingSales} onSync={syncSales} />
+      <CatalogSection catalog={currentCatalog} syncing={syncing} onSync={syncCatalog} /></div>}
     {section !== "overview" && section !== "operations" && section !== "sales" && <PendingSection section={section} />}
     <footer className="border-t border-white/8 pt-4 text-xs text-neutral-500">
       Los conteos de Automation corresponden a trabajos creados en el periodo y muestran su estado actual. No son datos de ventas.
@@ -254,10 +292,13 @@ function CatalogSection({ catalog, syncing, onSync, compact = false }: { catalog
       </button>} />
     <p className="mt-3 text-xs text-neutral-400" role="status">{statusText}
       {catalog?.lastSuccessAt ? ` · Últimos datos: ${formatDate(catalog.lastSuccessAt)}` : ""}</p>
-    <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
       <MetricTile label="Activos" value={counts?.active == null ? "--" : formatCount(counts.active)} context="Estado actual" icon={ShoppingBag} tone="green" />
       <MetricTile label="Borradores" value={counts?.draft == null ? "--" : formatCount(counts.draft)} context="Estado actual" icon={PackageCheck} />
       <MetricTile label="Inactivos" value={counts?.inactive == null ? "--" : formatCount(counts.inactive)} context="Estado actual" icon={CircleAlert} />
+      <MetricTile label="Pendientes de renovación" value={catalog?.renewalPending == null ? "--" : formatCount(catalog.renewalPending)}
+        context="Vencidos; no incluye agotados" icon={RefreshCw} tone="gold" title="Listings con estado expired en Etsy. No realiza renovaciones." />
+      <MetricTile label="Agotados" value={counts?.soldOut == null ? "--" : formatCount(counts.soldOut)} context="Estado sold_out separado" icon={PackageCheck} />
       <MetricTile label="Creados en el período" value={catalog?.createdInPeriod == null ? "--" : formatCount(catalog.createdInPeriod)}
         context={catalog?.detailsComplete ? "Fecha de creación; no de publicación" : "Requiere catálogo completo"} icon={TrendingUp}
         title="No representa productos publicados ni vendidos. Solo listings con fecha de creación dentro del período." />

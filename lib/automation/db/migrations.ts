@@ -571,6 +571,58 @@ const MIGRATIONS = [
       CREATE INDEX dashboard_etsy_listings_created_idx ON dashboard_etsy_listings(shop_id, created_timestamp);
     `,
   },
+  {
+    version: 12,
+    sql: `
+      ALTER TABLE dashboard_etsy_sync ADD COLUMN expired_count INTEGER;
+      ALTER TABLE dashboard_etsy_sync ADD COLUMN sold_out_count INTEGER;
+      CREATE TABLE dashboard_etsy_sales_sync (
+        shop_id INTEGER PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('running','complete','partial','failed')),
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        last_success_at TEXT,
+        coverage_from INTEGER,
+        coverage_to INTEGER,
+        error_code TEXT,
+        details_complete INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE dashboard_etsy_receipts (
+        shop_id INTEGER NOT NULL,
+        receipt_id INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        created_timestamp INTEGER NOT NULL,
+        updated_timestamp INTEGER,
+        currency_code TEXT,
+        grand_amount INTEGER,
+        grand_divisor INTEGER,
+        subtotal_amount INTEGER,
+        subtotal_divisor INTEGER,
+        shipping_amount INTEGER,
+        shipping_divisor INTEGER,
+        tax_amount INTEGER,
+        tax_divisor INTEGER,
+        discount_amount INTEGER,
+        discount_divisor INTEGER,
+        transactions_complete INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (shop_id, receipt_id)
+      );
+      CREATE INDEX dashboard_etsy_receipts_created_idx ON dashboard_etsy_receipts(shop_id, created_timestamp);
+      CREATE TABLE dashboard_etsy_transactions (
+        shop_id INTEGER NOT NULL,
+        receipt_id INTEGER NOT NULL,
+        transaction_id INTEGER NOT NULL,
+        listing_id INTEGER,
+        quantity INTEGER NOT NULL,
+        price_amount INTEGER,
+        price_divisor INTEGER,
+        currency_code TEXT,
+        PRIMARY KEY (shop_id, transaction_id),
+        FOREIGN KEY (shop_id, receipt_id) REFERENCES dashboard_etsy_receipts(shop_id, receipt_id) ON DELETE CASCADE
+      );
+      CREATE INDEX dashboard_etsy_transactions_receipt_idx ON dashboard_etsy_transactions(shop_id, receipt_id);
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {
