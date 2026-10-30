@@ -1,8 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Activity, ArrowRight, BarChart3, CircleAlert, DollarSign, Eye, Megaphone,
-  MousePointer2, PackageCheck, ReceiptText, RefreshCw, ShoppingBag, TrendingUp, Wallet } from "lucide-react"
+import { Activity, ArrowRight, CircleAlert, PackageCheck, RefreshCw, ShoppingBag, TrendingUp } from "lucide-react"
 import type { DashboardOverview, DashboardPeriod } from "@/lib/dashboard/overview"
 import type { getCatalogSnapshot } from "@/lib/dashboard/etsy-catalog"
 import { ProductionTrend, StatusDonut } from "./dashboard/DashboardCharts"
@@ -10,7 +9,8 @@ import { EtsySalesPanel, type Sales } from "./dashboard/EtsySalesPanel"
 import { FinancePanel } from "./dashboard/FinancePanel"
 import { PinterestAnalyticsPanel, pinterestIssueText, type PinterestSnapshot } from "./dashboard/PinterestAnalyticsPanel"
 import { AdvertisingPanel, TrafficPanel, type AdvertisingData, type TrafficData } from "./dashboard/TrafficAdvertisingPanels"
-import { LoadingPanel, MetricTile, PendingSource, SectionHeading, SourceBadge } from "./dashboard/DashboardPrimitives"
+import { IntelligenceOverview, type Intelligence } from "./dashboard/IntelligenceOverview"
+import { LoadingPanel, MetricTile, SectionHeading, SourceBadge } from "./dashboard/DashboardPrimitives"
 
 type Section = "overview" | "sales" | "costs" | "traffic" | "advertising" | "pinterest" | "operations"
 type Catalog = ReturnType<typeof getCatalogSnapshot>
@@ -82,8 +82,11 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
   const [traffic, setTraffic] = useState<TrafficData | null>(null)
   const [trafficError, setTrafficError] = useState<string | null>(null)
   const [savingTraffic, setSavingTraffic] = useState(false)
+  const [intelligence, setIntelligence] = useState<Intelligence | null>(null)
+  const [intelligenceError, setIntelligenceError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (section !== "operations") return
     const controller = new AbortController()
     void fetch(`/api/dashboard/overview?period=${period}`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
@@ -98,9 +101,10 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
         setLoading(false)
       })
     return () => controller.abort()
-  }, [period, reloadId])
+  }, [period, reloadId, section])
 
   useEffect(() => {
+    if (section !== "sales") return
     const controller = new AbortController()
     void fetch(`/api/dashboard/etsy/sales?period=${period}`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
@@ -111,9 +115,10 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
       .then((result) => { setSales(result); setSalesError(null) })
       .catch((reason: unknown) => { if (!controller.signal.aborted) setSalesError(reason instanceof Error ? reason.message : "No se pudieron leer las ventas.") })
     return () => controller.abort()
-  }, [period, reloadId])
+  }, [period, reloadId, section])
 
   useEffect(() => {
+    if (section !== "sales" && section !== "operations") return
     const controller = new AbortController()
     void fetch(`/api/dashboard/etsy?period=${period}`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
@@ -124,9 +129,10 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
       .then((result) => { setCatalog(result); setCatalogError(null) })
       .catch((reason: unknown) => { if (!controller.signal.aborted) setCatalogError(reason instanceof Error ? reason.message : "No se pudo leer Etsy.") })
     return () => controller.abort()
-  }, [period, reloadId])
+  }, [period, reloadId, section])
 
   useEffect(() => {
+    if (section !== "pinterest") return
     const controller = new AbortController()
     void fetch(`/api/dashboard/pinterest?period=${period}`, {cache:"no-store",signal:controller.signal})
       .then(async (response) => { const body = await response.json() as PinterestSnapshot & {error?:string}
@@ -134,25 +140,37 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
       .then((result) => {setPinterest(result);setPinterestError(null)})
       .catch((reason:unknown) => {if (!controller.signal.aborted) setPinterestError(reason instanceof Error ? reason.message : "No se pudo leer Pinterest.")})
     return () => controller.abort()
-  },[period,reloadId])
+  },[period,reloadId,section])
 
   useEffect(() => {
+    if (section !== "advertising") return
     const controller = new AbortController()
     void fetch(`/api/dashboard/advertising?period=${period}`, {cache:"no-store",signal:controller.signal})
       .then(async response => {if (!response.ok) throw new Error("No se pudieron leer los gastos publicitarios.");return await response.json() as AdvertisingData})
       .then(result => {setAdvertising(result);setAdvertisingError(null)})
       .catch(() => {if (!controller.signal.aborted) setAdvertisingError("No se pudieron leer los gastos publicitarios.")})
     return () => controller.abort()
-  },[period,reloadId])
+  },[period,reloadId,section])
 
   useEffect(() => {
+    if (section !== "traffic") return
     const controller = new AbortController()
     void fetch(`/api/dashboard/traffic?period=${period}`, {cache:"no-store",signal:controller.signal})
       .then(async response => {if (!response.ok) throw new Error("No se pudieron leer las estadísticas de tráfico.");return await response.json() as TrafficData})
       .then(result => {setTraffic(result);setTrafficError(null)})
       .catch(() => {if (!controller.signal.aborted) setTrafficError("No se pudieron leer las estadísticas de tráfico.")})
     return () => controller.abort()
-  },[period,reloadId])
+  },[period,reloadId,section])
+
+  useEffect(() => {
+    if (section !== "overview") return
+    const controller=new AbortController()
+    void fetch(`/api/dashboard/intelligence?period=${period}`,{cache:"no-store",signal:controller.signal})
+      .then(async response=>{if(!response.ok) throw new Error("No se pudo preparar el Resumen.");return await response.json() as Intelligence})
+      .then(result=>{setIntelligence(result);setIntelligenceError(null)})
+      .catch(()=>{if(!controller.signal.aborted)setIntelligenceError("No se pudo preparar el Resumen.")})
+    return ()=>controller.abort()
+  },[period,reloadId,section])
 
   const saveTraffic = async (values: Record<"visits"|"listingViews"|"etsySearchVisits"|"etsyAdsVisits"|"socialVisits"|"pinterestVisits",string>) => {
     setSavingTraffic(true);setTrafficError(null)
@@ -208,8 +226,6 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
   const currentCatalog = catalog?.period === period ? catalog : null
   const currentSales = sales?.period === period ? sales : null
   const currentPinterest = pinterest?.period === period ? pinterest : null
-  const salesCurrency = currentSales?.authorized && currentSales.complete && currentSales.current?.financialComplete &&
-    Object.entries(currentSales.current.currencies).length === 1 ? Object.entries(currentSales.current.currencies)[0] : null
 
   return <div className="space-y-7 pb-12 text-neutral-100">
     <header className="flex flex-col gap-5 border-b border-white/10 pb-6 lg:flex-row lg:items-end lg:justify-between">
@@ -219,15 +235,15 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
         <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-400">Datos verificados del negocio y estado de la producción en un solo lugar.</p>
       </div>
       <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
-        {currentData && <span className="w-full text-xs text-neutral-500 lg:mr-1 lg:w-auto" title="Última consulta de Automation">
-          Actualizado {formatDate(currentData.asOf)}</span>}
+        {(section==="overview"?intelligence?.period===period?intelligence.asOf:null:section==="operations"?currentData?.asOf:null) &&
+          <span className="w-full text-xs text-neutral-500 lg:mr-1 lg:w-auto">Actualizado {formatDate((section==="overview"?intelligence?.asOf:currentData?.asOf)!)}</span>}
         <div className="inline-flex rounded-md border border-white/10 bg-white/[0.03] p-1" role="group" aria-label="Periodo del Dashboard">
           {(["7d", "30d", "90d"] as const).map((item) => <button key={item} type="button" onClick={() => changePeriod(item)}
             aria-pressed={period === item} title={`Datos temporales de los últimos ${item.slice(0, -1)} días`}
             className={`min-w-11 rounded px-2.5 py-1.5 text-xs font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#eeba2b] ${period === item
               ? "bg-[#eeba2b] text-[#16130a]" : "text-neutral-400 hover:bg-white/8 hover:text-white"}`}>{item}</button>)}
         </div>
-        <button type="button" onClick={refresh} disabled={loading} title="Actualizar datos de Automation" aria-label="Actualizar Dashboard"
+        <button type="button" onClick={refresh} disabled={section==="operations"&&loading} title="Actualizar sección" aria-label="Actualizar Dashboard"
           className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] text-neutral-200 transition hover:border-[#eeba2b]/50 hover:text-[#eeba2b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#eeba2b] disabled:opacity-50">
           <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden="true" />
         </button>
@@ -247,53 +263,18 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
           ? "border-[#eeba2b] font-medium text-neutral-100" : "border-transparent text-neutral-400 hover:text-neutral-100"}`}>{item.label}</button>)}
     </nav>
 
-    {error && <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-rose-400/25 bg-rose-400/8 p-4 text-sm text-rose-200">
+    {error && section === "operations" && <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-rose-400/25 bg-rose-400/8 p-4 text-sm text-rose-200">
       <CircleAlert size={18} aria-hidden="true" /><span className="flex-1">{error}</span>
       <button type="button" onClick={refresh} className="font-semibold underline underline-offset-2">Reintentar</button>
     </div>}
-    {catalogError && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{catalogError}</div>}
-    {salesError && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{salesError}</div>}
-    {pinterestError && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{pinterestError}</div>}
+    {catalogError && (section === "sales" || section === "operations") && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{catalogError}</div>}
+    {salesError && section === "sales" && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{salesError}</div>}
+    {pinterestError && section === "pinterest" && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{pinterestError}</div>}
     {advertisingError && section === "advertising" && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{advertisingError}</div>}
     {trafficError && section === "traffic" && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{trafficError}</div>}
 
-    {section === "overview" && <div className="space-y-8">
-      <section className="space-y-4">
-        <SectionHeading eyebrow="RESUMEN EJECUTIVO" title="Pulso del negocio" action={<SourceBadge state={currentSales?.complete && currentSales.authorized ? "available" : "not_implemented"} />} />
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <MetricTile label="Importe de pedidos" value={salesCurrency ? new Intl.NumberFormat("es-ES", { style: "currency", currency: salesCurrency[0] }).format(salesCurrency[1].orderTotal) : "--"}
-            context="Pedidos pagados/completados; no beneficio" icon={DollarSign} />
-          <MetricTile label="Pedidos" value={currentSales?.authorized && currentSales.complete ? currentSales.current?.orders ?? "--" : "--"}
-            context="Recibos creados en el período" icon={ShoppingBag} />
-          <MetricTile label="Beneficio neto" value="--" context="Gastos y ventas pendientes" icon={Wallet} />
-          {currentData ? <MetricTile label="Producción" value={formatCount(currentData.total)} context="Trabajos creados en el periodo"
-            icon={Activity} tone="gold" title="No representa ventas. Son trabajos reales creados en Automation." />
-            : <MetricTile label="Producción" value="--" context="Consultando Automation" icon={Activity} tone="gold" />}
-        </div>
-      </section>
-      <EtsySalesPanel sales={currentSales} syncing={syncingSales} onSync={syncSales} compact />
-      <CatalogSection catalog={currentCatalog} syncing={syncing} onSync={syncCatalog} />
-      <section className="border-t border-white/10 pt-6"><SectionHeading eyebrow="PINTEREST" title="Alcance orgánico" action={<button type="button" onClick={()=>setSection("pinterest")} className="inline-flex items-center gap-1 text-sm text-[#eeba2b]">Ver Pinterest <ArrowRight size={15}/></button>}/>
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3"><MetricTile label="Impresiones" value={currentPinterest?.totals?.impressions == null ? "--" : formatCount(currentPinterest.totals.impressions)} context="Período verificado por Pinterest" icon={Eye}/>
-          <MetricTile label="Clics salientes" value={currentPinterest?.totals?.outboundClicks == null ? "--" : formatCount(currentPinterest.totals.outboundClicks)} context="No son ventas atribuidas" icon={MousePointer2}/>
-          <MetricTile label="Guardados" value={currentPinterest?.totals?.saves == null ? "--" : formatCount(currentPinterest.totals.saves)} context={currentPinterest?.lastSuccessAt ? `Actualizado ${formatDate(currentPinterest.lastSuccessAt)}` : "Sin sincronizar"} icon={BarChart3}/></div>
-      </section>
-      <section className="space-y-5 border-t border-white/10 pt-6">
-        <SectionHeading eyebrow="OPERACIONES" title="Producción en marcha" action={<button type="button" onClick={() => setSection("operations")}
-          className="inline-flex items-center gap-1 text-sm font-medium text-[#eeba2b] hover:text-[#f7d875]">Ver operaciones <ArrowRight size={15} /></button>} />
-        {loading && !currentData ? <LoadingPanel /> : currentData ? <div className="grid gap-7 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,1fr)]">
-          <ProductionTrend data={currentData} /><StatusDonut data={currentData} />
-        </div> : <p className="text-sm text-neutral-400">Automation no esta disponible.</p>}
-      </section>
-      <section className="border-t border-white/10 pt-6">
-        <SectionHeading eyebrow="FUENTES" title="Cobertura de datos" description="Las métricas comerciales se añadirán al conectar fuentes verificadas." />
-        <div className="mt-4 grid gap-x-8 lg:grid-cols-2">
-          <PendingSource title="Rentabilidad" description="Comisiones, reembolsos y gastos todavía no conciliados." source="Etsy y registros financieros" icon={ReceiptText} />
-          <PendingSource title="Tráfico y conversión" description="Visitas, fuentes y rendimiento del catálogo." source="Etsy Analytics" icon={Eye} />
-          <PendingSource title="Publicidad" description="Inversión, clics y retorno de campañas." source="Cuentas publicitarias" icon={Megaphone} />
-        </div>
-      </section>
-    </div>}
+    {section === "overview" && <IntelligenceOverview data={intelligence?.period===period?intelligence:null}
+      error={intelligenceError} onNavigate={setSection} onRetry={refresh} />}
 
     {section === "operations" && <div className="space-y-6">
       <SectionHeading eyebrow="AUTOMATION" title="Operaciones" description="Trabajos creados en el periodo seleccionado, clasificados por su estado actual."
