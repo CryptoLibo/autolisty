@@ -2,11 +2,11 @@
 
 Autolisty is a private production app used to prepare and publish digital Etsy listings, plus supporting Pinterest content. It is not a public SaaS product and is operated with one Etsy account and one Pinterest account.
 
-This document exists so future Codex sessions can understand the app before making changes. Do not add secrets to this file.
+This document gives anyone working on the code (including Claude, who now maintains the ecosystem) the context needed before making changes. Do not add secrets to this file. For how Autolisty fits with Autobuildy, Automocky and Automaty, see `docs/ECOSISTEMA.md`.
 
 ## Operating Model
 
-- Local machine is mainly used for code edits with Codex.
+- Local machine is mainly used for code edits; changes are reviewed through GitHub pull requests.
 - Production is the real validation environment.
 - Normal update flow:
   1. Make or review changes locally.
@@ -65,11 +65,13 @@ Do not change the hardcoded `download.autolisty.com` link patterns unless the Cl
 
 ## Main App Areas
 
-The primary UI is in `app/page.tsx` and has three workspaces:
+The primary UI is in `app/page.tsx`. The main workspaces are:
 
 - Prompt Lab: analyzes a reference image and generates Midjourney-ready prompt sets.
 - Listing: high-touch workflow for one Etsy listing at a time.
 - Scale: batch workflow for importing and processing many listing folders.
+- Automation: persistent production queue served to the Automaty PC (see below).
+- Dashboard: Etsy sales, traffic, finance and Pinterest analytics.
 
 Automation is being added as a persistent operating mode. Its server-side SQLite
 database is separate from R2 and stores only queue state, identifiers, metadata,
@@ -94,7 +96,7 @@ Used for:
 - Pinterest title and description generation.
 - Prompt Lab image analysis and prompt creation.
 
-OpenAI routes currently use `gpt-4o` in code.
+OpenAI routes currently use `gpt-5.4-mini` in code (Etsy SEO, Pinterest copy and Prompt Lab). Image Lab uses `gpt-image-2`.
 
 ### Etsy
 
@@ -265,7 +267,7 @@ The Cloudflare Worker behind `download.autolisty.com` is responsible for turning
 
 ## Safe Change Guidelines
 
-For future Codex work:
+Before any change:
 
 - Start by checking `git status --short --branch`.
 - Do not modify `.env.local`.
