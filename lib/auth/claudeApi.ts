@@ -10,16 +10,34 @@ function safeEqualHex(left: string, right: string) {
   return crypto.timingSafeEqual(Buffer.from(left, "hex"), Buffer.from(right, "hex"))
 }
 
+// Extrae el token sea cual sea el formato con que lo envíe el conector:
+// "Bearer <t>", "<t>" a secas, "Bearer Bearer <t>" (prefijo duplicado) o con comillas.
+export function extractClaudeToken(request: Request) {
+  const raw = (request.headers.get("authorization") || request.headers.get("x-autolisty-token") || "").trim()
+  return raw.replace(/^(bearer\s+)+/i, "").replace(/^["']|["']$/g, "").trim()
+}
+
 export function authenticateClaudeApi(request: Request) {
-  // Acepta "Authorization: Bearer <token>" o "X-Autolisty-Token: <token>"
-  // (cabecera personalizada del conector MCP de claude.ai).
-  const authorization = request.headers.get("authorization") || ""
-  const bearer = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : ""
-  const token = bearer || (request.headers.get("x-autolisty-token") || "").trim()
+  const token = extractClaudeToken(request)
   const expectedHash = (process.env.CLAUDE_API_TOKEN_SHA256 || "").trim().toLowerCase()
   if (!token || !expectedHash) return false
   const receivedHash = crypto.createHash("sha256").update(token, "utf8").digest("hex")
   return safeEqualHex(receivedHash, expectedHash)
+}
+
+// Diagnóstico sin exponer el token: qué cabecera llegó y con qué forma.
+export function describeClaudeAuthAttempt(request: Request) {
+  const authorization = request.headers.get("authorization")
+  const custom = request.headers.get("x-autolisty-token")
+  const token = extractClaudeToken(request)
+  return {
+    hasAuthorization: authorization !== null,
+    authorizationScheme: authorization ? authorization.trim().split(/\s+/)[0].slice(0, 12) : null,
+    hasCustomHeader: custom !== null,
+    tokenLength: token.length,
+    serverHashConfigured: Boolean((process.env.CLAUDE_API_TOKEN_SHA256 || "").trim()),
+    userAgent: (request.headers.get("user-agent") || "").slice(0, 80),
+  }
 }
 
 export function requireClaudeApi(request: Request) {
