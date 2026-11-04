@@ -26,9 +26,13 @@ function isPublicPath(pathname: string) {
   )
 }
 
-// Rutas de máquina: cada ruta valida su propio token (agente local, Claude).
+// Rutas de máquina: cada ruta valida su propio token (agente local, Claude, conector MCP).
 function isMachineApiPath(pathname: string) {
-  return pathname.startsWith("/api/automation/agent/") || pathname.startsWith("/api/claude/")
+  return (
+    pathname.startsWith("/api/automation/agent/") ||
+    pathname.startsWith("/api/claude/") ||
+    pathname === "/api/mcp"
+  )
 }
 
 const authenticatedProxy = auth((request) => {
