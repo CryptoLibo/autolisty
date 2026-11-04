@@ -3,6 +3,7 @@ import type { ProductType } from "@/lib/products"
 export const AUTOMATION_JOB_STATUSES = [
   "CREATED",
   "SOURCE_READY",
+  "PENDING_APPROVAL",
   "QUEUED_LOCAL",
   "LOCAL_CLAIMED",
   "LOCAL_BUILDING",
@@ -80,12 +81,21 @@ export type AutomationJob = {
   createdAt: string
   updatedAt: string
   completedAt: string | null
+  origin: AutomationJobOrigin
+  briefJson: string | null
+  reviewNote: string | null
+  reviewedAt: string | null
 }
+
+export const AUTOMATION_JOB_ORIGINS = ["owner", "claude"] as const
+export type AutomationJobOrigin = (typeof AUTOMATION_JOB_ORIGINS)[number]
 
 export type CreateAutomationJobInput = {
   productType: ProductType
   sourcePrompt: string
   productCode?: string
+  origin?: AutomationJobOrigin
+  briefJson?: string | null
 }
 
 export type AutomationJobFile = {

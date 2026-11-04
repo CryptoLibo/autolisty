@@ -2,7 +2,9 @@ import type { AutomationJobStatus } from "./types"
 
 const NORMAL_TRANSITIONS: Record<AutomationJobStatus, readonly AutomationJobStatus[]> = {
   CREATED: ["SOURCE_READY", "CANCELED"],
-  SOURCE_READY: ["QUEUED_LOCAL", "CANCELED"],
+  SOURCE_READY: ["QUEUED_LOCAL", "PENDING_APPROVAL", "CANCELED"],
+  // Diseños enviados por Claude: el propietario aprueba (cola) o rechaza (cancelado).
+  PENDING_APPROVAL: ["QUEUED_LOCAL", "CANCELED"],
   QUEUED_LOCAL: ["LOCAL_CLAIMED", "CANCELED"],
   LOCAL_CLAIMED: ["LOCAL_BUILDING", "QUEUED_LOCAL", "CANCELED"],
   LOCAL_BUILDING: ["LOCAL_VALIDATING", "CANCELED"],

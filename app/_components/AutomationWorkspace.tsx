@@ -37,6 +37,7 @@ type DraftSummaryItem = {
 const STATUS_LABELS: Partial<Record<AutomationJob["status"], string>> = {
   CREATED: "Creating intake",
   SOURCE_READY: "Source ready",
+  PENDING_APPROVAL: "Waiting for your approval",
   QUEUED_LOCAL: "Waiting for production PC",
   LOCAL_CLAIMED: "Claimed by production PC",
   LOCAL_BUILDING: "Building mockups",
@@ -80,6 +81,22 @@ function formatBytes(value: number | null) {
   return `${Math.ceil(value / 1024)} KB`
 }
 
+type DesignBriefView = {
+  primaryKeyword?: { keyword: string; etsyMonthlySearches?: number | null; competingListings?: number | null } | null
+  secondaryKeywords?: Array<{ keyword: string }>
+  collection?: string | null
+  rationale?: string | null
+}
+
+function parseBrief(job: AutomationJob): DesignBriefView | null {
+  if (!job.briefJson) return null
+  try {
+    return JSON.parse(job.briefJson) as DesignBriefView
+  } catch {
+    return null
+  }
+}
+
 function isFinished(status: AutomationJob["status"]) {
   return status === "COMPLETED" || status === "CANCELED"
 }
@@ -104,6 +121,8 @@ export function AutomationWorkspace() {
   const [draftSubmitting, setDraftSubmitting] = useState(false)
   const [pipelineUpdating, setPipelineUpdating] = useState(false)
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null)
+  const [reviewingJobId, setReviewingJobId] = useState<string | null>(null)
+  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({})
 
   const loadDashboard = useCallback(async (quiet = false) => {
     if (!quiet) setRefreshing(true)
@@ -151,7 +170,10 @@ export function AutomationWorkspace() {
     [selectedSourcePreview]
   )
 
-  const activeJob = jobs.find((job) => !isFinished(job.status) && job.status !== "QUEUED_LOCAL")
+  const activeJob = jobs.find(
+    (job) => !isFinished(job.status) && job.status !== "QUEUED_LOCAL" && job.status !== "PENDING_APPROVAL"
+  )
+  const pendingApproval = jobs.filter((job) => job.status === "PENDING_APPROVAL")
   const queuedCount = jobs.filter((job) => job.status === "QUEUED_LOCAL").length
   const availableDraftsByProduct = useMemo(() => {
     const result = new Map<ProductType, number>()
@@ -281,6 +303,37 @@ export function AutomationWorkspace() {
     }
   }
 
+  async function reviewDesign(jobId: string, decision: "approve" | "reject") {
+    setReviewingJobId(jobId)
+    setMessage(null)
+    try {
+      const response = await fetch(`/api/automation/jobs/${jobId}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision, note: reviewNotes[jobId] || null }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "Unable to review the design.")
+      setMessageTone("success")
+      setMessage(
+        decision === "approve"
+          ? `${data.job.productCode} approved and added to the production queue.`
+          : `${data.job.productCode} rejected.`
+      )
+      setReviewNotes((current) => {
+        const next = { ...current }
+        delete next[jobId]
+        return next
+      })
+      await loadDashboard(true)
+    } catch (error) {
+      setMessageTone("error")
+      setMessage(error instanceof Error ? error.message : "Unable to review the design.")
+    } finally {
+      setReviewingJobId(null)
+    }
+  }
+
   return (
     <div className="space-y-8">
       <header className="flex flex-col gap-5 border-b border-neutral-800 pb-7 lg:flex-row lg:items-end lg:justify-between">
@@ -344,6 +397,93 @@ export function AutomationWorkspace() {
           {messageTone === "error" ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
           <span>{message}</span>
         </div>
+      ) : null}
+
+      {pendingApproval.length > 0 ? (
+        <section className="border-b border-neutral-800 pb-8">
+          <div className="flex items-center gap-3">
+            <Clock3 size={18} className="text-[#f1cc61]" />
+            <h2 className="text-lg font-semibold">Designs waiting for approval</h2>
+            <span className="text-sm text-neutral-500">{pendingApproval.length}</span>
+          </div>
+          <p className="mt-2 text-sm text-neutral-400">
+            Submitted by Claude. Approved designs join the production queue; rejected ones are canceled and the note is kept as feedback.
+          </p>
+          <div className="mt-5 grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
+            {pendingApproval.map((job) => {
+              const brief = parseBrief(job)
+              const busy = reviewingJobId === job.id
+              return (
+                <article key={job.id} className="border border-neutral-800 bg-neutral-950">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={job.sourcePreviewUrl}
+                    alt={`Design ${job.productCode}`}
+                    className="aspect-square w-full bg-neutral-900 object-contain"
+                  />
+                  <div className="space-y-3 p-4">
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="font-semibold text-neutral-200">{job.productCode}</span>
+                      <span className="text-neutral-500">{productLabel(job.productType)}</span>
+                    </div>
+                    {brief?.collection ? (
+                      <div className="text-xs text-[#f1cc61]">Collection: {brief.collection}</div>
+                    ) : null}
+                    {brief?.primaryKeyword ? (
+                      <div className="text-xs text-neutral-300">
+                        <span className="font-semibold">{brief.primaryKeyword.keyword}</span>
+                        {brief.primaryKeyword.etsyMonthlySearches != null
+                          ? ` · ${brief.primaryKeyword.etsyMonthlySearches.toLocaleString("en-US")} searches/mo`
+                          : ""}
+                        {brief.primaryKeyword.competingListings != null
+                          ? ` · ${brief.primaryKeyword.competingListings.toLocaleString("en-US")} listings`
+                          : ""}
+                        {brief.secondaryKeywords?.length ? (
+                          <div className="mt-1 text-neutral-500">
+                            {brief.secondaryKeywords.map((item) => item.keyword).join(", ")}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {brief?.rationale ? <p className="text-xs leading-5 text-neutral-400">{brief.rationale}</p> : null}
+                    <details className="text-xs text-neutral-500">
+                      <summary className="cursor-pointer">Prompt</summary>
+                      <p className="mt-2 whitespace-pre-wrap leading-5">{job.sourcePrompt}</p>
+                    </details>
+                    <input
+                      type="text"
+                      value={reviewNotes[job.id] || ""}
+                      onChange={(event) => setReviewNotes((current) => ({ ...current, [job.id]: event.target.value }))}
+                      placeholder="Note (optional, helps Claude learn)"
+                      maxLength={1000}
+                      className="h-10 w-full border border-neutral-800 bg-neutral-900 px-3 text-sm text-neutral-200 outline-none focus:border-[#eeba2b]/50"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void reviewDesign(job.id, "approve")}
+                        className="inline-flex h-10 flex-1 items-center justify-center gap-2 bg-[#eeba2b] text-sm font-semibold text-neutral-950 transition hover:bg-[#f1cc61] disabled:opacity-50"
+                      >
+                        {busy ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void reviewDesign(job.id, "reject")}
+                        className="inline-flex h-10 flex-1 items-center justify-center gap-2 border border-red-500/30 bg-red-500/10 text-sm font-semibold text-red-200 transition hover:bg-red-500/15 disabled:opacity-50"
+                      >
+                        <Trash2 size={15} />
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        </section>
       ) : null}
 
       <section className="grid gap-8 border-b border-neutral-800 pb-8 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">

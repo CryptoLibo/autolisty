@@ -53,6 +53,7 @@ Required environment variable names currently used by the app:
 - `AUTH_TRUST_HOST`
 - `AUTOLISTY_GITHUB_USER_ID`
 - `AUTOMATION_AGENT_TOKEN_SHA256` (server-side hash of the old PC machine token)
+- `CLAUDE_API_TOKEN_SHA256` (server-side hash of Claude's machine token for `/api/claude/*`)
 
 ## Domains
 

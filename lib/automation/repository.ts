@@ -7,6 +7,7 @@ import type {
   AutomationJob,
   AutomationJobEvent,
   AutomationJobFile,
+  AutomationJobOrigin,
   AutomationJobStatus,
   AutomationAgent,
   AutomationAgentStatus,
@@ -35,6 +36,10 @@ type AutomationJobRow = {
   created_at: string
   updated_at: string
   completed_at: string | null
+  origin: AutomationJobOrigin | null
+  brief_json: string | null
+  review_note: string | null
+  reviewed_at: string | null
 }
 
 type AutomationEventRow = {
@@ -131,6 +136,10 @@ function mapJob(row: AutomationJobRow): AutomationJob {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at,
+    origin: row.origin || "owner",
+    briefJson: row.brief_json,
+    reviewNote: row.review_note,
+    reviewedAt: row.reviewed_at,
   }
 }
 
@@ -207,8 +216,8 @@ export class AutomationRepository {
     if (input.productCode !== undefined && !isProductCode(input.productCode)) throw new Error("Invalid product code.")
     const insert = this.database.prepare(`
       INSERT INTO automation_jobs (
-        id, product_code, product_type, source_prompt, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'CREATED', ?, ?)
+        id, product_code, product_type, source_prompt, status, origin, brief_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, 'CREATED', ?, ?, ?, ?)
     `)
 
     const insertEvent = this.database.prepare(`
@@ -221,7 +230,7 @@ export class AutomationRepository {
       for (let attempt = 0; attempt < (input.productCode ? 1 : 10); attempt += 1) {
         const productCode = input.productCode || generateProductCode()
         try {
-          insert.run(jobId, productCode, input.productType, sourcePrompt, now, now)
+          insert.run(jobId, productCode, input.productType, sourcePrompt, input.origin || "owner", input.briefJson ?? null, now, now)
           insertEvent.run(jobId, `Automation job ${productCode} created.`, now)
           return productCode
         } catch (error) {
@@ -258,6 +267,43 @@ export class AutomationRepository {
       .prepare("SELECT * FROM automation_jobs ORDER BY created_at DESC LIMIT ?")
       .all(safeLimit) as AutomationJobRow[]
     return rows.map(mapJob)
+  }
+
+  listJobsByOrigin(origin: AutomationJobOrigin, options: { status?: AutomationJobStatus; limit?: number } = {}) {
+    const safeLimit = Math.max(1, Math.min(500, Math.trunc(options.limit ?? 100)))
+    const rows = options.status
+      ? this.database
+          .prepare("SELECT * FROM automation_jobs WHERE origin = ? AND status = ? ORDER BY created_at DESC LIMIT ?")
+          .all(origin, options.status, safeLimit)
+      : this.database
+          .prepare("SELECT * FROM automation_jobs WHERE origin = ? ORDER BY created_at DESC LIMIT ?")
+          .all(origin, safeLimit)
+    return (rows as AutomationJobRow[]).map(mapJob)
+  }
+
+  // Aprobación del propietario para diseños en PENDING_APPROVAL.
+  // approve -> QUEUED_LOCAL; reject -> CANCELED. La nota queda guardada para que
+  // Claude aprenda de los rechazos.
+  reviewJob(jobId: string, decision: "approve" | "reject", note: string | null = null) {
+    const cleanNote = note?.trim().slice(0, 1000) || null
+    const review = this.database.transaction(() => {
+      const current = this.getJob(jobId)
+      if (!current) throw new Error(`Automation job not found: ${jobId}`)
+      if (current.status !== "PENDING_APPROVAL") {
+        throw new Error("This design is not waiting for approval.")
+      }
+      const updated = this.transitionJob(jobId, decision === "approve" ? "QUEUED_LOCAL" : "CANCELED", {
+        message: decision === "approve"
+          ? "Design approved by the owner and queued for local production."
+          : `Design rejected by the owner${cleanNote ? `: ${cleanNote}` : "."}`,
+      })
+      const now = new Date().toISOString()
+      this.database
+        .prepare("UPDATE automation_jobs SET review_note = ?, reviewed_at = ?, updated_at = ? WHERE id = ?")
+        .run(cleanNote, now, now, jobId)
+      return { ...updated, reviewNote: cleanNote, reviewedAt: now, updatedAt: now }
+    })
+    return review()
   }
 
   listJobEvents(jobId: string) {

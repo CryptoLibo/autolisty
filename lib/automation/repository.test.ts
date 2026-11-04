@@ -244,3 +244,58 @@ describe("automation repository", () => {
     expect(repository.getAgent("old-production-pc")?.status).toBe("ONLINE")
   })
 })
+
+describe("Claude design approval", () => {
+  let database: Database.Database | null = null
+
+  afterEach(() => {
+    database?.close()
+    database = null
+  })
+
+  function submitDesign(repository: AutomationRepository) {
+    const job = repository.createJob({
+      productType: "frame_tv_art",
+      sourcePrompt: "Snowy village",
+      origin: "claude",
+      briefJson: JSON.stringify({ collection: "Vintage Christmas" }),
+    })
+    repository.transitionJob(job.id, "SOURCE_READY")
+    return repository.transitionJob(job.id, "PENDING_APPROVAL")
+  }
+
+  it("stores origin and brief, and queues approved designs", () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    const pending = submitDesign(repository)
+    expect(pending.origin).toBe("claude")
+    expect(JSON.parse(pending.briefJson!)).toEqual({ collection: "Vintage Christmas" })
+    expect(repository.listJobsByOrigin("claude", { status: "PENDING_APPROVAL" })).toHaveLength(1)
+    repository.setPipelineMode("RUNNING")
+    expect(repository.claimNextQueuedJob("agent-one")).toBeNull()
+
+    const approved = repository.reviewJob(pending.id, "approve", "  looks great ")
+    expect(approved.status).toBe("QUEUED_LOCAL")
+    expect(repository.getJob(pending.id)?.reviewNote).toBe("looks great")
+    expect(repository.getJob(pending.id)?.reviewedAt).toBeTruthy()
+  })
+
+  it("cancels rejected designs and keeps the note as feedback", () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    const pending = submitDesign(repository)
+    const rejected = repository.reviewJob(pending.id, "reject", "Santa's hands are deformed")
+    expect(rejected.status).toBe("CANCELED")
+    expect(repository.getJob(pending.id)?.reviewNote).toBe("Santa's hands are deformed")
+    expect(() => repository.reviewJob(pending.id, "approve")).toThrow(/not waiting for approval/)
+  })
+
+  it("keeps owner jobs as the default origin", () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    const job = repository.createJob({ productType: "png_designs", sourcePrompt: "Manual upload" })
+    expect(job.origin).toBe("owner")
+    expect(job.briefJson).toBeNull()
+    expect(() => repository.reviewJob(job.id, "approve")).toThrow(/not waiting for approval/)
+  })
+})

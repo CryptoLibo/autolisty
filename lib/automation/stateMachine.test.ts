@@ -54,4 +54,12 @@ describe("automation state machine", () => {
     expect(isTerminalAutomationStatus("CANCELED")).toBe(true)
     expect(isTerminalAutomationStatus("WAITING_ETSY_REVIEW")).toBe(false)
   })
+
+  it("routes Claude designs through owner approval", () => {
+    expect(canTransitionAutomationJob("SOURCE_READY", "PENDING_APPROVAL")).toBe(true)
+    expect(canTransitionAutomationJob("PENDING_APPROVAL", "QUEUED_LOCAL")).toBe(true)
+    expect(canTransitionAutomationJob("PENDING_APPROVAL", "CANCELED")).toBe(true)
+    expect(canTransitionAutomationJob("PENDING_APPROVAL", "LOCAL_CLAIMED")).toBe(false)
+    expect(canTransitionAutomationJob("PENDING_APPROVAL", "NEEDS_ATTENTION")).toBe(false)
+  })
 })

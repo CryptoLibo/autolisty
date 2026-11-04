@@ -818,6 +818,16 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    version: 17,
+    sql: `
+      ALTER TABLE automation_jobs ADD COLUMN origin TEXT NOT NULL DEFAULT 'owner';
+      ALTER TABLE automation_jobs ADD COLUMN brief_json TEXT;
+      ALTER TABLE automation_jobs ADD COLUMN review_note TEXT;
+      ALTER TABLE automation_jobs ADD COLUMN reviewed_at TEXT;
+      CREATE INDEX automation_jobs_origin_idx ON automation_jobs(origin, status, created_at);
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

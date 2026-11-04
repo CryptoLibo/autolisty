@@ -22,8 +22,13 @@ function isPublicPath(pathname: string) {
     PUBLIC_PAGES.has(pathname) ||
     PUBLIC_API_PATHS.has(pathname) ||
     pathname.startsWith("/api/auth/") ||
-    pathname.startsWith("/api/automation/agent/")
+    isMachineApiPath(pathname)
   )
+}
+
+// Rutas de máquina: cada ruta valida su propio token (agente local, Claude).
+function isMachineApiPath(pathname: string) {
+  return pathname.startsWith("/api/automation/agent/") || pathname.startsWith("/api/claude/")
 }
 
 const authenticatedProxy = auth((request) => {
@@ -47,7 +52,7 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
   if (
     pathname.startsWith("/api/") &&
     !pathname.startsWith("/api/auth/") &&
-    !pathname.startsWith("/api/automation/agent/") &&
+    !isMachineApiPath(pathname) &&
     !["GET", "HEAD", "OPTIONS"].includes(request.method) &&
     request.headers.get("origin") !== expectedOrigin
   ) {
