@@ -27,4 +27,12 @@ describe("Claude API authentication", () => {
     delete process.env.CLAUDE_API_TOKEN_SHA256
     expect(authenticateClaudeApi(request("claude-token"))).toBe(false)
   })
+
+  it("accepts the token in the X-Autolisty-Token header", () => {
+    process.env.CLAUDE_API_TOKEN_SHA256 = crypto.createHash("sha256").update("claude-token").digest("hex")
+    const viaHeader = new Request("https://autolisty.com/api/mcp", { headers: { "x-autolisty-token": "claude-token" } })
+    const wrong = new Request("https://autolisty.com/api/mcp", { headers: { "x-autolisty-token": "nope" } })
+    expect(authenticateClaudeApi(viaHeader)).toBe(true)
+    expect(authenticateClaudeApi(wrong)).toBe(false)
+  })
 })
