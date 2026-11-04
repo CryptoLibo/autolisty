@@ -11,10 +11,11 @@ function safeEqualHex(left: string, right: string) {
 }
 
 // Extrae el token sea cual sea el formato con que lo envíe el conector:
-// "Bearer <t>", "<t>" a secas, "Bearer Bearer <t>" (prefijo duplicado) o con comillas.
+// "Bearer <t>", "Bearer<t>" (sin espacio), "<t>" a secas, prefijo duplicado o con comillas.
+// Seguro porque el token es hexadecimal: nunca empieza por "bearer".
 export function extractClaudeToken(request: Request) {
   const raw = (request.headers.get("authorization") || request.headers.get("x-autolisty-token") || "").trim()
-  return raw.replace(/^(bearer\s+)+/i, "").replace(/^["']|["']$/g, "").trim()
+  return raw.replace(/^(bearer\s*)+/i, "").replace(/^["']|["']$/g, "").trim()
 }
 
 export function authenticateClaudeApi(request: Request) {
