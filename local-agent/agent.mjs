@@ -246,14 +246,18 @@ async function uploadFile(api, jobId, file, log) {
     sha256: file.sha256,
     contentType: file.contentType,
   })
-  const stream = fs.createReadStream(file.filePath)
-  const response = await fetch(authorization.uploadUrl, {
-    method: "PUT",
-    headers: authorization.headers,
-    body: stream,
-    duplex: "half",
-  })
-  if (!response.ok) throw new Error(`R2 upload failed for ${file.relativePath}: HTTP ${response.status}.`)
+  // Cuerpo en memoria: con un stream, fetch sube en "chunked" sin Content-Length
+  // y R2 rechaza la URL firmada. content-length lo pone fetch a partir del Buffer.
+  const body = await fsp.readFile(file.filePath)
+  if (body.length !== file.byteSize) throw new Error(`${file.relativePath} changed while uploading.`)
+  const headers = Object.fromEntries(
+    Object.entries(authorization.headers || {}).filter(([name]) => name.toLowerCase() !== "content-length")
+  )
+  const response = await fetch(authorization.uploadUrl, { method: "PUT", headers, body })
+  if (!response.ok) {
+    const detail = (await response.text().catch(() => "")).match(/<Code>([^<]+)<\/Code>/)?.[1]
+    throw new Error(`R2 upload failed for ${file.relativePath}: HTTP ${response.status}${detail ? ` (${detail})` : ""}.`)
+  }
   await api.confirm(jobId, authorization.slotKey)
   await log("Verified output in R2.", { relativePath: file.relativePath })
 }
