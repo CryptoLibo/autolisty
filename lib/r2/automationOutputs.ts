@@ -49,6 +49,7 @@ export async function createAutomationOutputUpload(input: {
   return getSignedUrl(getPresignClient(), command, {
     expiresIn: 15 * 60,
     unhoistableHeaders: new Set(AUTOMATION_OUTPUT_SIGNED_HEADERS),
+    signableHeaders: new Set(["content-type"]),
   })
 }
 

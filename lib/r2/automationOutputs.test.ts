@@ -24,6 +24,7 @@ describe("createAutomationOutputUpload", () => {
     expect(params.some((key) => key.startsWith("x-amz-meta-"))).toBe(false)
     const signed = (url.searchParams.get("X-Amz-SignedHeaders") || "").split(";")
     expect(signed).toEqual(expect.arrayContaining([
+      "content-length",
       "content-type",
       "host",
       "x-amz-meta-lifecycle",
