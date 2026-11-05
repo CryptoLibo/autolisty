@@ -30,6 +30,8 @@ jobs:
       - run: npm ci
       - name: Tests
         run: npm test
+      - name: Agente local (sintaxis)
+        run: node --check local-agent/agent.mjs
       - name: Build
         run: npm run build
       - name: Lint (informativo)

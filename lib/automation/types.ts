@@ -85,6 +85,8 @@ export type AutomationJob = {
   briefJson: string | null
   reviewNote: string | null
   reviewedAt: string | null
+  priority: number
+  localCleanedAt: string | null
 }
 
 export const AUTOMATION_JOB_ORIGINS = ["owner", "claude"] as const

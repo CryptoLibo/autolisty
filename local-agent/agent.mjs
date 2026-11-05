@@ -53,6 +53,8 @@ async function readConfiguration(configPath) {
   config.serverUrl = String(config.serverUrl).replace(/\/+$/, "")
   config.pollIntervalSeconds = Math.max(10, Number(config.pollIntervalSeconds) || 30)
   config.heartbeatIntervalSeconds = Math.max(30, Number(config.heartbeatIntervalSeconds) || 60)
+  // 0 = no apagar nunca. N = apagar Windows tras N minutos sin trabajo (cola vacía).
+  config.shutdownWhenIdleMinutes = Math.max(0, Number(config.shutdownWhenIdleMinutes) || 0)
   config.token = (await fsp.readFile(path.resolve(config.tokenFile), "utf8")).trim()
   if (config.token.length < 32) throw new Error("The machine token is missing or invalid.")
   return config
@@ -98,9 +100,15 @@ async function sha256File(filePath) {
   return hash.digest("hex")
 }
 
+// Errores de red o del servidor (5xx): se reintenta en el siguiente ciclo sin
+// marcar el listing como fallido. El resto son fallos reales de producción.
+class TransientApiError extends Error {}
+
 function createApi(config) {
   async function request(endpoint, options = {}) {
-    const response = await fetch(`${config.serverUrl}${endpoint}`, {
+    let response
+    try {
+      response = await fetch(`${config.serverUrl}${endpoint}`, {
       ...options,
       headers: {
         authorization: `Bearer ${config.token}`,
@@ -108,14 +116,18 @@ function createApi(config) {
         ...(options.body && typeof options.body === "string" ? { "content-type": "application/json" } : {}),
         ...(options.headers || {}),
       },
+      signal: AbortSignal.timeout(120_000),
     })
+    } catch (error) {
+      throw new TransientApiError(`Autolisty unreachable: ${error instanceof Error ? error.message : String(error)}`)
+    }
     const contentType = response.headers.get("content-type") || ""
     const body = contentType.includes("application/json") ? await response.json() : await response.arrayBuffer()
     if (!response.ok) {
       const message = body && typeof body === "object" && "error" in body
         ? String(body.error)
         : `Autolisty request failed with HTTP ${response.status}.`
-      throw new Error(message)
+      throw response.status >= 500 ? new TransientApiError(message) : new Error(message)
     }
     return { body, headers: response.headers }
   }
@@ -126,6 +138,14 @@ function createApi(config) {
       body: JSON.stringify({
         name: config.agentName,
         capabilities: { autobuildy: true, photoshop: "2026", upscayl: true },
+      }),
+    }).then((result) => result.body),
+    sync: (cleanedJobIds) => request("/api/automation/agent/sync", {
+      method: "POST",
+      body: JSON.stringify({
+        name: config.agentName,
+        capabilities: { autobuildy: true, photoshop: "2026", upscayl: true, localQueue: true },
+        cleanedJobIds,
       }),
     }).then((result) => result.body),
     claim: () => request("/api/automation/agent/claim", {
@@ -258,12 +278,7 @@ async function processJob(config, api, claimedJob, statePath, log) {
   const buildRequired = job.status === "LOCAL_CLAIMED" || job.status === "LOCAL_BUILDING"
   if (buildRequired) {
     await writeJsonAtomic(statePath, { jobId: job.id, productCode: job.productCode, phase: "DOWNLOADING" })
-    if (!(await pathExists(localSourcePath)) || await sha256File(localSourcePath) !== sourceFile.sha256) {
-      const download = await api.downloadSource(job.id)
-      await fsp.writeFile(localSourcePath, Buffer.from(download.body))
-      const checksum = await sha256File(localSourcePath)
-      if (checksum !== sourceFile.sha256) throw new Error("Downloaded source checksum does not match Autolisty.")
-    }
+    await ensureSourceDownloaded(config, api, job)
 
     await api.status(job.id, "LOCAL_BUILDING", "Source verified. Autobuildy production started.")
     await writeJsonAtomic(requestPath, {
@@ -287,6 +302,7 @@ async function processJob(config, api, claimedJob, statePath, log) {
     throw new Error("Autobuildy checkpoint does not belong to the claimed listing.")
   }
   const listingPath = assertListingPath(result.listingPath, job.productCode)
+  await rememberListingFolder(config, job, listingPath)
   if (job.status !== "LOCAL_UPLOADING") {
     await api.status(job.id, "LOCAL_VALIDATING", "Autobuildy finished. Validating listing contract.")
   }
@@ -303,6 +319,79 @@ async function processJob(config, api, claimedJob, statePath, log) {
   await log("Local production completed and temporary workspace released.", { productCode: job.productCode })
 }
 
+function localSourcePathFor(config, job) {
+  const sourceFile = job.files.find((file) => file.slotKey === "source:primary")
+  if (!sourceFile?.sha256 || !sourceFile.relativePath) throw new Error("The assigned source metadata is incomplete.")
+  const extension = path.extname(sourceFile.relativePath) || ".bin"
+  return {
+    sourceFile,
+    localSourcePath: path.join(config.spoolRoot, "jobs", job.productCode, `Source${extension.toLowerCase()}`),
+  }
+}
+
+// Descarga (una vez) la fuente de un diseño de la cola local y verifica su SHA-256.
+async function ensureSourceDownloaded(config, api, job) {
+  const { sourceFile, localSourcePath } = localSourcePathFor(config, job)
+  if (await pathExists(localSourcePath) && await sha256File(localSourcePath) === sourceFile.sha256) return localSourcePath
+  await fsp.mkdir(path.dirname(localSourcePath), { recursive: true })
+  const download = await api.downloadSource(job.id)
+  const temporaryPath = `${localSourcePath}.download`
+  await fsp.writeFile(temporaryPath, Buffer.from(download.body))
+  if (await sha256File(temporaryPath) !== sourceFile.sha256) {
+    await fsp.rm(temporaryPath, { force: true })
+    throw new Error("Downloaded source checksum does not match Autolisty.")
+  }
+  await fsp.rename(temporaryPath, localSourcePath)
+  return localSourcePath
+}
+
+// Carpetas finales de listings ya entregados: se conservan hasta que Autolisty
+// confirme que el listing terminó todo el flujo (publicado y pines), y entonces se borran.
+function listingsIndexPath(config) {
+  return path.join(config.spoolRoot, "state", "listings.json")
+}
+
+async function readListingsIndex(config) {
+  try {
+    return JSON.parse(await fsp.readFile(listingsIndexPath(config), "utf8"))
+  } catch {
+    return {}
+  }
+}
+
+async function rememberListingFolder(config, job, listingPath) {
+  const index = await readListingsIndex(config)
+  index[job.id] = { productCode: job.productCode, listingPath, recordedAt: new Date().toISOString() }
+  await writeJsonAtomic(listingsIndexPath(config), index)
+}
+
+async function cleanupLocalListing(config, item, log) {
+  if (!/^LBCreaStudio-[A-Z0-9]{6}$/.test(item.productCode)) throw new Error(`Invalid product code: ${item.productCode}`)
+  const index = await readListingsIndex(config)
+  const entry = index[item.id]
+  if (entry?.listingPath) {
+    const resolved = path.resolve(entry.listingPath)
+    // Seguridad: solo se borra una carpeta cuyo nombre es exactamente el código del listing.
+    if (path.basename(resolved) !== item.productCode || path.parse(resolved).root === resolved) {
+      throw new Error(`Refusing to delete unexpected folder for ${item.productCode}: ${resolved}`)
+    }
+    await fsp.rm(resolved, { recursive: true, force: true })
+  }
+  await fsp.rm(path.join(config.spoolRoot, "jobs", item.productCode), { recursive: true, force: true })
+  delete index[item.id]
+  await writeJsonAtomic(listingsIndexPath(config), index)
+  await log("Local listing folder removed.", { productCode: item.productCode, status: item.status })
+}
+
+function shutdownWindows(log) {
+  return new Promise((resolve) => {
+    void log("Queue finished and idle time reached. Shutting down Windows in 60 seconds.")
+    const child = spawn("shutdown.exe", ["/s", "/t", "60", "/c", "Automaty: production finished"], { windowsHide: true })
+    child.on("close", resolve)
+    child.on("error", resolve)
+  })
+}
+
 async function main() {
   const config = await readConfiguration(parseArguments())
   await fsp.mkdir(path.join(config.spoolRoot, "logs"), { recursive: true })
@@ -311,31 +400,78 @@ async function main() {
   const log = createLogger(path.join(config.spoolRoot, "logs", "agent.log"))
   const statePath = path.join(config.spoolRoot, "state", "current-job.json")
   const api = createApi(config)
-  let busy = false
+  let pendingCleanupAcks = []
+  let idleSince = Date.now()
+  let workedThisSession = false
 
   const heartbeatTimer = setInterval(() => {
     void api.heartbeat().catch((error) => log("Heartbeat failed.", { error: error.message }))
   }, config.heartbeatIntervalSeconds * 1000)
 
-  await log("Autolisty local agent started.", { agentId: config.agentId })
+  await log("Autolisty local agent started (local queue mode).", { agentId: config.agentId })
   try {
     while (true) {
+      let processed = false
       try {
-        const claimed = await api.claim()
-        if (claimed.job && !busy) {
-          busy = true
+        // 1) Sincronizar: confirmar limpiezas, recibir la cola local y las limpiezas pendientes.
+        const sync = await api.sync(pendingCleanupAcks)
+        pendingCleanupAcks = []
+        if (sync.newlySynced) await log("New approved designs synced to the local queue.", { count: sync.newlySynced })
+
+        for (const item of sync.cleanup || []) {
           try {
-            await processJob(config, api, claimed.job, statePath, log)
+            await cleanupLocalListing(config, item, log)
+            pendingCleanupAcks.push(item.id)
+          } catch (error) {
+            await log("Local cleanup failed.", { productCode: item.productCode, error: error instanceof Error ? error.message : String(error) })
+          }
+        }
+
+        // 2) Descargar por adelantado las fuentes de toda la cola.
+        for (const job of sync.queue || []) {
+          if (job.status !== "LOCAL_CLAIMED") continue
+          try {
+            await ensureSourceDownloaded(config, api, job)
+          } catch (error) {
+            await log("Source prefetch failed; will retry.", { productCode: job.productCode, error: error instanceof Error ? error.message : String(error) })
+          }
+        }
+
+        // 3) Producir el siguiente: el que esté en curso siempre continúa; uno nuevo solo con la producción activa.
+        const next = (sync.queue || []).find((job) => job.status !== "LOCAL_CLAIMED") ||
+          (sync.pipelineMode === "RUNNING" ? (sync.queue || [])[0] : null)
+        if (next) {
+          processed = true
+          workedThisSession = true
+          try {
+            await processJob(config, api, next, statePath, log)
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
-            await log("Local production needs attention.", { error: message })
-            await api.status(claimed.job.id, "NEEDS_ATTENTION", "Local production stopped safely.", message).catch(() => {})
-          } finally {
-            busy = false
+            if (error instanceof TransientApiError) {
+              await log("Connection problem; the listing will resume from its checkpoint.", { productCode: next.productCode, error: message })
+              processed = false
+            } else {
+              await log("Local production needs attention.", { productCode: next.productCode, error: message })
+              await api.status(next.id, "NEEDS_ATTENTION", "Local production stopped safely.", message).catch(() => {})
+            }
           }
         }
       } catch (error) {
-        await log("Queue poll failed.", { error: error instanceof Error ? error.message : String(error) })
+        await log("Queue sync failed.", { error: error instanceof Error ? error.message : String(error) })
+      }
+
+      if (processed) {
+        idleSince = Date.now()
+        continue
+      }
+      if (
+        config.shutdownWhenIdleMinutes > 0 &&
+        workedThisSession &&
+        pendingCleanupAcks.length === 0 &&
+        Date.now() - idleSince >= config.shutdownWhenIdleMinutes * 60_000
+      ) {
+        await shutdownWindows(log)
+        return
       }
       await sleep(config.pollIntervalSeconds * 1000)
     }
@@ -345,6 +481,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`)
-  process.exitCode = 1
+  process.stderr.write(`${error instanceof Error ? error.stack || error.message : String(error)}\n`)
+  process.exit(1)
 })

@@ -828,6 +828,14 @@ const MIGRATIONS = [
       CREATE INDEX automation_jobs_origin_idx ON automation_jobs(origin, status, created_at);
     `,
   },
+  {
+    version: 18,
+    sql: `
+      ALTER TABLE automation_jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE automation_jobs ADD COLUMN local_cleaned_at TEXT;
+      CREATE INDEX automation_jobs_agent_queue_idx ON automation_jobs(local_agent_id, status, priority, created_at);
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

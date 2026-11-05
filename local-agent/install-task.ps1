@@ -1,14 +1,15 @@
 param(
-  [string]$AgentRoot = "C:\AutolistyAgent",
-  [Parameter(Mandatory = $true)]
-  [string]$AutobuildyExecutable,
+  [string]$AgentRoot = "C:\Automaty\agent",
+  [string]$AutobuildyExecutable = "C:\Automaty\autobuildy\release\win-unpacked\Autobuildy.exe",
   [string]$ServerUrl = "https://autolisty.com",
-  [string]$AgentId = "old-production-pc",
-  [string]$AgentName = "Old production PC"
+  [string]$AgentId = "automaty",
+  [string]$AgentName = "Automaty",
+  # 0 = no apagar. N = apagar Windows tras N minutos sin trabajo.
+  [int]$ShutdownWhenIdleMinutes = 0
 )
 
 $ErrorActionPreference = "Stop"
-$taskName = "Autolisty Production Agent"
+$taskName = "Automaty Production Agent"
 $sourceRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $node = (Get-Command node.exe -ErrorAction Stop).Source
 $nodeMajor = [int]((& $node --version).TrimStart("v").Split(".")[0])
@@ -44,6 +45,7 @@ $config = [ordered]@{
   spoolRoot = $AgentRoot
   pollIntervalSeconds = 30
   heartbeatIntervalSeconds = 60
+  shutdownWhenIdleMinutes = $ShutdownWhenIdleMinutes
 }
 $config | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8
 

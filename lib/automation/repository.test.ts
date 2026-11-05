@@ -95,40 +95,22 @@ describe("automation repository", () => {
     expect(repository.claimNextQueuedJob("old-pc")).toBeNull()
   })
 
-  it("finishes the active listing before completing a pause request", () => {
+  it("pauses immediately and server-side steps no longer block local production", () => {
     database = openAutomationDatabase(":memory:")
     const repository = new AutomationRepository(database)
-    const job = repository.createJob({
-      productType: "vertical_wall_art",
-      sourcePrompt: "A complete wall art production job.",
-    })
-
-    repository.transitionJob(job.id, "SOURCE_READY")
-    repository.transitionJob(job.id, "QUEUED_LOCAL")
+    const first = repository.createJob({ productType: "vertical_wall_art", sourcePrompt: "First" })
+    const second = repository.createJob({ productType: "vertical_wall_art", sourcePrompt: "Second" })
+    for (const job of [first, second]) {
+      repository.transitionJob(job.id, "SOURCE_READY")
+      repository.transitionJob(job.id, "QUEUED_LOCAL")
+    }
     repository.resumePipeline()
-    repository.claimNextQueuedJob("old-pc")
-    expect(repository.requestPipelinePause()).toBe("STOPPING_AFTER_CURRENT")
-
-    const path = [
-      "LOCAL_BUILDING",
-      "LOCAL_VALIDATING",
-      "LOCAL_UPLOADING",
-      "LOCAL_COMPLETE",
-      "DRAFT_ASSIGNED",
-      "SEO_GENERATING",
-      "SEO_READY",
-      "PINTEREST_SEO_GENERATING",
-      "PINTEREST_SEO_READY",
-      "DELIVERY_PREPARING",
-      "DELIVERY_READY",
-      "ETSY_TEXT_SYNCING",
-      "ETSY_MEDIA_SYNCING",
-      "ETSY_FILE_SYNCING",
-      "WAITING_ETSY_REVIEW",
-    ] as const
-    for (const status of path) repository.transitionJob(job.id, status)
-
-    expect(repository.getPipelineMode()).toBe("PAUSED")
+    expect(repository.claimNextQueuedJob("old-pc")?.id).toBe(first.id)
+    for (const status of ["LOCAL_BUILDING", "LOCAL_VALIDATING", "LOCAL_UPLOADING", "LOCAL_COMPLETE", "DRAFT_ASSIGNED"] as const) {
+      repository.transitionJob(first.id, status)
+    }
+    expect(repository.claimNextQueuedJob("old-pc")?.id).toBe(second.id)
+    expect(repository.requestPipelinePause()).toBe("PAUSED")
   })
 
   it("tracks and clears temporary source storage without deleting the job", () => {
@@ -297,5 +279,94 @@ describe("Claude design approval", () => {
     expect(job.origin).toBe("owner")
     expect(job.briefJson).toBeNull()
     expect(() => repository.reviewJob(job.id, "approve")).toThrow(/not waiting for approval/)
+  })
+})
+
+describe("Automaty local queue sync", () => {
+  let database: Database.Database | null = null
+
+  afterEach(() => {
+    database?.close()
+    database = null
+  })
+
+  function queued(repository: AutomationRepository, prompt: string, priority = 0) {
+    const job = repository.createJob({ productType: "frame_tv_art", sourcePrompt: prompt })
+    repository.transitionJob(job.id, "SOURCE_READY")
+    repository.transitionJob(job.id, "QUEUED_LOCAL")
+    if (priority) repository.setJobPriority(job.id, priority)
+    return job
+  }
+
+  it("is active by default and syncs every approved design, priority first", () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    expect(repository.getPipelineMode()).toBe("RUNNING")
+    const a = queued(repository, "A")
+    const b = queued(repository, "B", 10)
+    const c = queued(repository, "C")
+
+    const result = repository.syncAgentQueue("automaty")
+    expect(result.assignedNow).toHaveLength(3)
+    expect(result.queue.map((job) => job.id)).toEqual([b.id, a.id, c.id])
+    expect(result.queue.every((job) => job.status === "LOCAL_CLAIMED" && job.localAgentId === "automaty")).toBe(true)
+
+    const later = queued(repository, "D")
+    const second = repository.syncAgentQueue("automaty")
+    expect(second.assignedNow).toEqual([later.id])
+    expect(second.queue).toHaveLength(4)
+  })
+
+  it("keeps the job in progress first and assigns nothing new while paused", () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    const a = queued(repository, "A")
+    const b = queued(repository, "B", 50)
+    repository.syncAgentQueue("automaty")
+    repository.transitionJob(a.id, "LOCAL_BUILDING")
+    repository.requestPipelinePause()
+    queued(repository, "C")
+
+    const result = repository.syncAgentQueue("automaty")
+    expect(result.pipelineMode).toBe("PAUSED")
+    expect(result.assignedNow).toHaveLength(0)
+    expect(result.queue.map((job) => job.id)).toEqual([a.id, b.id])
+  })
+
+  it("asks Automaty to clean completed or canceled listings until it confirms", () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    const a = queued(repository, "A")
+    const b = queued(repository, "B")
+    repository.syncAgentQueue("automaty")
+    repository.cancelQueuedJob(b.id, "not needed")
+
+    let result = repository.syncAgentQueue("automaty")
+    expect(result.queue.map((job) => job.id)).toEqual([a.id])
+    expect(result.cleanup.map((job) => job.id)).toEqual([b.id])
+
+    result = repository.syncAgentQueue("automaty", { cleanedJobIds: [b.id, "unknown"] })
+    expect(result.cleanup).toHaveLength(0)
+    expect(repository.getJob(b.id)?.localCleanedAt).toBeTruthy()
+  })
+
+  it("only lets the owner cancel or reprioritize designs that have not started", () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    const a = queued(repository, "A")
+    repository.syncAgentQueue("automaty")
+    repository.transitionJob(a.id, "LOCAL_BUILDING")
+    expect(() => repository.cancelQueuedJob(a.id)).toThrow(/not started/)
+    expect(() => repository.setJobPriority(a.id, 5)).toThrow(/not started/)
+  })
+
+  it("pauses local production only for failures on Automaty", () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    const a = queued(repository, "A")
+    repository.syncAgentQueue("automaty")
+    repository.transitionJob(a.id, "LOCAL_BUILDING")
+    repository.transitionJob(a.id, "NEEDS_ATTENTION", { error: "Photoshop closed" })
+    expect(repository.getPipelineMode()).toBe("PAUSED")
   })
 })

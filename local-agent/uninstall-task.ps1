@@ -1,5 +1,5 @@
 $ErrorActionPreference = "Stop"
-$taskName = "Autolisty Production Agent"
+$taskName = "Automaty Production Agent"
 
 if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
   Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue

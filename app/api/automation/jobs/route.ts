@@ -35,6 +35,7 @@ export async function GET() {
 
   return NextResponse.json({
     jobs,
+    agents: repository.listAgents(),
     pipelineMode: repository.getPipelineMode(),
     jobsByStatus: repository.countByStatus(),
   })

@@ -40,6 +40,8 @@ type AutomationJobRow = {
   brief_json: string | null
   review_note: string | null
   reviewed_at: string | null
+  priority: number | null
+  local_cleaned_at: string | null
 }
 
 type AutomationEventRow = {
@@ -96,24 +98,18 @@ type AutomationAgentRow = {
 }
 
 const PIPELINE_MODE_SETTING = "production_pipeline_mode"
-const PRODUCTION_BLOCKING_STATUSES: AutomationJobStatus[] = [
+// Solo la producción en Automaty ocupa la máquina. Los pasos de servidor
+// (draft, SEO, Etsy, Pinterest) corren en paralelo y no bloquean la cola local.
+export const LOCAL_PRODUCTION_STATUSES: AutomationJobStatus[] = [
   "LOCAL_CLAIMED",
   "LOCAL_BUILDING",
   "LOCAL_VALIDATING",
   "LOCAL_UPLOADING",
-  "LOCAL_COMPLETE",
-  "DRAFT_ASSIGNED",
-  "SEO_GENERATING",
-  "SEO_READY",
-  "PINTEREST_SEO_GENERATING",
-  "PINTEREST_SEO_READY",
-  "DELIVERY_PREPARING",
-  "DELIVERY_READY",
-  "ETSY_TEXT_SYNCING",
-  "ETSY_MEDIA_SYNCING",
-  "ETSY_FILE_SYNCING",
-  "ETSY_VIDEO_SYNCING",
 ]
+const PRODUCTION_BLOCKING_STATUSES: AutomationJobStatus[] = LOCAL_PRODUCTION_STATUSES
+
+// LOCAL_CLAIMED = sincronizado a la cola local de Automaty, aún sin empezar.
+const LOCAL_IN_PROGRESS_STATUSES: AutomationJobStatus[] = ["LOCAL_BUILDING", "LOCAL_VALIDATING", "LOCAL_UPLOADING"]
 
 function mapJob(row: AutomationJobRow): AutomationJob {
   return {
@@ -140,6 +136,8 @@ function mapJob(row: AutomationJobRow): AutomationJob {
     briefJson: row.brief_json,
     reviewNote: row.review_note,
     reviewedAt: row.reviewed_at,
+    priority: row.priority ?? 0,
+    localCleanedAt: row.local_cleaned_at,
   }
 }
 
@@ -304,6 +302,94 @@ export class AutomationRepository {
       return { ...updated, reviewNote: cleanNote, reviewedAt: now, updatedAt: now }
     })
     return review()
+  }
+
+  listAgents() {
+    const rows = this.database
+      .prepare("SELECT * FROM automation_agents ORDER BY last_seen_at DESC")
+      .all() as AutomationAgentRow[]
+    return rows.map(mapAgent)
+  }
+
+  // Sincronización con la cola local de Automaty. En una sola transacción:
+  // 1) registra las carpetas locales que el agente ya borró,
+  // 2) si la producción está activa, pasa todos los aprobados (QUEUED_LOCAL) a su cola,
+  // 3) devuelve su cola (en curso primero, luego prioridad y antigüedad) y
+  //    los listings terminados o cancelados cuya carpeta local debe borrar.
+  syncAgentQueue(agentId: string, options: { cleanedJobIds?: string[] } = {}) {
+    const sync = this.database.transaction(() => {
+      const now = new Date().toISOString()
+      const cleaned = [...new Set(options.cleanedJobIds || [])].slice(0, 500)
+      const markCleaned = this.database.prepare(`
+        UPDATE automation_jobs SET local_cleaned_at = ?, updated_at = ?
+        WHERE id = ? AND local_agent_id = ? AND local_cleaned_at IS NULL AND status IN ('COMPLETED', 'CANCELED')
+      `)
+      for (const jobId of cleaned) markCleaned.run(now, now, jobId, agentId)
+
+      const pipelineMode = this.getPipelineMode()
+      const assignedNow: string[] = []
+      if (pipelineMode === "RUNNING") {
+        const queued = this.database.prepare(`
+          SELECT id FROM automation_jobs WHERE status = 'QUEUED_LOCAL'
+          ORDER BY priority DESC, created_at ASC LIMIT 200
+        `).all() as Array<{ id: string }>
+        const assign = this.database.prepare(`
+          UPDATE automation_jobs SET status = 'LOCAL_CLAIMED', local_agent_id = ?, updated_at = ?
+          WHERE id = ? AND status = 'QUEUED_LOCAL'
+        `)
+        const event = this.database.prepare(`
+          INSERT INTO automation_job_events (job_id, event_type, from_status, to_status, message, created_at)
+          VALUES (?, 'JOB_SYNCED', 'QUEUED_LOCAL', 'LOCAL_CLAIMED', ?, ?)
+        `)
+        for (const row of queued) {
+          if (assign.run(agentId, now, row.id).changes === 1) {
+            event.run(row.id, `Synced to the local queue of ${agentId}.`, now)
+            assignedNow.push(row.id)
+          }
+        }
+      }
+
+      const localStatuses = LOCAL_PRODUCTION_STATUSES.map((status) => `'${status}'`).join(", ")
+      const inProgress = LOCAL_IN_PROGRESS_STATUSES.map((status) => `'${status}'`).join(", ")
+      const queue = (this.database.prepare(`
+        SELECT * FROM automation_jobs
+        WHERE local_agent_id = ? AND status IN (${localStatuses})
+        ORDER BY CASE WHEN status IN (${inProgress}) THEN 0 ELSE 1 END, priority DESC, created_at ASC
+      `).all(agentId) as AutomationJobRow[]).map(mapJob)
+
+      const cleanup = (this.database.prepare(`
+        SELECT * FROM automation_jobs
+        WHERE local_agent_id = ? AND local_cleaned_at IS NULL AND status IN ('COMPLETED', 'CANCELED')
+        ORDER BY updated_at ASC LIMIT 100
+      `).all(agentId) as AutomationJobRow[]).map(mapJob)
+
+      return { pipelineMode, queue, cleanup, assignedNow }
+    })
+    return sync()
+  }
+
+  // Prioridad en la cola (mayor = antes). Solo para trabajos que aún no empezaron.
+  setJobPriority(jobId: string, priority: number) {
+    const value = Math.max(-100, Math.min(100, Math.trunc(priority)))
+    const result = this.database.prepare(`
+      UPDATE automation_jobs SET priority = ?, updated_at = ?
+      WHERE id = ? AND status IN ('PENDING_APPROVAL', 'QUEUED_LOCAL', 'LOCAL_CLAIMED')
+    `).run(value, new Date().toISOString(), jobId)
+    if (result.changes !== 1) throw new Error("Only designs that have not started production can be reprioritized.")
+    return this.getJob(jobId)!
+  }
+
+  // Cancelación por el propietario de un diseño que aún no empezó en Automaty.
+  // Si ya estaba en la cola local, Automaty lo retira en la siguiente sincronización.
+  cancelQueuedJob(jobId: string, reason: string | null = null) {
+    const current = this.getJob(jobId)
+    if (!current) throw new Error(`Automation job not found: ${jobId}`)
+    if (!["PENDING_APPROVAL", "QUEUED_LOCAL", "LOCAL_CLAIMED"].includes(current.status)) {
+      throw new Error("Only designs that have not started production can be canceled.")
+    }
+    return this.transitionJob(jobId, "CANCELED", {
+      message: `Canceled by the owner${reason?.trim() ? `: ${reason.trim().slice(0, 300)}` : "."}`,
+    })
   }
 
   listJobEvents(jobId: string) {
@@ -577,7 +663,8 @@ export class AutomationRepository {
     const row = this.database
       .prepare("SELECT setting_value FROM automation_settings WHERE setting_key = ?")
       .get(PIPELINE_MODE_SETTING) as { setting_value: AutomationPipelineMode } | undefined
-    return row?.setting_value || "PAUSED"
+    // Sin ajuste guardado la producción está activa: Automaty trabaja al encenderse.
+    return row?.setting_value || "RUNNING"
   }
 
   setPipelineMode(mode: AutomationPipelineMode) {
@@ -592,10 +679,9 @@ export class AutomationRepository {
     return mode
   }
 
+  // Pausa: Automaty termina el listing que esté produciendo y no empieza otro.
   requestPipelinePause() {
-    return this.setPipelineMode(
-      this.hasProductionBlockingJob() ? "STOPPING_AFTER_CURRENT" : "PAUSED"
-    )
+    return this.setPipelineMode("PAUSED")
   }
 
   resumePipeline() {
@@ -712,12 +798,9 @@ export class AutomationRepository {
         ) VALUES (?, 'STATUS_CHANGED', ?, ?, ?, ?)
       `).run(jobId, current.status, nextStatus, options.message || null, now)
 
-      if (nextStatus === "NEEDS_ATTENTION") {
-        this.setPipelineMode("PAUSED")
-      } else if (
-        nextStatus === "WAITING_ETSY_REVIEW" &&
-        this.getPipelineMode() === "STOPPING_AFTER_CURRENT"
-      ) {
+      // Un fallo en Automaty (Photoshop, Upscayl, archivos) pausa la producción local
+      // para no repetir el error en toda la cola. Los fallos de pasos de servidor no.
+      if (nextStatus === "NEEDS_ATTENTION" && LOCAL_PRODUCTION_STATUSES.includes(resumeStatus as AutomationJobStatus)) {
         this.setPipelineMode("PAUSED")
       }
 

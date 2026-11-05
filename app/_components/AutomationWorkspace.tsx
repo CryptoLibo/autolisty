@@ -19,6 +19,7 @@ import { PRODUCT_OPTIONS, type ProductType } from "@/lib/products"
 import { ImageLightbox } from "./ImageLightbox"
 import type {
   AutomationJob,
+  AutomationAgent,
   AutomationJobFile,
   AutomationPipelineMode,
   EtsyDraftPoolItem,
@@ -39,8 +40,8 @@ const STATUS_LABELS: Partial<Record<AutomationJob["status"], string>> = {
   CREATED: "Creating intake",
   SOURCE_READY: "Source ready",
   PENDING_APPROVAL: "Waiting for your approval",
-  QUEUED_LOCAL: "Waiting for production PC",
-  LOCAL_CLAIMED: "Claimed by production PC",
+  QUEUED_LOCAL: "Approved · waiting for Automaty to sync",
+  LOCAL_CLAIMED: "In Automaty's local queue",
   LOCAL_BUILDING: "Building mockups",
   LOCAL_VALIDATING: "Validating listing folder",
   LOCAL_UPLOADING: "Returning production files",
@@ -98,13 +99,21 @@ function parseBrief(job: AutomationJob): DesignBriefView | null {
   }
 }
 
+const AGENT_ONLINE_WINDOW_MS = 3 * 60 * 1000
+
+function isAgentOnline(agent: AutomationAgent) {
+  return Boolean(agent.lastSeenAt && Date.now() - new Date(agent.lastSeenAt).getTime() < AGENT_ONLINE_WINDOW_MS)
+}
+
 function isFinished(status: AutomationJob["status"]) {
   return status === "COMPLETED" || status === "CANCELED"
 }
 
 export function AutomationWorkspace() {
   const [jobs, setJobs] = useState<QueueJob[]>([])
-  const [pipelineMode, setPipelineMode] = useState<AutomationPipelineMode>("PAUSED")
+  const [pipelineMode, setPipelineMode] = useState<AutomationPipelineMode>("RUNNING")
+  const [agents, setAgents] = useState<AutomationAgent[]>([])
+  const [managingJobId, setManagingJobId] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<EtsyDraftPoolItem[]>([])
   const [draftSummary, setDraftSummary] = useState<DraftSummaryItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -139,7 +148,8 @@ export function AutomationWorkspace() {
       if (!draftsResponse.ok) throw new Error(draftsData.error || "Unable to load Etsy drafts.")
 
       setJobs(jobsData.jobs || [])
-      setPipelineMode(jobsData.pipelineMode || "PAUSED")
+      setPipelineMode(jobsData.pipelineMode || "RUNNING")
+      setAgents(jobsData.agents || [])
       setDrafts(draftsData.drafts || [])
       setDraftSummary(draftsData.summary || [])
     } catch (error) {
@@ -172,9 +182,12 @@ export function AutomationWorkspace() {
     [selectedSourcePreview]
   )
 
-  const activeJob = jobs.find(
-    (job) => !isFinished(job.status) && job.status !== "QUEUED_LOCAL" && job.status !== "PENDING_APPROVAL"
+  const activeJob = jobs.find((job) =>
+    job.status === "LOCAL_BUILDING" || job.status === "LOCAL_VALIDATING" || job.status === "LOCAL_UPLOADING"
   )
+  const localQueueCount = jobs.filter((job) => job.status === "LOCAL_CLAIMED").length
+  const automaty = agents[0] || null
+  const automatyOnline = automaty ? isAgentOnline(automaty) : false
   const pendingApproval = jobs.filter((job) => job.status === "PENDING_APPROVAL")
   const queuedCount = jobs.filter((job) => job.status === "QUEUED_LOCAL").length
   const availableDraftsByProduct = useMemo(() => {
@@ -231,10 +244,8 @@ export function AutomationWorkspace() {
       setMessageTone("success")
       setMessage(
         data.mode === "RUNNING"
-          ? "Production will claim the next queued design when the local agent is available."
-          : data.mode === "STOPPING_AFTER_CURRENT"
-            ? "Production will pause after the current Etsy draft is complete."
-            : "Production is paused."
+          ? "Production is active: Automaty syncs approved designs and works through its queue whenever it is on."
+          : "Production paused: Automaty finishes the listing in progress and does not start another."
       )
     } catch (error) {
       setMessageTone("error")
@@ -305,6 +316,33 @@ export function AutomationWorkspace() {
     }
   }
 
+  async function manageJob(jobId: string, payload: { action: "cancel" } | { action: "priority"; priority: number }) {
+    if (payload.action === "cancel" && !window.confirm("Cancel this design? It will be removed from the queue.")) return
+    setManagingJobId(jobId)
+    setMessage(null)
+    try {
+      const response = await fetch(`/api/automation/jobs/${jobId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "Unable to update the design.")
+      setMessageTone("success")
+      setMessage(
+        payload.action === "cancel"
+          ? `${data.job.productCode} canceled.`
+          : `${data.job.productCode} priority updated.`
+      )
+      await loadDashboard(true)
+    } catch (error) {
+      setMessageTone("error")
+      setMessage(error instanceof Error ? error.message : "Unable to update the design.")
+    } finally {
+      setManagingJobId(null)
+    }
+  }
+
   async function reviewDesign(jobId: string, decision: "approve" | "reject") {
     setReviewingJobId(jobId)
     setMessage(null)
@@ -343,18 +381,27 @@ export function AutomationWorkspace() {
           <div className="text-xs font-semibold uppercase text-[#f1cc61]">Production controller</div>
           <h1 className="mt-2 text-2xl font-semibold text-neutral-100">Automation</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
-            Feed the old production PC, preserve each prompt, and control the queue without opening a remote desktop session.
+            Approve designs, follow Automaty and control production from any device.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="border border-neutral-800 bg-neutral-950 px-4 py-3">
-            <div className="text-[11px] uppercase text-neutral-500">Mode</div>
+            <div className="text-[11px] uppercase text-neutral-500">Production</div>
             <div className="mt-1 text-sm font-semibold text-neutral-100">
-              {pipelineMode === "RUNNING"
-                ? "Running"
-                : pipelineMode === "STOPPING_AFTER_CURRENT"
-                  ? "Stopping after current"
-                  : "Paused"}
+              {pipelineMode === "PAUSED" ? "Paused" : "Active"}
+            </div>
+          </div>
+          <div className="border border-neutral-800 bg-neutral-950 px-4 py-3">
+            <div className="flex items-center gap-2 text-[11px] uppercase text-neutral-500">
+              <span className={`h-2 w-2 rounded-full ${automatyOnline ? "bg-emerald-400" : "bg-neutral-600"}`} />
+              Automaty
+            </div>
+            <div className="mt-1 text-sm font-semibold text-neutral-100">
+              {!automaty
+                ? "Not connected yet"
+                : automatyOnline
+                  ? activeJob ? `Producing ${activeJob.productCode}` : "Online · idle"
+                  : `Offline${automaty.lastSeenAt ? ` · last seen ${formatDate(automaty.lastSeenAt)}` : ""}`}
             </div>
           </div>
           <button
@@ -374,17 +421,17 @@ export function AutomationWorkspace() {
               className="inline-flex h-11 items-center gap-2 bg-[#eeba2b] px-5 text-sm font-semibold text-neutral-950 transition hover:bg-[#f1cc61] disabled:opacity-50"
             >
               {pipelineUpdating ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
-              Start production
+              Resume production
             </button>
           ) : (
             <button
               type="button"
               onClick={() => void updatePipeline("pause")}
-              disabled={pipelineUpdating || pipelineMode === "STOPPING_AFTER_CURRENT"}
+              disabled={pipelineUpdating}
               className="inline-flex h-11 items-center gap-2 border border-amber-400/30 bg-amber-400/10 px-5 text-sm font-semibold text-amber-100 transition hover:bg-amber-400/15 disabled:opacity-50"
             >
               {pipelineUpdating ? <Loader2 size={16} className="animate-spin" /> : <Pause size={16} />}
-              Stop after current
+              Pause production
             </button>
           )}
         </div>
@@ -620,7 +667,8 @@ export function AutomationWorkspace() {
           <div>
             <h2 className="text-lg font-semibold">Production queue</h2>
             <p className="mt-1 text-sm text-neutral-500">
-              {queuedCount} waiting{activeJob ? `; ${activeJob.productCode} is currently active.` : "."}
+              {queuedCount} approved waiting for sync · {localQueueCount} in Automaty&apos;s queue
+              {activeJob ? ` · producing ${activeJob.productCode}` : ""}
             </p>
           </div>
           {loading ? <Loader2 size={18} className="animate-spin text-neutral-500" /> : null}
@@ -634,8 +682,6 @@ export function AutomationWorkspace() {
               <article key={job.id} className="grid min-h-[180px] grid-cols-[140px_minmax(0,1fr)] overflow-hidden border border-neutral-800 bg-neutral-950">
                 <div className="flex h-full min-h-[180px] items-center justify-center border-r border-neutral-800 bg-neutral-900">
                   {source && source.status !== "DELETED" ? (
-                    // The protected source endpoint needs the browser session cookie.
-                    // eslint-disable-next-line @next/next/no-img-element
                     <button
                       type="button"
                       title="Open full resolution"
@@ -646,6 +692,7 @@ export function AutomationWorkspace() {
                       })}
                       className="h-full w-full cursor-zoom-in"
                     >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={`${job.sourcePreviewUrl}?w=480`} alt={job.productCode} loading="lazy" className="h-full w-full object-contain" />
                     </button>
                   ) : (
@@ -685,6 +732,26 @@ export function AutomationWorkspace() {
                         : <RotateCcw size={14} />}
                       Retry from last safe step
                     </button>
+                  ) : null}
+                  {job.status === "QUEUED_LOCAL" || job.status === "LOCAL_CLAIMED" ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={managingJobId === job.id}
+                        onClick={() => void manageJob(job.id, { action: "priority", priority: job.priority > 0 ? 0 : 10 })}
+                        className="inline-flex h-9 items-center border border-neutral-700 px-3 text-xs font-semibold text-neutral-200 transition hover:border-[#eeba2b]/40 disabled:opacity-50"
+                      >
+                        {job.priority > 0 ? "Remove priority" : "Prioritize"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={managingJobId === job.id}
+                        onClick={() => void manageJob(job.id, { action: "cancel" })}
+                        className="inline-flex h-9 items-center border border-red-500/30 px-3 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   ) : null}
                   <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 pt-4 text-[11px] text-neutral-600">
                     <span>{formatDate(job.createdAt)}</span>

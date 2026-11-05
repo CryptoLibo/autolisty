@@ -69,9 +69,10 @@ export async function PATCH(
       resumeStatus: isFailure ? current.status : undefined,
     })
 
-    if (nextStatus === "LOCAL_COMPLETE") {
+    if (nextStatus === "LOCAL_COMPLETE" || isFailure) {
       repository.setAgentCurrentJob(agent.agentId, null)
     } else {
+      if (nextStatus === "LOCAL_BUILDING") repository.setAgentCurrentJob(agent.agentId, jobId)
       repository.renewAgentLease(agent.agentId)
     }
 

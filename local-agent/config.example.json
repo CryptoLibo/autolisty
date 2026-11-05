@@ -1,10 +1,11 @@
 {
   "serverUrl": "https://autolisty.com",
-  "agentId": "old-production-pc",
-  "agentName": "Old production PC",
-  "tokenFile": "C:\\AutolistyAgent\\secrets\\agent-token.txt",
-  "autobuildyExecutable": "C:\\Users\\YOUR_USER\\Desktop\\Autobuildy\\release\\win-unpacked\\Autobuildy.exe",
-  "spoolRoot": "C:\\AutolistyAgent",
+  "agentId": "automaty",
+  "agentName": "Automaty",
+  "tokenFile": "C:\\Automaty\\agent\\secrets\\agent-token.txt",
+  "autobuildyExecutable": "C:\\Automaty\\autobuildy\\release\\win-unpacked\\Autobuildy.exe",
+  "spoolRoot": "C:\\Automaty\\agent",
   "pollIntervalSeconds": 30,
-  "heartbeatIntervalSeconds": 60
+  "heartbeatIntervalSeconds": 60,
+  "shutdownWhenIdleMinutes": 0
 }

@@ -1,5 +1,5 @@
 param(
-  [string]$AgentRoot = "C:\AutolistyAgent"
+  [string]$AgentRoot = "C:\Automaty\agent"
 )
 
 $ErrorActionPreference = "Stop"
