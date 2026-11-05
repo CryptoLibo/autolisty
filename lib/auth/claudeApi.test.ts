@@ -28,17 +28,9 @@ describe("Claude API authentication", () => {
     expect(authenticateClaudeApi(request("claude-token"))).toBe(false)
   })
 
-  it("accepts the token in the X-Autolisty-Token header", () => {
-    process.env.CLAUDE_API_TOKEN_SHA256 = crypto.createHash("sha256").update("claude-token").digest("hex")
-    const viaHeader = new Request("https://autolisty.com/api/mcp", { headers: { "x-autolisty-token": "claude-token" } })
-    const wrong = new Request("https://autolisty.com/api/mcp", { headers: { "x-autolisty-token": "nope" } })
-    expect(authenticateClaudeApi(viaHeader)).toBe(true)
-    expect(authenticateClaudeApi(wrong)).toBe(false)
-  })
-
   it("tolerates missing, duplicated or quoted Bearer prefixes", () => {
     process.env.CLAUDE_API_TOKEN_SHA256 = crypto.createHash("sha256").update("claude-token").digest("hex")
-    for (const value of ["Bearerclaude-token", "claude-token", "Bearer claude-token", "Bearer Bearer claude-token", "bearer  claude-token", '"claude-token"']) {
+    for (const value of ["claude-token", "Bearer claude-token", "Bearer Bearer claude-token", "bearer  claude-token", '"claude-token"']) {
       const req = new Request("https://autolisty.com/api/mcp", { headers: { authorization: value } })
       expect(authenticateClaudeApi(req)).toBe(true)
     }

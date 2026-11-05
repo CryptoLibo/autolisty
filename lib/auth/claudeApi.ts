@@ -10,12 +10,11 @@ function safeEqualHex(left: string, right: string) {
   return crypto.timingSafeEqual(Buffer.from(left, "hex"), Buffer.from(right, "hex"))
 }
 
-// Extrae el token sea cual sea el formato con que lo envíe el conector:
-// "Bearer <t>", "Bearer<t>" (sin espacio), "<t>" a secas, prefijo duplicado o con comillas.
-// Seguro porque el token es hexadecimal: nunca empieza por "bearer".
+// Extrae el token de "Authorization", con o sin el prefijo "Bearer "
+// (el conector MCP de claude.ai envía el token solo).
 export function extractClaudeToken(request: Request) {
-  const raw = (request.headers.get("authorization") || request.headers.get("x-autolisty-token") || "").trim()
-  return raw.replace(/^(bearer\s*)+/i, "").replace(/^["']|["']$/g, "").trim()
+  const raw = (request.headers.get("authorization") || "").trim()
+  return raw.replace(/^(bearer\s+)+/i, "").replace(/^["']|["']$/g, "").trim()
 }
 
 export function authenticateClaudeApi(request: Request) {
@@ -29,12 +28,10 @@ export function authenticateClaudeApi(request: Request) {
 // Diagnóstico sin exponer el token: qué cabecera llegó y con qué forma.
 export function describeClaudeAuthAttempt(request: Request) {
   const authorization = request.headers.get("authorization")
-  const custom = request.headers.get("x-autolisty-token")
   const token = extractClaudeToken(request)
   return {
     hasAuthorization: authorization !== null,
     authorizationScheme: authorization ? authorization.trim().split(/\s+/)[0].slice(0, 12) : null,
-    hasCustomHeader: custom !== null,
     tokenLength: token.length,
     serverHashConfigured: Boolean((process.env.CLAUDE_API_TOKEN_SHA256 || "").trim()),
     userAgent: (request.headers.get("user-agent") || "").slice(0, 80),
