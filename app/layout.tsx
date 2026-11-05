@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -15,6 +15,23 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Autolisty",
   description: "AI-powered Etsy listing generator",
+  applicationName: "Autolisty",
+  appleWebApp: {
+    capable: true,
+    title: "Autolisty",
+    statusBarStyle: "black",
+  },
+  icons: {
+    icon: [{ url: "/app-icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/app-icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#0a0a0a",
 };
 
 export default function RootLayout({

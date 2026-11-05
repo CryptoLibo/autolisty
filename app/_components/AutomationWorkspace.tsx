@@ -16,6 +16,7 @@ import {
   Upload,
 } from "lucide-react"
 import { PRODUCT_OPTIONS, type ProductType } from "@/lib/products"
+import { ImageLightbox } from "./ImageLightbox"
 import type {
   AutomationJob,
   AutomationJobFile,
@@ -123,6 +124,7 @@ export function AutomationWorkspace() {
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null)
   const [reviewingJobId, setReviewingJobId] = useState<string | null>(null)
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({})
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string; caption: string } | null>(null)
 
   const loadDashboard = useCallback(async (quiet = false) => {
     if (!quiet) setRefreshing(true)
@@ -415,12 +417,24 @@ export function AutomationWorkspace() {
               const busy = reviewingJobId === job.id
               return (
                 <article key={job.id} className="border border-neutral-800 bg-neutral-950">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={job.sourcePreviewUrl}
-                    alt={`Design ${job.productCode}`}
-                    className="aspect-square w-full bg-neutral-900 object-contain"
-                  />
+                  <button
+                    type="button"
+                    title="Open full resolution"
+                    onClick={() => setLightbox({
+                      src: job.sourcePreviewUrl,
+                      alt: `Design ${job.productCode}`,
+                      caption: `${job.productCode} · ${productLabel(job.productType)}`,
+                    })}
+                    className="block w-full cursor-zoom-in"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`${job.sourcePreviewUrl}?w=900`}
+                      alt={`Design ${job.productCode}`}
+                      loading="lazy"
+                      className="aspect-square w-full bg-neutral-900 object-contain"
+                    />
+                  </button>
                   <div className="space-y-3 p-4">
                     <div className="flex items-center justify-between gap-3 text-xs">
                       <span className="font-semibold text-neutral-200">{job.productCode}</span>
@@ -622,7 +636,18 @@ export function AutomationWorkspace() {
                   {source && source.status !== "DELETED" ? (
                     // The protected source endpoint needs the browser session cookie.
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={job.sourcePreviewUrl} alt={job.productCode} className="h-full w-full object-contain" />
+                    <button
+                      type="button"
+                      title="Open full resolution"
+                      onClick={() => setLightbox({
+                        src: job.sourcePreviewUrl,
+                        alt: job.productCode,
+                        caption: `${job.productCode} · ${productLabel(job.productType)}`,
+                      })}
+                      className="h-full w-full cursor-zoom-in"
+                    >
+                      <img src={`${job.sourcePreviewUrl}?w=480`} alt={job.productCode} loading="lazy" className="h-full w-full object-contain" />
+                    </button>
                   ) : (
                     <CheckCircle2 size={28} className="text-emerald-400" />
                   )}
@@ -696,6 +721,9 @@ export function AutomationWorkspace() {
             ))}
           </div>
         </section>
+      ) : null}
+      {lightbox ? (
+        <ImageLightbox src={lightbox.src} alt={lightbox.alt} caption={lightbox.caption} onClose={() => setLightbox(null)} />
       ) : null}
     </div>
   )
