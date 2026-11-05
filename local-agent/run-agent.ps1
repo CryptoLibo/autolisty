@@ -14,5 +14,8 @@ if (-not (Test-Path -LiteralPath $config -PathType Leaf)) {
   throw "Agent configuration not found: $config"
 }
 
-& $node $agent --config $config
+# Cualquier error de arranque (antes de que exista agent.log) queda en agent-console.log.
+$logs = Join-Path $AgentRoot "logs"
+New-Item -ItemType Directory -Force -Path $logs | Out-Null
+& $node $agent --config $config *>> (Join-Path $logs "agent-console.log")
 exit $LASTEXITCODE

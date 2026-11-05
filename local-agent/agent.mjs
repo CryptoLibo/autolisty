@@ -45,7 +45,8 @@ function parseArguments() {
 }
 
 async function readConfiguration(configPath) {
-  const config = JSON.parse(await fsp.readFile(configPath, "utf8"))
+  // Windows PowerShell guarda UTF-8 con BOM; JSON.parse no lo acepta.
+  const config = JSON.parse((await fsp.readFile(configPath, "utf8")).replace(/^\uFEFF/, ""))
   const required = ["serverUrl", "agentId", "agentName", "tokenFile", "autobuildyExecutable", "spoolRoot"]
   for (const key of required) {
     if (!String(config[key] || "").trim()) throw new Error(`Missing agent configuration: ${key}`)
