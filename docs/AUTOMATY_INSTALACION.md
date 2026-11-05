@@ -141,6 +141,8 @@ La última línea muestra el archivo creado; debe verse igual que el bloque. (`$
 
 Upscayl y Photoshop no hace falta indicarlos si están en su ruta por defecto (pasos 3 y 4).
 
+**Entregables fijos.** Lo que acompaña siempre al diseño final (en Frame TV Art, `Quick Setup Guide.pdf`) va en `C:\Automaty\autobuildy\assets\<producto>\final_files`. Autobuildy lo copia a `Diseños Finales` de cada listing. Ese PDF no está en GitHub: cópialo tú desde tu PC a `C:\Automaty\autobuildy\assets\frame_tv_art\final_files\`.
+
 ## Paso 9. Crear el token del agente
 
 El agente se identifica ante Autolisty con un token, igual que el conector de Claude. El servidor solo guarda su huella.
