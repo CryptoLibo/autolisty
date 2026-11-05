@@ -76,6 +76,7 @@ Identidad: cada diseño recibe un código inmutable `LBCreaStudio-XXXXXX` al ent
 
 - Los cambios llegan a `main` por pull request; el despliegue en Hetzner lo ejecuta el propietario con `./deploy.sh`.
 - No modificar `.env.local` ni exponer secretos.
+- Acceso a la app solo con passkeys del propietario (`docs/PASSKEY_SETUP.md`).
 - Conservar la estructura de carpeta reconocida, las claves de R2 y los enlaces `download.autolisty.com` salvo cambio coordinado con el Worker de Cloudflare.
 - No borrar ni recrear la base de datos de Automation; las migraciones son solo aditivas.
 - Mantener el modo manual de Autobuildy y Automocky funcionando mientras se añade el automático.

@@ -1,7 +1,11 @@
 "use server"
 
-import { signOut } from "@/auth"
+import { cookies } from "next/headers"
+import { redirect } from "next/navigation"
+import { SESSION_COOKIE } from "@/lib/auth/session"
 
 export async function signOutOfAutolisty() {
-  await signOut({ redirectTo: "/login" })
+  const cookieStore = await cookies()
+  cookieStore.delete(SESSION_COOKIE)
+  redirect("/login")
 }

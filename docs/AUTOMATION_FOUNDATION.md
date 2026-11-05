@@ -30,21 +30,21 @@ Only one production-blocking job can be active. A pause request changes the mode
 
 ## Local PC boundary
 
-The production agent makes outbound HTTPS requests to `autolisty.com`. No inbound port, public file share, remote database, or direct Internet route to the PC is required. Agent authentication is separate from the GitHub owner login and uses a revocable machine credential.
+The production agent makes outbound HTTPS requests to `autolisty.com`. No inbound port, public file share, remote database, or direct Internet route to the PC is required. Agent authentication is separate from the owner's passkey login and uses a revocable machine credential.
 
 The local root path must come from PC-specific configuration. Job metadata stores relative paths, never a hardcoded user profile such as `C:\\Users\\...`. This allows the same code to move from the new PC to the old PC after copying the approved production folders.
 
 ## Implemented security boundary
 
-Interactive access uses GitHub OAuth and an immutable numeric GitHub user ID allowlist. Public legal/contact pages remain available; the workspace and private APIs require the owner session. State-changing browser API calls also require a same-origin request.
+Interactive access uses the owner's passkeys (see `PASSKEY_SETUP.md`). Public legal/contact pages remain available; the workspace and private APIs require the owner session. State-changing browser API calls also require a same-origin request.
 
-GitHub OAuth secrets and the automation database are external deployment state. Neither belongs in Git or in a migration archive.
+Authentication secrets and the automation database are external deployment state. Neither belongs in Git or in a migration archive.
 
 ## Implemented intake and control
 
 The Automation workspace provides authenticated design intake, visual queue history, temporary source backup, product-specific Etsy draft pools, graceful start/pause control, visible production errors, and owner-authorized retry from the last safe step. The local-agent API supports heartbeat, job claim, protected source download, lease renewal, constrained status reporting, direct R2 output upload, and server-side output verification.
 
-The agent API is intentionally exempt from the GitHub browser session and same-origin browser check. It has a separate bearer credential whose SHA-256 hash is stored on the server. Every agent route performs that machine authentication itself. This exception must never be extended to ordinary browser APIs.
+The agent API is intentionally exempt from the owner browser session and same-origin browser check. It has a separate bearer credential whose SHA-256 hash is stored on the server. Every agent route performs that machine authentication itself. This exception must never be extended to ordinary browser APIs.
 
 ## Implemented local production
 
@@ -54,4 +54,4 @@ The agent validates the established listing contract before upload. R2 uploads u
 
 ## Next integration phase
 
-The next phase connects `LOCAL_COMPLETE` to Etsy draft assignment and the existing SEO, delivery, Etsy sync, review, and Pinterest operations. Before unattended production is enabled, GitHub OAuth, the persistent production database, the machine-token hash, and the old-PC agent configuration must be deployed and tested with one controlled listing.
+The next phase connects `LOCAL_COMPLETE` to Etsy draft assignment and the existing SEO, delivery, Etsy sync, review, and Pinterest operations. Before unattended production is enabled, the owner passkeys, the persistent production database, the machine-token hash, and the old-PC agent configuration must be deployed and tested with one controlled listing.

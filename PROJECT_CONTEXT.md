@@ -47,11 +47,9 @@ Required environment variable names currently used by the app:
 - `ETSY_SHARED_SECRET`
 - `ETSY_REDIRECT_URI`
 - `AUTOMATION_DB_PATH` (required before enabling production Automation)
-- `AUTH_GITHUB_ID`
-- `AUTH_GITHUB_SECRET`
-- `AUTH_SECRET`
-- `AUTH_TRUST_HOST`
-- `AUTOLISTY_GITHUB_USER_ID`
+- `AUTH_SECRET` (signs the owner session cookie)
+- `AUTOLISTY_SETUP_CODE_SHA256` (hash of the setup code that registers a passkey device; see `docs/PASSKEY_SETUP.md`)
+- `AUTOLISTY_PUBLIC_URL` (optional, defaults to `https://autolisty.com`)
 - `AUTOMATION_AGENT_TOKEN_SHA256` (server-side hash of the old PC machine token)
 - `CLAUDE_API_TOKEN_SHA256` (server-side hash of Claude's machine token for `/api/claude/*`)
 

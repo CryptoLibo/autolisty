@@ -6,6 +6,7 @@ import { DashboardWorkspace } from "@/app/_components/DashboardWorkspace";
 import { AutolistyHeader } from "@/app/_components/AutolistyHeader";
 import { SiteFooter } from "@/app/_components/SiteFooter";
 import { signOutOfAutolisty } from "@/app/actions/auth";
+import { AddPasskeyButton } from "@/app/_components/AddPasskeyButton";
 import { generateListingId } from "@/lib/utils/generateListingId";
 import {
   DeliveryField,
@@ -4820,7 +4821,9 @@ export default function Page() {
                   icon={<Workflow size={18} />}
                 />
               </div>
-              <form action={signOutOfAutolisty} className="mt-auto border-t border-neutral-800 pt-4">
+              <div className="mt-auto space-y-2 border-t border-neutral-800 pt-4">
+              <AddPasskeyButton />
+              <form action={signOutOfAutolisty}>
                 <button
                   type="submit"
                   className="flex w-full items-center gap-3 border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-300 transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-200"
@@ -4829,6 +4832,7 @@ export default function Page() {
                   Sign out
                 </button>
               </form>
+              </div>
             </div>
           </div>
         </div>

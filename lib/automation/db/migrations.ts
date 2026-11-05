@@ -836,6 +836,26 @@ const MIGRATIONS = [
       CREATE INDEX automation_jobs_agent_queue_idx ON automation_jobs(local_agent_id, status, priority, created_at);
     `,
   },
+  {
+    version: 19,
+    sql: `
+      CREATE TABLE auth_passkeys (
+        id TEXT PRIMARY KEY,
+        public_key_json TEXT NOT NULL,
+        sign_count INTEGER NOT NULL DEFAULT 0,
+        name TEXT,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT
+      );
+      CREATE TABLE auth_challenges (
+        id TEXT PRIMARY KEY,
+        challenge TEXT NOT NULL,
+        purpose TEXT NOT NULL CHECK (purpose IN ('register', 'login')),
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

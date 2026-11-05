@@ -1,7 +1,8 @@
 import Image from "next/image"
 import { redirect } from "next/navigation"
-import { Github, LockKeyhole } from "lucide-react"
-import { auth, signIn } from "@/auth"
+import { LockKeyhole } from "lucide-react"
+import { getOwnerSession } from "@/lib/auth/ownerSession"
+import { PasskeyLogin } from "./PasskeyLogin"
 
 export const metadata = {
   title: "Sign in | Autolisty",
@@ -11,10 +12,10 @@ export const metadata = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{ callbackUrl?: string }>
 }) {
-  if (await auth()) redirect("/")
-  const { error } = await searchParams
+  if (await getOwnerSession()) redirect("/")
+  const { callbackUrl } = await searchParams
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#0b0f14] px-5 py-10 text-neutral-100">
@@ -37,34 +38,13 @@ export default async function LoginPage({
         <section className="border-y border-neutral-800 py-7">
           <h1 className="text-center text-xl font-semibold">Secure access</h1>
           <p className="mt-2 text-center text-sm leading-6 text-neutral-400">
-            Continue with the authorized GitHub account to open the production workspace.
+            Use your passkey: Face ID on iPhone, or fingerprint / PIN on your PC.
           </p>
-
-          {error ? (
-            <div className="mt-5 border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-              This GitHub account is not authorized for Autolisty.
-            </div>
-          ) : null}
-
-          <form
-            className="mt-6"
-            action={async () => {
-              "use server"
-              await signIn("github", { redirectTo: "/" })
-            }}
-          >
-            <button
-              type="submit"
-              className="inline-flex h-12 w-full items-center justify-center gap-3 border border-[#eeba2b]/30 bg-[#eeba2b] px-5 text-sm font-semibold text-neutral-950 transition hover:bg-[#f1cc61] focus:outline-none focus:ring-2 focus:ring-[#eeba2b]/40"
-            >
-              <Github size={19} />
-              Continue with GitHub
-            </button>
-          </form>
+          <PasskeyLogin callbackUrl={callbackUrl} />
         </section>
 
         <p className="mt-5 text-center text-xs leading-5 text-neutral-500">
-          Access is restricted to the configured owner account.
+          Access is restricted to the owner&apos;s registered devices.
         </p>
       </div>
     </main>
