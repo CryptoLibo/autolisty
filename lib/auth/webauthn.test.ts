@@ -18,7 +18,7 @@ function cbor(value: unknown): Buffer {
   if (typeof value === "string") return Buffer.concat([cborHead(3, Buffer.byteLength(value)), Buffer.from(value)])
   if (Buffer.isBuffer(value)) return Buffer.concat([cborHead(2, value.length), value])
   if (value instanceof Map) {
-    const parts = [cborHead(5, value.size)]
+    const parts: Buffer[] = [cborHead(5, value.size)]
     for (const [key, item] of value) parts.push(cbor(key), cbor(item))
     return Buffer.concat(parts)
   }
@@ -46,7 +46,7 @@ function createAuthenticator() {
 function authData(flags: number, signCount: number, attested?: { credentialId: Buffer; coseKey: Map<number, unknown> }) {
   const counter = Buffer.alloc(4)
   counter.writeUInt32BE(signCount)
-  const parts = [rpIdHash, Buffer.from([flags]), counter]
+  const parts: Buffer[] = [rpIdHash, Buffer.from([flags]), counter]
   if (attested) {
     const length = Buffer.alloc(2)
     length.writeUInt16BE(attested.credentialId.length)
