@@ -88,6 +88,7 @@ type DesignBriefView = {
   secondaryKeywords?: Array<{ keyword: string }>
   collection?: string | null
   rationale?: string | null
+  imageUrl?: string | null
 }
 
 function parseBrief(job: AutomationJob): DesignBriefView | null {
@@ -316,8 +317,16 @@ export function AutomationWorkspace() {
     }
   }
 
-  async function manageJob(jobId: string, payload: { action: "cancel" } | { action: "priority"; priority: number }) {
-    if (payload.action === "cancel" && !window.confirm("Cancel this design? It will be removed from the queue.")) return
+  async function manageJob(
+    jobId: string,
+    payload: { action: "cancel" | "discard" | "restart" } | { action: "priority"; priority: number }
+  ) {
+    const confirmations: Record<string, string> = {
+      cancel: "Cancel this design? It will be removed from the queue.",
+      discard: "Discard this design?\n\nIt is canceled, its Etsy draft goes back to the pool and every file with its code is deleted from R2 (mockups, pins, deliverables, PDF). This cannot be undone.",
+      restart: "Start this design again?\n\nA new design with a NEW code is created from the same Kittl image and queued for Automaty. The current one is discarded: its Etsy draft goes back to the pool and its files are deleted from R2.",
+    }
+    if (confirmations[payload.action] && !window.confirm(confirmations[payload.action])) return
     setManagingJobId(jobId)
     setMessage(null)
     try {
@@ -332,7 +341,11 @@ export function AutomationWorkspace() {
       setMessage(
         payload.action === "cancel"
           ? `${data.job.productCode} canceled.`
-          : `${data.job.productCode} priority updated.`
+          : payload.action === "discard"
+            ? `${data.job.productCode} discarded and its files deleted.`
+            : payload.action === "restart"
+              ? `${data.previous} discarded. Restarted as ${data.job.productCode} and queued for Automaty.`
+              : `${data.job.productCode} priority updated.`
       )
       await loadDashboard(true)
     } catch (error) {
@@ -733,15 +746,27 @@ export function AutomationWorkspace() {
                       Retry from last safe step
                     </button>
                   ) : null}
-                  {needsAttention ? (
-                    <button
-                      type="button"
-                      disabled={managingJobId === job.id}
-                      onClick={() => void manageJob(job.id, { action: "cancel" })}
-                      className="mt-2 inline-flex h-9 w-fit items-center border border-red-500/30 px-3 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 disabled:opacity-50"
-                    >
-                      Cancel design
-                    </button>
+                  {needsAttention && !job.etsyUrl ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {parseBrief(job)?.imageUrl ? (
+                        <button
+                          type="button"
+                          disabled={managingJobId === job.id}
+                          onClick={() => void manageJob(job.id, { action: "restart" })}
+                          className="inline-flex h-9 items-center border border-neutral-700 px-3 text-xs font-semibold text-neutral-200 transition hover:border-[#eeba2b]/40 disabled:opacity-50"
+                        >
+                          Start again (new code)
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={managingJobId === job.id}
+                        onClick={() => void manageJob(job.id, { action: "discard" })}
+                        className="inline-flex h-9 items-center border border-red-500/30 px-3 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 disabled:opacity-50"
+                      >
+                        Discard and delete files
+                      </button>
+                    </div>
                   ) : null}
                   {job.status === "QUEUED_LOCAL" || job.status === "LOCAL_CLAIMED" ? (
                     <div className="mt-3 flex flex-wrap gap-2">

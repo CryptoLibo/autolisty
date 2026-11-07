@@ -10,6 +10,7 @@ import {
 import { AutomationRepository } from "./repository"
 import { AUTOMATION_JOB_STATUSES, type AutomationJob, type AutomationJobStatus } from "./types"
 import { deleteAutomationSource, uploadAutomationSource } from "../r2/automationSources"
+import { deleteListingAssets } from "../r2/deleteListingAssets"
 
 // Lógica compartida por la API REST (/api/claude/designs) y el conector MCP (/api/mcp).
 
@@ -113,6 +114,68 @@ export async function submitClaudeDesign(body: unknown) {
     }
     throw error
   }
+}
+
+const DISCARDABLE_STATUSES = new Set<AutomationJobStatus>(["NEEDS_ATTENTION", "RETRY_WAIT"])
+
+/**
+ * Descarta un trabajo con incidencias: lo cancela, devuelve su draft de Etsy al
+ * pool y borra de R2 todo lo que se generó con su código (mockups, pines,
+ * entregables, PDF y fuente). Automaty borra su carpeta local al sincronizar.
+ * Nunca se aplica a un listing ya publicado: sus entregables los usan los compradores.
+ */
+export async function discardJob(jobId: string, reason: string) {
+  const repository = new AutomationRepository()
+  const job = repository.getJob(jobId)
+  if (!job) throw new DesignSubmissionError("Automation job not found.")
+  if (!DISCARDABLE_STATUSES.has(job.status)) {
+    throw new DesignSubmissionError("Only designs with an incident can be discarded.")
+  }
+  if (job.etsyState === "active" || job.etsyUrl) {
+    throw new DesignSubmissionError("This listing is already published on Etsy; its files cannot be deleted from here.")
+  }
+  const canceled = repository.cancelQueuedJob(jobId, reason)
+  const source = repository.listJobFiles(jobId).find((file) => file.slotKey === "source:primary")
+  if (source?.r2Key && source.status !== "DELETED") {
+    await deleteAutomationSource(source.r2Key).catch((error) => console.error("Failed to delete source:", error))
+  }
+  await deleteListingAssets(job.productCode)
+  repository.markAllFilesDeleted(jobId)
+  repository.recordJobEvent(jobId, "FILES_DELETED", "Archivos del listing borrados de R2.")
+  return canceled
+}
+
+/**
+ * Vuelve a empezar un diseño de Claude con incidencias: crea uno nuevo (código
+ * nuevo) desde la misma imagen de Kittl y la misma investigación, ya aprobado,
+ * y después descarta el anterior. Si la imagen ya no se puede descargar, no se
+ * toca el trabajo anterior.
+ */
+export async function restartClaudeDesignJob(jobId: string) {
+  const repository = new AutomationRepository()
+  const job = repository.getJob(jobId)
+  if (!job) throw new DesignSubmissionError("Automation job not found.")
+  if (!DISCARDABLE_STATUSES.has(job.status)) {
+    throw new DesignSubmissionError("Only designs with an incident can be restarted.")
+  }
+  const brief = job.briefJson ? JSON.parse(job.briefJson) as Record<string, unknown> & { kittl?: Record<string, unknown> } : null
+  if (!brief?.imageUrl) throw new DesignSubmissionError("This design has no original Kittl image to start again from.")
+
+  const restarted = await submitClaudeDesign({
+    productType: job.productType,
+    prompt: job.sourcePrompt,
+    imageUrl: brief.imageUrl,
+    primaryKeyword: brief.primaryKeyword ?? undefined,
+    secondaryKeywords: brief.secondaryKeywords ?? undefined,
+    collection: brief.collection ?? undefined,
+    cropAnchor: brief.cropAnchor ?? undefined,
+    rationale: brief.rationale ?? undefined,
+    kittl: brief.kittl ?? undefined,
+    researchSource: brief.researchSource ?? undefined,
+  })
+  await discardJob(jobId, `Restarted as ${restarted.productCode}.`)
+  const approved = repository.reviewJob(restarted.id, "approve", `Restart of ${job.productCode}.`)
+  return { previous: job.productCode, job: approved }
 }
 
 export { DesignSubmissionError }

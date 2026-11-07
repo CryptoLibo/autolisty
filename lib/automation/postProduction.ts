@@ -11,8 +11,9 @@
 //
 // Cada estado "-ING" se puede repetir: si el servidor se reinicia o un paso
 // falla, el trabajo vuelve a ese estado y el paso se ejecuta de nuevo entero.
-// Los pines se publican uno a uno y se guarda cada id: un reintento nunca
-// duplica un pin ya publicado.
+// Los pines se publican de uno en uno, separados 2 días (Pinterest premia el
+// contenido nuevo y constante, no tres pines del mismo enlace a la vez), y se
+// guarda cada id: un reintento nunca duplica un pin ya publicado.
 import type { EtsyTokenPayload } from "../etsy/auth"
 import type { PinterestTokenPayload } from "../pinterest/auth"
 import type { GeneratePinterestCopyInput, PinterestCopy } from "../seo/pinterestSeo"
@@ -76,6 +77,7 @@ const SERVER_STATUSES = new Set<AutomationJobStatus>(POST_PRODUCTION_STATUSES)
 
 // Etsy: comprobar si ya publicaste el draft cada 30 minutos.
 const ETSY_REVIEW_POLL_MS = 30 * 60_000
+const PIN_SPACING_MS = 2 * 24 * 60 * 60_000
 const MAX_AUTOMATIC_RETRIES = 3
 const RETRY_DELAY_MS = 10 * 60_000
 
@@ -115,6 +117,19 @@ export function listingImagesInEtsyOrder(job: AutomationJob, files: AutomationJo
     images.push({ id: `listing-${slot}`, position: images.length + 1, url: publicUrl(file.r2Key) })
   }
   return images
+}
+
+/** Keywords de la investigación (principal primero) para reforzar los textos. */
+export function briefKeywords(briefJson: string | null) {
+  if (!briefJson) return []
+  try {
+    const brief = JSON.parse(briefJson) as Partial<DesignBrief>
+    return [brief.primaryKeyword, ...(brief.secondaryKeywords || [])]
+      .map((item) => item?.keyword?.trim())
+      .filter((keyword): keyword is string => Boolean(keyword))
+  } catch {
+    return []
+  }
 }
 
 export function keywordResearchFromBrief(briefJson: string | null) {
@@ -298,6 +313,9 @@ async function stepCheckPublished(ctx: StepContext) {
 }
 
 async function stepPinterest(ctx: StepContext) {
+  const now = (ctx.deps.now || (() => new Date()))()
+  // Aún no toca el siguiente pin.
+  if (ctx.job.nextAttemptAt && new Date(ctx.job.nextAttemptAt) > now) return
   if (ctx.job.status === "ETSY_ACTIVE") move(ctx, "PINTEREST_PUBLISHING")
   const etsyUrl = ctx.job.etsyUrl
   if (!etsyUrl) throw new PostProductionError("Falta la URL pública del listing de Etsy.")
@@ -321,7 +339,7 @@ async function stepPinterest(ctx: StepContext) {
       productType: ctx.job.productType,
       listingTitle: seo.title,
       listingDescription: seo.description_final,
-      listingKeywords: seo.description_keywords_5,
+      listingKeywords: [...briefKeywords(ctx.job.briefJson), ...seo.description_keywords_5],
       destinationLink: etsyUrl,
       pins: images,
     })
@@ -342,8 +360,8 @@ async function stepPinterest(ctx: StepContext) {
     ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan) })!
   }
 
-  for (const pin of plan.pins) {
-    if (pin.pinId) continue
+  const pin = plan.pins.find((candidate) => !candidate.pinId)
+  if (pin) {
     const published = await ctx.deps.publishPin(token, {
       boardId: plan.boardId,
       title: pin.title,
@@ -363,6 +381,14 @@ async function stepPinterest(ctx: StepContext) {
       })
     } catch (error) {
       ctx.deps.repository.recordJobEvent(ctx.job.id, "WARNING", `Pin publicado pero sin vínculo analítico: ${errorMessage(error)}`)
+    }
+    const remaining = plan.pins.filter((candidate) => !candidate.pinId).length
+    if (remaining > 0) {
+      ctx.deps.repository.recordJobEvent(ctx.job.id, "PIN_PUBLISHED", `Pin publicado en "${plan.boardName}". Quedan ${remaining}.`)
+      ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, {
+        nextAttemptAt: new Date(now.getTime() + PIN_SPACING_MS).toISOString(),
+      })!
+      return
     }
   }
   move(ctx, "COMPLETED", `${plan.pins.length} pines publicados en "${plan.boardName}".`)
@@ -396,10 +422,10 @@ export async function advanceJob(job: AutomationJob, deps: PostProductionDeps): 
     move(ctx, ctx.job.resumeStatus, "Reintento automático.")
   }
 
-  const startedWaiting = ctx.job.status === "WAITING_ETSY_REVIEW"
-  for (let guard = 0; guard < 12; guard += 1) {
+  for (let guard = 0; guard < 14; guard += 1) {
     const step = STEP_BY_STATUS[ctx.job.status]
     if (!step) break
+    const before = ctx.job.status
     try {
       await step(ctx)
     } catch (error) {
@@ -416,7 +442,8 @@ export async function advanceJob(job: AutomationJob, deps: PostProductionDeps): 
       break
     }
     if (STOP_STATUSES.has(ctx.job.status)) break
-    if (startedWaiting && ctx.job.status === "WAITING_ETSY_REVIEW") break
+    // Sin cambio de estado = el paso está esperando (revisión en Etsy, siguiente pin).
+    if (ctx.job.status === before) break
   }
   return ctx.job
 }

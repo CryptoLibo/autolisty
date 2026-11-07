@@ -2,12 +2,15 @@ import { NextResponse } from "next/server"
 import { requireOwnerApi } from "@/lib/auth/owner"
 import { AutomationRepository } from "@/lib/automation/repository"
 import { deleteAutomationSource } from "@/lib/r2/automationSources"
+import { discardJob, restartClaudeDesignJob } from "@/lib/automation/claudeDesigns"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 // Acciones del propietario sobre un diseño que aún no empezó en Automaty.
 // Body: { action: "cancel", reason?: string } | { action: "priority", priority: number }
+//     | { action: "discard" }  (incidencia: cancelar y borrar todo de R2)
+//     | { action: "restart" }  (incidencia: descartar y volver a empezar con código nuevo)
 export async function PATCH(request: Request, context: { params: Promise<{ jobId: string }> }) {
   const unauthorized = await requireOwnerApi()
   if (unauthorized) return unauthorized
@@ -36,7 +39,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ jobId
       }
       return NextResponse.json({ ok: true, job })
     }
-    return NextResponse.json({ error: 'action must be "cancel" or "priority".' }, { status: 400 })
+    if (body?.action === "discard") {
+      return NextResponse.json({ ok: true, job: await discardJob(jobId, "Discarded by the owner; files deleted.") })
+    }
+    if (body?.action === "restart") {
+      return NextResponse.json({ ok: true, ...(await restartClaudeDesignJob(jobId)) })
+    }
+    return NextResponse.json({ error: 'action must be "cancel", "priority", "discard" or "restart".' }, { status: 400 })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to update the design." }, { status: 409 })
   }

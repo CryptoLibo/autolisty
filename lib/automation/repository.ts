@@ -663,6 +663,16 @@ export class AutomationRepository {
     if (result.changes !== 1) throw new Error("Temporary source is not ready for verification.")
   }
 
+  /** Marca como borrados todos los archivos del trabajo (tras borrarlos de R2). */
+  markAllFilesDeleted(jobId: string) {
+    const now = new Date().toISOString()
+    this.database.prepare(`
+      UPDATE automation_job_files
+      SET status = 'DELETED', deleted_at = ?, updated_at = ?
+      WHERE job_id = ? AND status != 'DELETED'
+    `).run(now, now, jobId)
+  }
+
   markTemporarySourceDeleted(jobId: string) {
     const now = new Date().toISOString()
     const result = this.database.prepare(`
