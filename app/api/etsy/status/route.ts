@@ -1,8 +1,7 @@
-import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { requireOwnerApi } from "@/lib/auth/owner"
-import { ETSY_AUTH_COOKIE, EtsyTokenPayload } from "@/lib/etsy/auth"
-import { ensureFreshToken, getSelfShops, getSelfShopsDebug } from "@/lib/etsy/client"
+import { getSelfShops, getSelfShopsDebug } from "@/lib/etsy/client"
+import { getFreshToken, loadToken } from "@/lib/integrations/tokenSession"
 
 export const runtime = "nodejs"
 
@@ -10,26 +9,13 @@ export async function GET() {
   const unauthorized = await requireOwnerApi()
   if (unauthorized) return unauthorized
 
-  const cookieStore = await cookies()
-  const raw = cookieStore.get(ETSY_AUTH_COOKIE)?.value
-
-  if (!raw) {
+  if (!(await loadToken("etsy"))) {
     return NextResponse.json({ connected: false })
   }
 
   try {
-    const parsed = JSON.parse(raw) as EtsyTokenPayload
-    const token = await ensureFreshToken(parsed)
-
-    if (token.access_token !== parsed.access_token || token.expires_at !== parsed.expires_at) {
-      cookieStore.set(ETSY_AUTH_COOKIE, JSON.stringify(token), {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 60 * 60 * 24 * 90,
-      })
-    }
+    const token = await getFreshToken("etsy")
+    if (!token) return NextResponse.json({ connected: false })
 
     let shops: Array<{ shop_id?: number; shop_name?: string }> = []
     let shopsError: string | null = null
@@ -80,10 +66,9 @@ export async function GET() {
       shopsDebug,
     })
   } catch (error: any) {
-    cookieStore.delete(ETSY_AUTH_COOKIE)
     return NextResponse.json(
-      { connected: false, error: error?.message || "Invalid Etsy session" },
-      { status: 401 }
+      { connected: true, error: error?.message || "No se pudo consultar Etsy; la conexión se conserva. Reautoriza si el token caducó." },
+      { status: 503 }
     )
   }
 }

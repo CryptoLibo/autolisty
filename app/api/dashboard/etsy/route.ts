@@ -1,7 +1,6 @@
-import { cookies } from "next/headers"
 import { requireOwnerApi } from "@/lib/auth/owner"
 import { getAutomationDatabase } from "@/lib/automation/db/database"
-import { ETSY_AUTH_COOKIE } from "@/lib/etsy/auth"
+import { loadToken } from "@/lib/integrations/tokenSession"
 import { getCatalogSnapshot } from "@/lib/dashboard/etsy-catalog"
 import { isDashboardPeriod } from "@/lib/dashboard/overview"
 
@@ -14,7 +13,7 @@ export async function GET(request: Request) {
   const period = new URL(request.url).searchParams.get("period") || "30d"
   if (!isDashboardPeriod(period)) return Response.json({ error: "Periodo no válido." }, { status: 400 })
   try {
-    const connected = Boolean((await cookies()).get(ETSY_AUTH_COOKIE)?.value)
+    const connected = Boolean(await loadToken("etsy"))
     return Response.json(getCatalogSnapshot(getAutomationDatabase(), period, connected),
       { headers: { "Cache-Control": "private, no-store" } })
   } catch {

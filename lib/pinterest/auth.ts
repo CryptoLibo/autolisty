@@ -88,6 +88,9 @@ export async function exchangePinterestCodeForToken({
     code,
     redirect_uri: getPinterestRedirectUri(),
     code_verifier: codeVerifier,
+    // Refresh token continuo (60 días, renovable sin límite): el servidor puede
+    // seguir publicando sin que haya que reconectar cada año.
+    continuous_refresh: "true",
   })
 
   const credentials = Buffer.from(

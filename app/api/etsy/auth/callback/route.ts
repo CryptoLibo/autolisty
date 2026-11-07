@@ -1,7 +1,7 @@
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
+import { saveToken } from "@/lib/integrations/tokenSession"
 import {
-  ETSY_AUTH_COOKIE,
   ETSY_PKCE_COOKIE,
   ETSY_SCOPES,
   exchangeCodeForToken,
@@ -52,13 +52,7 @@ export async function GET(req: Request) {
       throw new Error("Etsy did not grant all required permissions. The previous connection was preserved.")
     }
 
-    cookieStore.set(ETSY_AUTH_COOKIE, JSON.stringify(token), {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 90,
-    })
+    await saveToken("etsy", token)
     cookieStore.delete(ETSY_PKCE_COOKIE)
 
     redirectUrl.searchParams.set("etsy_connected", "1")

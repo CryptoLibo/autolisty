@@ -856,6 +856,17 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    version: 20,
+    sql: `
+      CREATE TABLE integration_credentials (
+        provider TEXT PRIMARY KEY CHECK (provider IN ('etsy', 'pinterest')),
+        ciphertext TEXT NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

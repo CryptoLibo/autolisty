@@ -1,9 +1,7 @@
 import OpenAI from "openai"
 import fs from "fs"
 import path from "path"
-import { cookies } from "next/headers"
-import { ETSY_AUTH_COOKIE, EtsyTokenPayload } from "@/lib/etsy/auth"
-import { ensureFreshToken } from "@/lib/etsy/client"
+import { getFreshToken } from "@/lib/integrations/tokenSession"
 import { getSellerTaxonomyProperties } from "@/lib/etsy/attributes"
 import { getPrimaryShop, getShopListing } from "@/lib/etsy/listings"
 import { normalizeProductType } from "@/lib/products"
@@ -150,22 +148,8 @@ async function loadEtsyAttributeOptionsForDraft({
   }
 
   try {
-    const cookieStore = await cookies()
-    const raw = cookieStore.get(ETSY_AUTH_COOKIE)?.value
-    if (!raw) throw new Error("Etsy is not connected.")
-
-    const parsed = JSON.parse(raw) as EtsyTokenPayload
-    const token = await ensureFreshToken(parsed)
-
-    if (token.access_token !== parsed.access_token || token.expires_at !== parsed.expires_at) {
-      cookieStore.set(ETSY_AUTH_COOKIE, JSON.stringify(token), {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 60 * 60 * 24 * 90,
-      })
-    }
+    const token = await getFreshToken("etsy")
+    if (!token) throw new Error("Etsy is not connected.")
 
     const shop = await getPrimaryShop(token)
     const shopId = Number(shop.shop_id)

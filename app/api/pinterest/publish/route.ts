@@ -1,11 +1,7 @@
-import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { requireOwnerApi } from "@/lib/auth/owner"
-import {
-  PinterestTokenPayload,
-  PINTEREST_AUTH_COOKIE,
-} from "@/lib/pinterest/auth"
-import { ensureFreshPinterestToken, pinterestFetch } from "@/lib/pinterest/client"
+import { pinterestFetch } from "@/lib/pinterest/client"
+import { getFreshToken, loadToken } from "@/lib/integrations/tokenSession"
 import { getAutomationDatabase } from "@/lib/automation/db/database"
 import { recordPublishedPin } from "@/lib/dashboard/pinterest-analytics"
 
@@ -15,29 +11,13 @@ export async function POST(req: Request) {
   const unauthorized = await requireOwnerApi()
   if (unauthorized) return unauthorized
 
-  const cookieStore = await cookies()
-  const raw = cookieStore.get(PINTEREST_AUTH_COOKIE)?.value
-
-  if (!raw) {
+  if (!(await loadToken("pinterest"))) {
     return new Response("Pinterest is not connected", { status: 401 })
   }
 
   try {
-    const parsed = JSON.parse(raw) as PinterestTokenPayload
-    const token = await ensureFreshPinterestToken(parsed)
-
-    if (
-      token.access_token !== parsed.access_token ||
-      token.expires_at !== parsed.expires_at
-    ) {
-      cookieStore.set(PINTEREST_AUTH_COOKIE, JSON.stringify(token), {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 60 * 60 * 24 * 30,
-      })
-    }
+    const token = await getFreshToken("pinterest")
+    if (!token) return new Response("Pinterest is not connected", { status: 401 })
 
     const body = await req.json()
     const { boardId, destinationLink, pins = [] } = body

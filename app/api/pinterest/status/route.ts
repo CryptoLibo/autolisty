@@ -1,12 +1,7 @@
-import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { requireOwnerApi } from "@/lib/auth/owner"
+import { getFreshToken, loadToken } from "@/lib/integrations/tokenSession"
 import {
-  PinterestTokenPayload,
-  PINTEREST_AUTH_COOKIE,
-} from "@/lib/pinterest/auth"
-import {
-  ensureFreshPinterestToken,
   getPinterestBoards,
   getPinterestUser,
 } from "@/lib/pinterest/client"
@@ -17,29 +12,13 @@ export async function GET() {
   const unauthorized = await requireOwnerApi()
   if (unauthorized) return unauthorized
 
-  const cookieStore = await cookies()
-  const raw = cookieStore.get(PINTEREST_AUTH_COOKIE)?.value
-
-  if (!raw) {
+  if (!(await loadToken("pinterest"))) {
     return NextResponse.json({ connected: false })
   }
 
   try {
-    const parsed = JSON.parse(raw) as PinterestTokenPayload
-    const token = await ensureFreshPinterestToken(parsed)
-
-    if (
-      token.access_token !== parsed.access_token ||
-      token.expires_at !== parsed.expires_at
-    ) {
-      cookieStore.set(PINTEREST_AUTH_COOKIE, JSON.stringify(token), {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 60 * 60 * 24 * 30,
-      })
-    }
+    const token = await getFreshToken("pinterest")
+    if (!token) return NextResponse.json({ connected: false })
 
     const user = await getPinterestUser(token)
     const boardsResponse = await getPinterestBoards(token)

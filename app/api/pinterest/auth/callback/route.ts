@@ -1,9 +1,9 @@
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
+import { loadToken, saveToken } from "@/lib/integrations/tokenSession"
 import {
   exchangePinterestCodeForToken,
   getPinterestRedirectUri,
-  PINTEREST_AUTH_COOKIE,
   PINTEREST_PKCE_COOKIE,
 } from "@/lib/pinterest/auth"
 
@@ -48,24 +48,16 @@ export async function GET(req: Request) {
       code,
       codeVerifier,
     })
-    const existingRaw = cookieStore.get(PINTEREST_AUTH_COOKIE)?.value
-    let existingScopes: string[] = []
-    try {
-      const existing = existingRaw ? JSON.parse(existingRaw) as { scope?: unknown } : null
-      if (Array.isArray(existing?.scope)) existingScopes = existing.scope.filter((value): value is string => typeof value === "string")
-    } catch { /* A malformed old cookie cannot grant permissions. */ }
+    const existing = await loadToken("pinterest").catch(() => null)
+    const existingScopes = Array.isArray(existing?.scope)
+      ? existing.scope.filter((value): value is string => typeof value === "string")
+      : []
     const requiredScopes = new Set(["user_accounts:read", "boards:read", "boards:write", "pins:read", "pins:write", ...existingScopes])
     if ([...requiredScopes].some((scope) => !token.scope.includes(scope))) {
       throw new Error("Pinterest no concedió todos los permisos actuales; la conexión anterior se conserva.")
     }
 
-    cookieStore.set(PINTEREST_AUTH_COOKIE, JSON.stringify(token), {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30,
-    })
+    await saveToken("pinterest", token)
     cookieStore.delete(PINTEREST_PKCE_COOKIE)
 
     redirectUrl.searchParams.set("pinterest_connected", "1")

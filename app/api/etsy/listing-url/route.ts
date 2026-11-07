@@ -1,8 +1,6 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { requireOwnerApi } from "@/lib/auth/owner";
-import { ETSY_AUTH_COOKIE, EtsyTokenPayload } from "@/lib/etsy/auth";
-import { ensureFreshToken } from "@/lib/etsy/client";
+import { getFreshToken } from "@/lib/integrations/tokenSession";
 import { getPrimaryShop, getShopListing } from "@/lib/etsy/listings";
 
 export const runtime = "nodejs";
@@ -11,10 +9,9 @@ export async function POST(req: Request) {
   const unauthorized = await requireOwnerApi();
   if (unauthorized) return unauthorized;
 
-  const cookieStore = await cookies();
-  const raw = cookieStore.get(ETSY_AUTH_COOKIE)?.value;
+  const connected = await getFreshToken("etsy").catch(() => null);
 
-  if (!raw) {
+  if (!connected) {
     return NextResponse.json({ error: "Etsy is not connected." }, { status: 401 });
   }
 
@@ -29,8 +26,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const parsed = JSON.parse(raw) as EtsyTokenPayload;
-    const token = await ensureFreshToken(parsed);
+    const token = connected;
     const shop = await getPrimaryShop(token);
     const shopId = Number(shop.shop_id);
     const listing = await getShopListing(token, shopId, listingId);

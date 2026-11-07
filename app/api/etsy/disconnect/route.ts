@@ -1,7 +1,6 @@
-import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { requireOwnerApi } from "@/lib/auth/owner"
-import { ETSY_AUTH_COOKIE, ETSY_PKCE_COOKIE } from "@/lib/etsy/auth"
+import { clearToken } from "@/lib/integrations/tokenSession"
 
 export const runtime = "nodejs"
 
@@ -9,9 +8,7 @@ export async function POST() {
   const unauthorized = await requireOwnerApi()
   if (unauthorized) return unauthorized
 
-  const cookieStore = await cookies()
-  cookieStore.delete(ETSY_AUTH_COOKIE)
-  cookieStore.delete(ETSY_PKCE_COOKIE)
+  await clearToken("etsy")
 
   return NextResponse.json({ ok: true })
 }

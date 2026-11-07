@@ -1,8 +1,6 @@
-import { cookies } from "next/headers"
 import { requireOwnerApi } from "@/lib/auth/owner"
 import { getAutomationDatabase } from "@/lib/automation/db/database"
-import { ETSY_AUTH_COOKIE, type EtsyTokenPayload } from "@/lib/etsy/auth"
-import { PINTEREST_AUTH_COOKIE, type PinterestTokenPayload } from "@/lib/pinterest/auth"
+import { loadToken } from "@/lib/integrations/tokenSession"
 import { hasPinterestAnalyticsScopes } from "@/lib/dashboard/pinterest-analytics"
 import { getBusinessIntelligence } from "@/lib/dashboard/intelligence"
 import { isDashboardPeriod } from "@/lib/dashboard/overview"
@@ -15,12 +13,8 @@ export async function GET(request:Request) {
   const period=new URL(request.url).searchParams.get("period")??"30d"
   if (!isDashboardPeriod(period)) return Response.json({error:"Período inválido."},{status:400})
   try {
-    const store=await cookies()
-    const etsyRaw=store.get(ETSY_AUTH_COOKIE)?.value
-    const pinterestRaw=store.get(PINTEREST_AUTH_COOKIE)?.value
-    let etsy:EtsyTokenPayload|null=null,pinterest:PinterestTokenPayload|null=null
-    try {etsy=etsyRaw?JSON.parse(etsyRaw) as EtsyTokenPayload:null} catch {/* Invalid cookie cannot grant access. */}
-    try {pinterest=pinterestRaw?JSON.parse(pinterestRaw) as PinterestTokenPayload:null} catch {/* Invalid cookie cannot grant access. */}
+    const etsy=await loadToken("etsy")
+    const pinterest=await loadToken("pinterest")
     return Response.json(getBusinessIntelligence(getAutomationDatabase(),period,{
       etsyConnected:Boolean(etsy),etsySalesAuthorized:Boolean(etsy?.scope?.includes("transactions_r")),
       pinterestConnected:Boolean(pinterest),pinterestAuthorized:Array.isArray(pinterest?.scope)&&hasPinterestAnalyticsScopes(pinterest.scope),
