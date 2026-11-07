@@ -399,10 +399,11 @@ export async function advanceJob(job: AutomationJob, deps: PostProductionDeps): 
   for (let guard = 0; guard < 12; guard += 1) {
     const step = STEP_BY_STATUS[ctx.job.status]
     if (!step) break
-    const resumeStatus = ctx.job.status
     try {
       await step(ctx)
     } catch (error) {
+      // Retomar en el estado en el que se quedó (p. ej. SEO_GENERATING, no DRAFT_ASSIGNED).
+      const resumeStatus = ctx.job.status
       const transient = isTransient(error)
       const canRetry = transient && ctx.job.retryCount < MAX_AUTOMATIC_RETRIES
       const now = (deps.now || (() => new Date()))()
