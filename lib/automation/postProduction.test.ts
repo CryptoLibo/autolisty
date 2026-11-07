@@ -40,15 +40,15 @@ function fakeDeps(repository: AutomationRepository, overrides: Partial<PostProdu
     repository,
     getEtsyToken: async () => ({ access_token: "1.a", refresh_token: "r", expires_at: Date.now() + 3_600_000, token_type: "Bearer", user_id: "1", scope: [] }),
     getShopId: async () => 42,
-    generateSeo: vi.fn(async (input) => ({
+    generateSeo: vi.fn(async (input: Parameters<PostProductionDeps["generateSeo"]>[0]) => ({
       title: "Misty Lake Frame TV Art",
       description_keywords_5: ["a", "b", "c", "d", "e"],
       description_final: `Description ${input.listingId}`,
       tags_13: ["frame tv art"],
       etsy_attributes: [{ propertyId: 1, displayName: "Primary color", valueIds: [2], values: ["Blue"], scaleId: null }],
-      media: input.mockups.map((item) => ({ id: item.id, position: item.position, alt_text: `alt ${item.id}` })),
+      media: input.mockups.map((item: { id: string; position: number }) => ({ id: item.id, position: item.position, alt_text: `alt ${item.id}` })),
     })),
-    buildDeliveryPdf: vi.fn(async (_type, code) => ({ url: `https://files.example/delivery-pdf/${code}.pdf` })),
+    buildDeliveryPdf: vi.fn(async (_type: string, code: string) => ({ url: `https://files.example/delivery-pdf/${code}.pdf` })),
     syncText: vi.fn(async () => {}),
     syncImages: vi.fn(async () => {}),
     syncFile: vi.fn(async () => {}),
