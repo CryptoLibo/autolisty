@@ -6,13 +6,13 @@
 // La cookie se mantiene sincronizada por compatibilidad y, si la bóveda aún está
 // vacía, se importa una vez desde ella (sin tener que reconectar).
 import { cookies } from "next/headers"
-import { ETSY_AUTH_COOKIE, ETSY_PKCE_COOKIE, type EtsyTokenPayload, refreshEtsyToken } from "@/lib/etsy/auth"
+import { ETSY_AUTH_COOKIE, ETSY_PKCE_COOKIE, type EtsyTokenPayload, refreshEtsyToken } from "../etsy/auth"
 import {
   PINTEREST_AUTH_COOKIE,
   PINTEREST_PKCE_COOKIE,
   type PinterestTokenPayload,
   refreshPinterestToken,
-} from "@/lib/pinterest/auth"
+} from "../pinterest/auth"
 import { type CredentialProvider, deleteCredential, readCredential, writeCredential } from "./credentialVault"
 
 type TokenByProvider = { etsy: EtsyTokenPayload; pinterest: PinterestTokenPayload }

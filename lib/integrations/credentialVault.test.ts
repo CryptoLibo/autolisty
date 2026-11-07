@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest"
-import { openAutomationDatabase } from "@/lib/automation/db/database"
+import { openAutomationDatabase } from "../automation/db/database"
 import { decryptCredential, deleteCredential, encryptCredential, readCredential, writeCredential } from "./credentialVault"
 
 beforeAll(() => {

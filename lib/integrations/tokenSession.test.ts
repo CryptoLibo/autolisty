@@ -15,8 +15,8 @@ const jar = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn(), delete: vi.fn() }))
 
 vi.mock("./credentialVault", () => vault)
 vi.mock("next/headers", () => ({ cookies: async () => jar }))
-vi.mock("@/lib/etsy/auth", () => ({ ETSY_AUTH_COOKIE: "etsy_auth", ETSY_PKCE_COOKIE: "etsy_pkce", ...etsy }))
-vi.mock("@/lib/pinterest/auth", () => ({ PINTEREST_AUTH_COOKIE: "pinterest_auth", PINTEREST_PKCE_COOKIE: "pinterest_pkce", ...pinterest }))
+vi.mock("../etsy/auth", () => ({ ETSY_AUTH_COOKIE: "etsy_auth", ETSY_PKCE_COOKIE: "etsy_pkce", ...etsy }))
+vi.mock("../pinterest/auth", () => ({ PINTEREST_AUTH_COOKIE: "pinterest_auth", PINTEREST_PKCE_COOKIE: "pinterest_pkce", ...pinterest }))
 
 import { clearToken, getFreshToken, loadToken } from "./tokenSession"
 

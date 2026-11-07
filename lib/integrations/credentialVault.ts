@@ -7,7 +7,7 @@
 // de poder leerse y basta con reconectar Etsy/Pinterest una vez.
 import crypto from "node:crypto"
 import type Database from "better-sqlite3"
-import { getAutomationDatabase } from "@/lib/automation/db/database"
+import { getAutomationDatabase } from "../automation/db/database"
 
 export type CredentialProvider = "etsy" | "pinterest"
 
