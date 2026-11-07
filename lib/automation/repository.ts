@@ -42,6 +42,8 @@ type AutomationJobRow = {
   reviewed_at: string | null
   priority: number | null
   local_cleaned_at: string | null
+  delivery_url: string | null
+  delivery_filename: string | null
 }
 
 type AutomationEventRow = {
@@ -138,6 +140,8 @@ function mapJob(row: AutomationJobRow): AutomationJob {
     reviewedAt: row.reviewed_at,
     priority: row.priority ?? 0,
     localCleanedAt: row.local_cleaned_at,
+    deliveryUrl: row.delivery_url ?? null,
+    deliveryFilename: row.delivery_filename ?? null,
   }
 }
 
@@ -808,6 +812,80 @@ export class AutomationRepository {
     })
 
     return transition()
+  }
+
+  // ---- Postproducción en el servidor (después de LOCAL_COMPLETE) ----
+
+  /** Trabajos que el worker del servidor debe avanzar, los más antiguos primero. */
+  listPostProductionJobs(statuses: readonly AutomationJobStatus[], limit = 20) {
+    const placeholders = statuses.map(() => "?").join(", ")
+    const rows = this.database.prepare(`
+      SELECT * FROM automation_jobs
+      WHERE status IN (${placeholders})
+        AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+      ORDER BY priority DESC, updated_at ASC
+      LIMIT ?
+    `).all(...statuses, new Date().toISOString(), Math.max(1, Math.min(200, limit))) as AutomationJobRow[]
+    return rows.map(mapJob)
+  }
+
+  /** Asigna el draft disponible más antiguo de su producto. null si no queda ninguno. */
+  assignDraftToJob(jobId: string) {
+    const assign = this.database.transaction(() => {
+      const job = this.getJob(jobId)
+      if (!job) throw new Error(`Automation job not found: ${jobId}`)
+      if (job.etsyDraftId) return job.etsyDraftId
+      const draft = this.database.prepare(`
+        SELECT draft_id FROM etsy_draft_pool
+        WHERE product_type = ? AND status = 'AVAILABLE'
+        ORDER BY created_at ASC
+        LIMIT 1
+      `).get(job.productType) as { draft_id: string } | undefined
+      if (!draft) return null
+      const now = new Date().toISOString()
+      this.database.prepare(`
+        UPDATE etsy_draft_pool
+        SET status = 'ASSIGNED', assigned_job_id = ?, assigned_at = ?, updated_at = ?
+        WHERE draft_id = ? AND status = 'AVAILABLE'
+      `).run(jobId, now, now, draft.draft_id)
+      this.database.prepare("UPDATE automation_jobs SET etsy_draft_id = ?, updated_at = ? WHERE id = ?")
+        .run(draft.draft_id, now, jobId)
+      return draft.draft_id
+    })
+    return assign()
+  }
+
+  updatePostProductionFields(jobId: string, fields: {
+    seoJson?: string | null
+    pinterestSeoJson?: string | null
+    deliveryUrl?: string | null
+    deliveryFilename?: string | null
+    etsyState?: string | null
+    etsyUrl?: string | null
+    nextAttemptAt?: string | null
+  }) {
+    const columns: Record<string, string> = {
+      seoJson: "seo_json",
+      pinterestSeoJson: "pinterest_seo_json",
+      deliveryUrl: "delivery_url",
+      deliveryFilename: "delivery_filename",
+      etsyState: "etsy_state",
+      etsyUrl: "etsy_url",
+      nextAttemptAt: "next_attempt_at",
+    }
+    const entries = Object.entries(fields).filter(([key, value]) => key in columns && value !== undefined)
+    if (entries.length === 0) return this.getJob(jobId)
+    const assignments = entries.map(([key]) => `${columns[key]} = ?`).join(", ")
+    this.database.prepare(`UPDATE automation_jobs SET ${assignments}, updated_at = ? WHERE id = ?`)
+      .run(...entries.map(([, value]) => value), new Date().toISOString(), jobId)
+    return this.getJob(jobId)
+  }
+
+  recordJobEvent(jobId: string, eventType: string, message: string, metadata: unknown = null) {
+    this.database.prepare(`
+      INSERT INTO automation_job_events (job_id, event_type, message, metadata_json, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(jobId, eventType, message.slice(0, 500), metadata === null ? null : JSON.stringify(metadata), new Date().toISOString())
   }
 
   countByStatus() {

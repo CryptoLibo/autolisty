@@ -867,6 +867,14 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    version: 21,
+    sql: `
+      ALTER TABLE automation_jobs ADD COLUMN delivery_url TEXT;
+      ALTER TABLE automation_jobs ADD COLUMN delivery_filename TEXT;
+      CREATE INDEX automation_jobs_status_updated_idx ON automation_jobs(status, updated_at);
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

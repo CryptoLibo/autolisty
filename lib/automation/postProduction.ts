@@ -1,0 +1,341 @@
+// Postproducción en el servidor: lo que antes se hacía a mano en Scale.
+//
+// Cuando Automaty deja un listing en LOCAL_COMPLETE (todo verificado en R2), el
+// worker lo lleva hasta el draft de Etsy listo para revisar:
+//
+//   LOCAL_COMPLETE → DRAFT_ASSIGNED → SEO_GENERATING → SEO_READY
+//   → DELIVERY_PREPARING → DELIVERY_READY → ETSY_TEXT_SYNCING
+//   → ETSY_MEDIA_SYNCING → ETSY_FILE_SYNCING → (ETSY_VIDEO_SYNCING)
+//   → WAITING_ETSY_REVIEW → (publicado por el propietario) → ETSY_ACTIVE
+//
+// Cada estado "-ING" se puede repetir: si el servidor se reinicia o un paso
+// falla, el trabajo vuelve a ese estado y el paso se ejecuta de nuevo entero.
+// Pinterest (pines tras publicar) y la limpieza de R2 son el siguiente bloque.
+import type { EtsyTokenPayload } from "../etsy/auth"
+import type { DraftSyncAttribute, DraftSyncMockup } from "../etsy/draftSync"
+import type { EtsySeoResult, GenerateEtsySeoInput } from "../seo/etsySeo"
+import { getProductOption, type ProductType } from "../products"
+import type { DesignBrief } from "./designIntake"
+import { getProductionProductContract } from "./productContracts"
+import type { AutomationRepository } from "./repository"
+import type { AutomationJob, AutomationJobFile, AutomationJobStatus } from "./types"
+
+export type PostProductionDeps = {
+  repository: AutomationRepository
+  getEtsyToken: () => Promise<EtsyTokenPayload | null>
+  getShopId: (token: EtsyTokenPayload) => Promise<number>
+  generateSeo: (input: GenerateEtsySeoInput) => Promise<EtsySeoResult>
+  buildDeliveryPdf: (productType: ProductType, productCode: string) => Promise<{ url: string }>
+  syncText: (draft: DraftRef, input: { title: string; description: string; tags: string[]; attributes: DraftSyncAttribute[] }) => Promise<void>
+  syncImages: (draft: DraftRef, mockups: DraftSyncMockup[]) => Promise<void>
+  syncFile: (draft: DraftRef, input: { url: string; filename: string }) => Promise<void>
+  syncVideo: (draft: DraftRef, input: { url: string; name: string }) => Promise<void>
+  getListing: (token: EtsyTokenPayload, shopId: number, listingId: string) => Promise<{ state?: string; url?: string } | null>
+  publicUrl: (r2Key: string) => string
+  now?: () => Date
+}
+
+type DraftRef = { token: EtsyTokenPayload; shopId: number; listingId: string }
+
+/** Estados que el worker avanza (RETRY_WAIT solo si el reintento es de un paso de servidor). */
+export const POST_PRODUCTION_STATUSES = [
+  "LOCAL_COMPLETE",
+  "DRAFT_ASSIGNED",
+  "SEO_GENERATING",
+  "SEO_READY",
+  "DELIVERY_PREPARING",
+  "DELIVERY_READY",
+  "ETSY_TEXT_SYNCING",
+  "ETSY_MEDIA_SYNCING",
+  "ETSY_FILE_SYNCING",
+  "ETSY_VIDEO_SYNCING",
+  "WAITING_ETSY_REVIEW",
+] as const satisfies readonly AutomationJobStatus[]
+
+const SERVER_STATUSES = new Set<AutomationJobStatus>(POST_PRODUCTION_STATUSES)
+
+// Etsy: comprobar si ya publicaste el draft cada 30 minutos.
+const ETSY_REVIEW_POLL_MS = 30 * 60_000
+const MAX_AUTOMATIC_RETRIES = 3
+const RETRY_DELAY_MS = 10 * 60_000
+
+export class PostProductionError extends Error {
+  constructor(message: string, readonly transient = false) {
+    super(message)
+  }
+}
+
+function isTransient(error: unknown) {
+  if (error instanceof PostProductionError) return error.transient
+  const message = error instanceof Error ? error.message : String(error)
+  return /\b(429|500|502|503|504)\b|timeout|timed out|ECONNRESET|ETIMEDOUT|fetch failed|socket hang up/i.test(message)
+}
+
+function errorMessage(error: unknown) {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 2000)
+}
+
+// ---- Datos del trabajo ----
+
+function verifiedFiles(repository: AutomationRepository, jobId: string) {
+  return repository.listJobFiles(jobId).filter((file) => file.status === "VERIFIED" && file.r2Key)
+}
+
+function fileBySlot(files: AutomationJobFile[], slotKey: string) {
+  return files.find((file) => file.slotKey === slotKey) || null
+}
+
+/** Fotos del listing en el orden de Etsy (la vista previa, 12.jpg, va segunda). */
+export function listingImagesInEtsyOrder(job: AutomationJob, files: AutomationJobFile[], publicUrl: (key: string) => string) {
+  const order = getProductionProductContract(job.productType).listing.etsyImageOrder
+  const images: Array<{ id: string; position: number; url: string }> = []
+  for (const slot of order) {
+    const file = fileBySlot(files, `listing:${slot}`)
+    if (!file?.r2Key) throw new PostProductionError(`Falta la imagen ${slot} del listing en R2.`)
+    images.push({ id: `listing-${slot}`, position: images.length + 1, url: publicUrl(file.r2Key) })
+  }
+  return images
+}
+
+export function keywordResearchFromBrief(briefJson: string | null) {
+  if (!briefJson) return null
+  try {
+    const brief = JSON.parse(briefJson) as Partial<DesignBrief>
+    const lines: string[] = []
+    const describe = (label: string, item: NonNullable<DesignBrief["primaryKeyword"]>) => {
+      const metrics = [
+        item.etsyMonthlySearches != null ? `${item.etsyMonthlySearches} searches/month` : null,
+        item.competingListings != null ? `${item.competingListings} competing listings` : null,
+        item.competition ? `competition ${item.competition}` : null,
+        item.trend3m != null ? `3-month trend ${Math.round(item.trend3m * 100)}%` : null,
+      ].filter(Boolean)
+      lines.push(`${label}: "${item.keyword}"${metrics.length ? ` (${metrics.join(", ")})` : ""}`)
+    }
+    if (brief.primaryKeyword?.keyword) describe("Primary keyword", brief.primaryKeyword)
+    for (const keyword of brief.secondaryKeywords || []) {
+      if (keyword?.keyword) describe("Secondary keyword", keyword)
+    }
+    if (brief.collection) lines.push(`Collection: ${brief.collection}`)
+    if (brief.rationale) lines.push(`Why this design: ${brief.rationale}`)
+    return lines.length ? lines.join("\n") : null
+  } catch {
+    return null
+  }
+}
+
+function parseSeo(job: AutomationJob): EtsySeoResult {
+  if (!job.seoJson) throw new PostProductionError("El SEO de este listing no está generado.")
+  return JSON.parse(job.seoJson) as EtsySeoResult
+}
+
+// ---- Pasos ----
+
+type StepContext = { job: AutomationJob; deps: PostProductionDeps; files: AutomationJobFile[] }
+
+async function etsyDraft({ job, deps }: StepContext): Promise<DraftRef> {
+  if (!job.etsyDraftId) throw new PostProductionError("El trabajo no tiene draft de Etsy asignado.")
+  const token = await deps.getEtsyToken()
+  if (!token) throw new PostProductionError("Etsy no está conectado en Autolisty. Conéctalo y reintenta.")
+  return { token, shopId: await deps.getShopId(token), listingId: job.etsyDraftId }
+}
+
+function move(ctx: StepContext, to: AutomationJobStatus, message?: string) {
+  ctx.job = ctx.deps.repository.transitionJob(ctx.job.id, to, { message })
+  return ctx.job
+}
+
+async function stepAssignDraft(ctx: StepContext) {
+  const draftId = ctx.deps.repository.assignDraftToJob(ctx.job.id)
+  if (!draftId) {
+    const label = getProductionProductContract(ctx.job.productType).label
+    throw new PostProductionError(`No quedan drafts de Etsy disponibles para ${label}. Añade drafts en Automation y reintenta.`)
+  }
+  move(ctx, "DRAFT_ASSIGNED", `Draft de Etsy ${draftId} asignado.`)
+}
+
+async function stepSeo(ctx: StepContext) {
+  if (ctx.job.status === "DRAFT_ASSIGNED") move(ctx, "SEO_GENERATING")
+  const images = listingImagesInEtsyOrder(ctx.job, ctx.files, ctx.deps.publicUrl)
+  const preview = fileBySlot(ctx.files, "listing:12") || fileBySlot(ctx.files, "listing:1")
+  const seo = await ctx.deps.generateSeo({
+    productType: ctx.job.productType,
+    draftListingId: ctx.job.etsyDraftId!,
+    designUrl: ctx.deps.publicUrl(preview!.r2Key!),
+    mockups: images,
+    midjourneyPrompt: ctx.job.sourcePrompt,
+    listingId: ctx.job.productCode,
+    keywordResearch: keywordResearchFromBrief(ctx.job.briefJson),
+  })
+  ctx.deps.repository.updatePostProductionFields(ctx.job.id, { seoJson: JSON.stringify(seo) })
+  move(ctx, "SEO_READY", `SEO generado: ${seo.title}`)
+}
+
+async function stepDelivery(ctx: StepContext) {
+  if (ctx.job.status === "SEO_READY") move(ctx, "DELIVERY_PREPARING")
+  const option = getProductOption(ctx.job.productType)
+  let delivery: { url: string; filename: string }
+  if (option.delivery.mode === "direct") {
+    const design = fileBySlot(ctx.files, "deliverable:design")
+    if (!design?.r2Key) throw new PostProductionError("Falta el Design.png verificado en R2.")
+    delivery = { url: ctx.deps.publicUrl(design.r2Key), filename: "Design.png" }
+  } else {
+    const pdf = await ctx.deps.buildDeliveryPdf(ctx.job.productType, ctx.job.productCode)
+    delivery = { url: pdf.url, filename: `${ctx.job.productCode}.pdf` }
+  }
+  ctx.deps.repository.updatePostProductionFields(ctx.job.id, {
+    deliveryUrl: delivery.url,
+    deliveryFilename: delivery.filename,
+  })
+  move(ctx, "DELIVERY_READY", `Entrega lista: ${delivery.filename}`)
+}
+
+async function stepEtsyText(ctx: StepContext) {
+  if (ctx.job.status === "DELIVERY_READY") move(ctx, "ETSY_TEXT_SYNCING")
+  const seo = parseSeo(ctx.job)
+  await ctx.deps.syncText(await etsyDraft(ctx), {
+    title: seo.title,
+    description: seo.description_final,
+    tags: seo.tags_13,
+    attributes: (seo.etsy_attributes || []).map((attribute) => ({
+      propertyId: attribute.propertyId,
+      valueIds: attribute.valueIds,
+      values: attribute.values,
+      scaleId: attribute.scaleId ?? null,
+    })),
+  })
+  move(ctx, "ETSY_MEDIA_SYNCING", "Título, descripción, tags y atributos en Etsy.")
+}
+
+async function stepEtsyMedia(ctx: StepContext) {
+  const seo = parseSeo(ctx.job)
+  const altById = new Map((seo.media || []).map((item) => [item.id, item.alt_text]))
+  const images = listingImagesInEtsyOrder(ctx.job, ctx.files, ctx.deps.publicUrl)
+  await ctx.deps.syncImages(
+    await etsyDraft(ctx),
+    images.map((image) => ({ url: image.url, rank: image.position, altText: altById.get(image.id) }))
+  )
+  move(ctx, "ETSY_FILE_SYNCING", `${images.length} fotos subidas a Etsy.`)
+}
+
+async function stepEtsyFile(ctx: StepContext) {
+  if (!ctx.job.deliveryUrl || !ctx.job.deliveryFilename) {
+    throw new PostProductionError("No hay archivo de entrega preparado.")
+  }
+  await ctx.deps.syncFile(await etsyDraft(ctx), { url: ctx.job.deliveryUrl, filename: ctx.job.deliveryFilename })
+  const video = fileBySlot(ctx.files, "listing:2")
+  if (video?.r2Key) {
+    move(ctx, "ETSY_VIDEO_SYNCING", "Archivo digital subido a Etsy.")
+  } else {
+    waitForReview(ctx, "Archivo digital subido a Etsy. Draft listo para revisar.")
+  }
+}
+
+async function stepEtsyVideo(ctx: StepContext) {
+  const video = fileBySlot(ctx.files, "listing:2")
+  try {
+    if (video?.r2Key) {
+      await ctx.deps.syncVideo(await etsyDraft(ctx), {
+        url: ctx.deps.publicUrl(video.r2Key),
+        name: `${ctx.job.productCode}.mp4`,
+      })
+    }
+    waitForReview(ctx, "Video subido. Draft listo para revisar.")
+  } catch (error) {
+    // El video es opcional: si Etsy lo rechaza, el draft sigue adelante sin él.
+    ctx.deps.repository.recordJobEvent(ctx.job.id, "WARNING", `No se pudo subir el video: ${errorMessage(error)}`)
+    waitForReview(ctx, "Draft listo para revisar (sin video).")
+  }
+}
+
+function waitForReview(ctx: StepContext, message: string) {
+  move(ctx, "WAITING_ETSY_REVIEW", message)
+  const now = (ctx.deps.now || (() => new Date()))()
+  ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, {
+    etsyState: "draft",
+    nextAttemptAt: new Date(now.getTime() + ETSY_REVIEW_POLL_MS).toISOString(),
+  })!
+}
+
+async function stepCheckPublished(ctx: StepContext) {
+  const draft = await etsyDraft(ctx)
+  const listing = await ctx.deps.getListing(draft.token, draft.shopId, draft.listingId)
+  const state = String(listing?.state || "")
+  if (state === "active") {
+    ctx.deps.repository.updatePostProductionFields(ctx.job.id, {
+      etsyState: state,
+      etsyUrl: String(listing?.url || "") || null,
+    })
+    move(ctx, "ETSY_ACTIVE", "Publicado en Etsy.")
+    return
+  }
+  const now = (ctx.deps.now || (() => new Date()))()
+  ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, {
+    etsyState: state || null,
+    nextAttemptAt: new Date(now.getTime() + ETSY_REVIEW_POLL_MS).toISOString(),
+  })!
+}
+
+const STEP_BY_STATUS: Partial<Record<AutomationJobStatus, (ctx: StepContext) => Promise<void>>> = {
+  LOCAL_COMPLETE: stepAssignDraft,
+  DRAFT_ASSIGNED: stepSeo,
+  SEO_GENERATING: stepSeo,
+  SEO_READY: stepDelivery,
+  DELIVERY_PREPARING: stepDelivery,
+  DELIVERY_READY: stepEtsyText,
+  ETSY_TEXT_SYNCING: stepEtsyText,
+  ETSY_MEDIA_SYNCING: stepEtsyMedia,
+  ETSY_FILE_SYNCING: stepEtsyFile,
+  ETSY_VIDEO_SYNCING: stepEtsyVideo,
+  WAITING_ETSY_REVIEW: stepCheckPublished,
+}
+
+// Estados en los que el worker se detiene con este trabajo y pasa al siguiente.
+const STOP_STATUSES = new Set<AutomationJobStatus>(["WAITING_ETSY_REVIEW", "ETSY_ACTIVE"])
+
+/** Avanza un trabajo todo lo posible. Devuelve el estado final. */
+export async function advanceJob(job: AutomationJob, deps: PostProductionDeps): Promise<AutomationJob> {
+  const ctx: StepContext = { job, deps, files: verifiedFiles(deps.repository, job.id) }
+
+  if (ctx.job.status === "RETRY_WAIT") {
+    if (!ctx.job.resumeStatus || !SERVER_STATUSES.has(ctx.job.resumeStatus)) return ctx.job
+    move(ctx, ctx.job.resumeStatus, "Reintento automático.")
+  }
+
+  const startedWaiting = ctx.job.status === "WAITING_ETSY_REVIEW"
+  for (let guard = 0; guard < 12; guard += 1) {
+    const step = STEP_BY_STATUS[ctx.job.status]
+    if (!step) break
+    const resumeStatus = ctx.job.status
+    try {
+      await step(ctx)
+    } catch (error) {
+      const transient = isTransient(error)
+      const canRetry = transient && ctx.job.retryCount < MAX_AUTOMATIC_RETRIES
+      const now = (deps.now || (() => new Date()))()
+      ctx.job = deps.repository.transitionJob(ctx.job.id, canRetry ? "RETRY_WAIT" : "NEEDS_ATTENTION", {
+        error: errorMessage(error),
+        resumeStatus,
+        nextAttemptAt: canRetry ? new Date(now.getTime() + RETRY_DELAY_MS).toISOString() : null,
+      })
+      break
+    }
+    if (STOP_STATUSES.has(ctx.job.status)) break
+    if (startedWaiting && ctx.job.status === "WAITING_ETSY_REVIEW") break
+  }
+  return ctx.job
+}
+
+/** Una pasada: avanza cada trabajo pendiente (uno tras otro, nunca en paralelo). */
+export async function runPostProductionTick(deps: PostProductionDeps, limit = 10) {
+  const candidates = [
+    ...deps.repository.listPostProductionJobs(POST_PRODUCTION_STATUSES, limit),
+    ...deps.repository.listPostProductionJobs(["RETRY_WAIT"], limit)
+      .filter((job) => job.resumeStatus && SERVER_STATUSES.has(job.resumeStatus)),
+  ]
+  const results: Array<{ productCode: string; status: AutomationJobStatus }> = []
+  for (const job of candidates) {
+    const updated = await advanceJob(job, deps)
+    results.push({ productCode: updated.productCode, status: updated.status })
+  }
+  return results
+}

@@ -1,18 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireOwnerApi } from "@/lib/auth/owner";
 import { getFreshToken } from "@/lib/integrations/tokenSession";
-import { updateListingProperty } from "@/lib/etsy/attributes";
+import { getPrimaryShop, getShopListing } from "@/lib/etsy/listings";
 import {
-  deleteListingFile,
-  deleteListingImage,
-  getPrimaryShop,
-  getShopListing,
-  listListingFiles,
-  listListingImages,
-  updateShopListingText,
-  uploadListingFile,
-  uploadListingImage,
-} from "@/lib/etsy/listings";
+  syncDraftFile,
+  syncDraftImages,
+  syncDraftText,
+  wrapStepError,
+} from "@/lib/etsy/draftSync";
 
 export const runtime = "nodejs";
 
@@ -22,14 +17,6 @@ type SyncMockup = {
   rank: number;
 };
 
-type EtsyExistingImage = {
-  listing_image_id?: number;
-};
-
-type EtsyExistingFile = {
-  listing_file_id?: number;
-};
-
 type EtsyAttributeSelection = {
   propertyId?: number;
   displayName?: string;
@@ -37,43 +24,6 @@ type EtsyAttributeSelection = {
   values?: string[];
   scaleId?: number | null;
 };
-
-function getFilenameFromUrl(url: string, fallback: string) {
-  try {
-    const parsed = new URL(url);
-    const last = parsed.pathname.split("/").filter(Boolean).pop();
-    return decodeURIComponent(last || fallback);
-  } catch {
-    return fallback;
-  }
-}
-
-async function fetchAsset(url: string) {
-  const response = await fetch(url, { cache: "no-store" });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch asset from ${url}`);
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  const contentType = response.headers.get("content-type") || "application/octet-stream";
-
-  return {
-    fileBuffer: Buffer.from(arrayBuffer),
-    contentType,
-  };
-}
-
-function wrapStepError(step: string, error: unknown) {
-  const message =
-    error instanceof Error ? error.message : "Unknown Etsy integration error.";
-  return new Error(`${step}: ${message}`);
-}
-
-function isMissingEtsySubresource(error: unknown) {
-  if (!(error instanceof Error)) return false;
-  return /resource not found/i.test(error.message);
-}
 
 export async function POST(req: Request) {
   const unauthorized = await requireOwnerApi();
@@ -175,110 +125,10 @@ export async function POST(req: Request) {
       );
     }
 
-    try {
-      await updateShopListingText({
-        token,
-        shopId,
-        listingId: draftListingId,
-        title,
-        description,
-        tags,
-      });
-    } catch (error) {
-      throw wrapStepError("Failed while updating Etsy listing text", error);
-    }
-
-    for (const attribute of etsyAttributes) {
-      try {
-        await updateListingProperty({
-          token,
-          shopId,
-          listingId: draftListingId,
-          propertyId: attribute.propertyId,
-          valueIds: attribute.valueIds,
-          values: attribute.values,
-          scaleId: attribute.scaleId,
-        });
-      } catch (error) {
-        throw wrapStepError(
-          `Failed while updating Etsy attribute ${attribute.propertyId}`,
-          error
-        );
-      }
-    }
-
-    let existingImages: EtsyExistingImage[] = [];
-    try {
-      existingImages = await listListingImages(token, shopId, draftListingId);
-    } catch (error) {
-      if (!isMissingEtsySubresource(error)) {
-        throw wrapStepError("Failed while reading existing Etsy listing images", error);
-      }
-    }
-
-    for (const image of existingImages) {
-      if (image.listing_image_id) {
-        try {
-          await deleteListingImage(token, shopId, draftListingId, image.listing_image_id);
-        } catch (error) {
-          throw wrapStepError("Failed while deleting an existing Etsy listing image", error);
-        }
-      }
-    }
-
-    for (const mockup of mockups) {
-      try {
-        const asset = await fetchAsset(mockup.url);
-        await uploadListingImage({
-          token,
-          shopId,
-          listingId: draftListingId,
-          fileBuffer: asset.fileBuffer,
-          contentType: asset.contentType,
-          filename: getFilenameFromUrl(mockup.url, `mockup-${mockup.rank}.jpg`),
-          rank: mockup.rank,
-          altText: mockup.altText,
-        });
-      } catch (error) {
-        throw wrapStepError(
-          `Failed while uploading Etsy mockup image at position ${mockup.rank}`,
-          error
-        );
-      }
-    }
-
-    let existingFiles: EtsyExistingFile[] = [];
-    try {
-      existingFiles = await listListingFiles(token, shopId, draftListingId);
-    } catch (error) {
-      if (!isMissingEtsySubresource(error)) {
-        throw wrapStepError("Failed while reading existing Etsy digital files", error);
-      }
-    }
-
-    for (const file of existingFiles) {
-      if (file.listing_file_id) {
-        try {
-          await deleteListingFile(token, shopId, draftListingId, file.listing_file_id);
-        } catch (error) {
-          throw wrapStepError("Failed while deleting an existing Etsy digital file", error);
-        }
-      }
-    }
-
-    try {
-      const deliveryFile = await fetchAsset(deliveryFileUrl);
-      await uploadListingFile({
-        token,
-        shopId,
-        listingId: draftListingId,
-        fileBuffer: deliveryFile.fileBuffer,
-        contentType: deliveryFile.contentType,
-        filename: deliveryFilename,
-      });
-    } catch (error) {
-      throw wrapStepError("Failed while uploading the Etsy digital file", error);
-    }
+    const draft = { token, shopId, listingId: draftListingId };
+    await syncDraftText(draft, { title, description, tags, attributes: etsyAttributes });
+    await syncDraftImages(draft, mockups);
+    await syncDraftFile(draft, { url: deliveryFileUrl, filename: deliveryFilename });
 
     let refreshedListing: any = null;
 

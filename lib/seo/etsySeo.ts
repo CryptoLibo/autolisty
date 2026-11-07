@@ -1,0 +1,1941 @@
+// SEO de Etsy (título, descripción, tags, atributos y alt text). Lo usan la ruta
+// manual /api/generate y el flujo automático del servidor.
+import OpenAI from "openai"
+import fs from "fs"
+import path from "path"
+import { getFreshToken } from "@/lib/integrations/tokenSession"
+import { getSellerTaxonomyProperties } from "@/lib/etsy/attributes"
+import { getPrimaryShop, getShopListing } from "@/lib/etsy/listings"
+import { normalizeProductType } from "@/lib/products"
+
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
+})
+
+const REMOTE_IMAGE_TIMEOUT_MS = 30000
+const REMOTE_IMAGE_MAX_RETRIES = 2
+
+type ProductConfig = {
+  product_name?: string
+  title_rules?: {
+    mandatory_terms?: string[]
+    seo_priorities?: Record<string, unknown>
+    word_rules?: {
+      min_words?: number
+      max_words?: number
+      max_characters?: number
+      target_full_word_budget?: boolean
+    }
+    allow_variations?: string[]
+  }
+  normalization_rules?: {
+    primary_product_term?: string
+    alternate_product_terms?: string[]
+    title_suffix?: string
+    comma_after_product_term?: boolean
+    title_format?: string
+    keyword_fallback_phrases?: string[]
+  }
+  description_rules?: {
+    template_file?: string
+  }
+  tag_rules?: {
+    max_tags?: number
+    max_characters?: number
+  }
+  image_rules?: {
+    alt_text?: {
+      min_characters?: number
+      max_characters?: number
+    }
+  }
+}
+
+type ResolvedProductConfig = ProductConfig & {
+  product_name: string
+  description_rules: {
+    template_file: string
+  }
+  tag_rules: {
+    max_tags: number
+    max_characters: number
+  }
+  image_rules: {
+    alt_text: {
+      min_characters: number
+      max_characters: number
+    }
+  }
+}
+
+type SeoKnowledge = {
+  product_type?: string
+  title_tag_examples?: Array<{
+    title?: string
+    tags?: string[]
+  }>
+}
+
+type EtsyAttributePromptOption = {
+  property_id: number
+  display_name: string
+  max_values: number
+  is_multivalued: boolean
+  options: Array<{
+    value_id: number
+    name: string
+    scale_id: number | null
+  }>
+}
+
+type EtsyAttributeSelection = {
+  propertyId: number
+  displayName: string
+  valueIds: number[]
+  values: string[]
+  scaleId: number | null
+}
+
+const ETSY_DYNAMIC_ATTRIBUTE_NAMES = new Set([
+  "primary color",
+  "secondary color",
+  "home style",
+  "room",
+  "subject",
+  "occasion",
+  "holiday",
+])
+
+function cleanText(value: unknown) {
+  return String(value || "").replace(/\s+/g, " ").trim()
+}
+
+function normalizeAttributeName(value: unknown) {
+  return cleanText(value).toLowerCase()
+}
+
+function shouldGenerateEtsyAttribute(productType: string, displayName: string) {
+  const normalized = normalizeAttributeName(displayName)
+  if (!ETSY_DYNAMIC_ATTRIBUTE_NAMES.has(normalized)) return false
+  if (
+    productType !== "png_designs" &&
+    (normalized === "occasion" || normalized === "holiday")
+  ) {
+    return false
+  }
+  if (
+    productType === "png_designs" &&
+    !["subject", "occasion", "holiday"].includes(normalized)
+  ) {
+    return false
+  }
+  if (productType === "nursery_wall_art" && normalized === "room") return false
+  return true
+}
+
+async function loadEtsyAttributeOptionsForDraft({
+  draftListingId,
+  productType,
+}: {
+  draftListingId: string
+  productType: string
+}): Promise<EtsyAttributePromptOption[]> {
+  const listingId = cleanText(draftListingId)
+  if (!/^\d+$/.test(listingId)) {
+    throw new Error("Enter a valid numeric Etsy draft listing ID before generating SEO.")
+  }
+
+  try {
+    const token = await getFreshToken("etsy")
+    if (!token) throw new Error("Etsy is not connected.")
+
+    const shop = await getPrimaryShop(token)
+    const shopId = Number(shop.shop_id)
+    const listing = await getShopListing(token, shopId, listingId)
+    const taxonomyId = Number(listing?.taxonomy_id)
+    if (!Number.isInteger(taxonomyId) || taxonomyId <= 0) {
+      throw new Error("Etsy did not return a valid taxonomy_id for this draft.")
+    }
+
+    const properties = await getSellerTaxonomyProperties(token, taxonomyId)
+
+    return properties
+      .filter((property) => {
+        const displayName = cleanText(property.display_name || property.name)
+        return property.supports_attributes && shouldGenerateEtsyAttribute(productType, displayName)
+      })
+      .map((property) => {
+        const options = Array.isArray(property.possible_values)
+          ? property.possible_values
+              .map((value) => ({
+                value_id: Number(value.value_id),
+                name: cleanText(value.name),
+                scale_id: value.scale_id ? Number(value.scale_id) : null,
+              }))
+              .filter((value) => Number.isInteger(value.value_id) && value.value_id > 0 && value.name)
+          : []
+
+        return {
+          property_id: Number(property.property_id),
+          display_name: cleanText(property.display_name || property.name),
+          max_values: property.is_multivalued
+            ? Math.max(1, Number(property.max_values_allowed || 1))
+            : 1,
+          is_multivalued: Boolean(property.is_multivalued),
+          options,
+        }
+      })
+      .filter(
+        (property) =>
+          Number.isInteger(property.property_id) &&
+          property.property_id > 0 &&
+          property.display_name &&
+          property.options.length > 0
+      )
+  } catch (error: any) {
+    throw new Error(error?.message || "Failed to load Etsy attribute options for this draft.")
+  }
+}
+
+function toDataUrl(buffer: Buffer, mimeType: string) {
+  return `data:${mimeType};base64,${buffer.toString("base64")}`
+}
+
+async function fetchRemoteImageAsDataUrl(url: string, label: string) {
+  const targetUrl = cleanText(url)
+
+  if (!targetUrl) {
+    throw new Error(`Missing image URL for ${label}.`)
+  }
+
+  let lastError: unknown = null
+
+  for (let attempt = 1; attempt <= REMOTE_IMAGE_MAX_RETRIES; attempt += 1) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REMOTE_IMAGE_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(targetUrl, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        throw new Error(`${response.status} while downloading ${targetUrl}`)
+      }
+
+      const arrayBuffer = await response.arrayBuffer()
+      const contentType = response.headers.get("content-type") || "image/jpeg"
+      return toDataUrl(Buffer.from(arrayBuffer), contentType)
+    } catch (error: any) {
+      lastError = error
+
+      if (attempt >= REMOTE_IMAGE_MAX_RETRIES) {
+        if (error?.name === "AbortError") {
+          throw new Error(`Timeout while downloading ${targetUrl}`)
+        }
+
+        throw new Error(error?.message || `Failed downloading ${label}`)
+      }
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  throw new Error(
+    lastError instanceof Error ? lastError.message : `Failed downloading ${label}`
+  )
+}
+
+function resolveProductConfig(productConfig: ProductConfig): ResolvedProductConfig {
+  const productName = cleanText(productConfig.product_name) || "Digital Product"
+  const templateFile = cleanText(productConfig.description_rules?.template_file)
+
+  if (!templateFile) {
+    throw new Error(`Product config for "${productName}" is missing description_rules.template_file`)
+  }
+
+  return {
+    ...productConfig,
+    product_name: productName,
+    description_rules: {
+      template_file: templateFile,
+    },
+    tag_rules: {
+      max_tags: productConfig.tag_rules?.max_tags ?? 13,
+      max_characters: productConfig.tag_rules?.max_characters ?? 20,
+    },
+    image_rules: {
+      alt_text: {
+        min_characters: productConfig.image_rules?.alt_text?.min_characters ?? 200,
+        max_characters: productConfig.image_rules?.alt_text?.max_characters ?? 250,
+      },
+    },
+  }
+}
+
+function loadSeoKnowledge(productType: string): SeoKnowledge {
+  const loadFromFile = (type: string): SeoKnowledge => {
+    const knowledgePath = path.join(process.cwd(), "seo_knowledge", `${type}.json`)
+
+    if (!fs.existsSync(knowledgePath)) {
+      return {
+        product_type: type,
+        title_tag_examples: [],
+      }
+    }
+
+    const parsed = JSON.parse(fs.readFileSync(knowledgePath, "utf-8")) as SeoKnowledge
+    const examples = Array.isArray(parsed.title_tag_examples)
+      ? parsed.title_tag_examples
+          .map((example) => ({
+            title: cleanText(example?.title),
+            tags: Array.isArray(example?.tags)
+              ? example.tags.map((tag) => cleanText(tag)).filter(Boolean)
+              : [],
+          }))
+          .filter((example) => example.title || example.tags.length > 0)
+      : []
+
+    return {
+      product_type: cleanText(parsed.product_type) || type,
+      title_tag_examples: examples,
+    }
+  }
+
+  const knowledge = loadFromFile(productType)
+
+  if (productType === "horizontal_wall_art" && knowledge.title_tag_examples?.length === 0) {
+    return {
+      ...knowledge,
+      title_tag_examples: loadFromFile("vertical_wall_art").title_tag_examples || [],
+    }
+  }
+
+  return knowledge
+}
+
+function normalizeWord(value: string) {
+  return cleanText(value).replace(/^[^\w]+|[^\w]+$/g, "")
+}
+
+function clampAltText(text: string, min = 200, max = 250) {
+  let normalized = cleanText(text)
+
+  if (normalized.length > max) {
+    normalized = normalized.slice(0, max)
+    const lastSpace = normalized.lastIndexOf(" ")
+    if (lastSpace > Math.max(40, min - 20)) normalized = normalized.slice(0, lastSpace)
+  }
+
+  return normalized
+}
+
+function titleCase(input: string) {
+  return cleanText(input)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => {
+      const acronymMatch = word.match(/^([^A-Za-z0-9]*)(TV|AI|PNG|POD|DTF|CNA|RN|LPN|NICU)([^A-Za-z0-9]*)$/i)
+
+      if (acronymMatch) {
+        return `${acronymMatch[1]}${acronymMatch[2].toUpperCase()}${acronymMatch[3]}`
+      }
+
+      if (word.startsWith("(") && word.endsWith(")")) {
+        const inner = word.slice(1, -1)
+        if (inner.toUpperCase() === "DIGITAL DOWNLOAD") {
+          return "(Digital Download)"
+        }
+      }
+
+      if (word.includes("-")) {
+        return word
+          .split("-")
+          .map((part) => {
+            const partUpper = part.toUpperCase()
+            if (!part) return part
+            if (["TV", "AI", "PNG", "POD", "DTF", "CNA", "RN", "LPN", "NICU"].includes(partUpper)) return partUpper
+            return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+          })
+          .join("-")
+      }
+
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    })
+    .join(" ")
+    .replace(/\(digital download\)/gi, "(Digital Download)")
+}
+
+function dedupeWordRoots(words: string[]) {
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const word of words) {
+    const root = word
+      .toLowerCase()
+      .replace(/[(),]/g, "")
+      .replace(/'s$/i, "")
+      .replace(/s$/i, "")
+
+    if (!root) continue
+
+    if (root === "and" || root === "for" || root === "with") {
+      result.push(word)
+      continue
+    }
+
+    if (seen.has(root)) continue
+    seen.add(root)
+    result.push(word)
+  }
+
+  return result
+}
+
+function getTitleSuffix(productConfig: ProductConfig) {
+  return cleanText(productConfig.normalization_rules?.title_suffix) || "(Digital Download)"
+}
+
+function escapeRegex(input: string) {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function getProductTerms(productConfig: ProductConfig) {
+  const preferred =
+    cleanText(productConfig.normalization_rules?.primary_product_term) ||
+    cleanText(productConfig.title_rules?.allow_variations?.[0]) ||
+    cleanText(productConfig.product_name)
+
+  const alternates = [
+    ...(productConfig.normalization_rules?.alternate_product_terms || []),
+    ...(productConfig.title_rules?.allow_variations || []),
+    cleanText(productConfig.product_name),
+  ]
+    .map((item) => cleanText(item))
+    .filter(Boolean)
+
+  const allTerms = uniquePhrases([preferred, ...alternates])
+
+  return {
+    preferred,
+    all: allTerms,
+  }
+}
+
+const WALL_ART_FORMAT_TERMS = [
+  "printable wall art",
+  "vertical wall art",
+  "horizontal wall art",
+  "nursery wall art",
+  "instant download wall art",
+  "digital wall art",
+  "digital download",
+  "instant download",
+  "printable art",
+  "wall art",
+  "wall decor",
+  "home decor",
+  "printable",
+  "digital",
+  "download",
+  "print",
+]
+
+function stripWallArtFormatTerms(value: string) {
+  let output = cleanText(value)
+
+  for (const term of WALL_ART_FORMAT_TERMS) {
+    output = output.replace(new RegExp(`\\b${escapeRegex(term)}\\b`, "gi"), " ")
+  }
+
+  return cleanText(output.replace(/\s+/g, " "))
+}
+
+function wordRoot(word: string) {
+  return normalizeWord(word)
+    .toLowerCase()
+    .replace(/'s$/i, "")
+    .replace(/ies$/i, "y")
+    .replace(/s$/i, "")
+}
+
+function cleanSearchPhrase(value: string, maxWords = 4) {
+  const words = stripWallArtFormatTerms(value)
+    .replace(/\(([^)]*)\)/g, " ")
+    .replace(/[,:;|/]+/g, " ")
+    .replace(/\b(and|with|for|the|a|an|of|in|at)\b/gi, " ")
+    .split(/\s+/)
+    .map((word) => normalizeWord(word))
+    .filter(Boolean)
+
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const word of words) {
+    const root = wordRoot(word)
+    if (!root || seen.has(root)) continue
+    seen.add(root)
+    result.push(word)
+    if (result.length >= maxWords) break
+  }
+
+  return cleanText(result.join(" "))
+}
+
+function firstSearchPhrase(values: unknown[], maxWords = 4): string {
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      const nested: string = firstSearchPhrase(value, maxWords)
+      if (nested) return nested
+      continue
+    }
+
+    const phrase = cleanSearchPhrase(String(value || ""), maxWords)
+    if (phrase.split(/\s+/).filter(Boolean).length >= 2) return phrase
+  }
+
+  return ""
+}
+
+function buildPrintableWallArtTitle(
+  rawTitle: unknown,
+  components: Record<string, unknown>,
+  productConfig: ProductConfig,
+  minWords: number,
+  maxWords: number,
+  maxCharacters: number
+) {
+  const suffix = getTitleSuffix(productConfig)
+  const style = cleanText(components.style)
+  const primary = cleanText(components.primary_subject)
+  const secondary = cleanText(components.secondary_subject)
+  const decorContext = cleanText(components.decor_context)
+  const searchIntent = cleanText((components as any).search_intent)
+  const mood = cleanText((components as any).mood)
+
+  const countWords = (value: string) =>
+    value
+      .replace(/[(),]/g, "")
+      .split(/\s+/)
+      .filter(Boolean).length
+
+  const searchPhrases = Array.isArray((components as any).search_phrases)
+    ? ((components as any).search_phrases as unknown[])
+    : []
+  const rawLead = cleanText(rawTitle).split(",")[0] || cleanText(rawTitle)
+  const subject = firstSearchPhrase(
+    [
+      (components as any).search_core,
+      (components as any).subject_phrase,
+      primary,
+      searchPhrases,
+      searchIntent,
+      rawLead,
+    ],
+    3
+  ) || "Botanical"
+  const styleBlock = firstSearchPhrase(
+    [
+      (components as any).style_phrase,
+      [style, decorContext].filter(Boolean).join(" "),
+      style,
+      searchPhrases,
+    ],
+    3
+  ) || "Modern Botanical"
+  const decorBlock = firstSearchPhrase(
+    [
+      (components as any).decor_phrase,
+      [mood, decorContext].filter(Boolean).join(" "),
+      searchIntent,
+      secondary,
+      searchPhrases,
+    ],
+    3
+  ) || "Nature Decor"
+
+  const removeTitleLabelWords = (words: string[]) =>
+    words.filter((word) => {
+      const root = wordRoot(word)
+      return !["print", "wall", "art", "decor", "digital", "download", "printable", "instant"].includes(root)
+    })
+
+  let subjectWords = removeTitleLabelWords(subject.split(/\s+/).filter(Boolean))
+  let styleWords = removeTitleLabelWords(styleBlock.split(/\s+/).filter(Boolean))
+  let decorWords = removeTitleLabelWords(decorBlock.split(/\s+/).filter(Boolean))
+
+  if (subjectWords.length === 0) subjectWords = ["Botanical"]
+  if (styleWords.length === 0) styleWords = ["Modern", "Botanical"]
+  if (decorWords.length === 0) decorWords = ["Nature"]
+
+  const requiresNurseryIntent =
+    Boolean(productConfig.title_rules?.seo_priorities?.include_nursery_intent_once) ||
+    (productConfig.title_rules?.mandatory_terms || []).some((term) =>
+      /\b(nursery|baby|kids|playroom|child)\b/i.test(term)
+    )
+  const hasNurseryIntent = decorWords.some((word) =>
+    ["nursery", "baby", "kid", "kids", "playroom", "child"].includes(wordRoot(word))
+  )
+
+  if (requiresNurseryIntent && !hasNurseryIntent) {
+    decorWords = ["Nursery", ...decorWords].slice(0, 3)
+  }
+
+  const buildCandidate = () =>
+    `${subjectWords.join(" ")} Print, ${styleWords.join(" ")} Wall Art, ${decorWords.join(" ")} Decor (${suffix})`
+      .replace(/\s+/g, " ")
+      .replace(/\s+,/g, ",")
+      .trim()
+
+  let normalized = buildCandidate()
+
+  while (countWords(normalized) > maxWords && decorWords.length > 2) {
+    decorWords = decorWords.slice(0, -1)
+    normalized = buildCandidate()
+  }
+
+  while (countWords(normalized) > maxWords && styleWords.length > 2) {
+    styleWords = styleWords.slice(0, -1)
+    normalized = buildCandidate()
+  }
+
+  while (countWords(normalized) > maxWords && subjectWords.length > 2) {
+    subjectWords = subjectWords.slice(0, -1)
+    normalized = buildCandidate()
+  }
+
+  const expansionPool = [
+    firstSearchPhrase([secondary], 2),
+    firstSearchPhrase([searchIntent], 2),
+    firstSearchPhrase([mood], 1),
+  ].filter(Boolean)
+
+  while (countWords(normalized) < minWords && expansionPool.length > 0) {
+    const extra = expansionPool.shift()
+    if (!extra) continue
+    const nextDecorWords = uniquePhrases([...decorWords, ...extra.split(/\s+/)]).slice(0, 3)
+    const candidate = `${subjectWords.join(" ")} Print, ${styleWords.join(" ")} Wall Art, ${nextDecorWords.join(" ")} Decor (${suffix})`
+      .replace(/\s+/g, " ")
+      .replace(/\s+,/g, ",")
+      .trim()
+
+    if (countWords(candidate) <= maxWords && candidate.length <= maxCharacters) {
+      decorWords = nextDecorWords
+      normalized = candidate
+    }
+  }
+
+  normalized = titleCase(normalized).replace(/\s+,/g, ",").trim()
+
+  if (normalized.length > maxCharacters) {
+    return normalized.slice(0, maxCharacters).replace(/\s+\S*$/, "").trim()
+  }
+
+  return normalized
+}
+
+function normalizeTitle(
+  rawTitle: unknown,
+  productConfig: ProductConfig,
+  components: Record<string, unknown>,
+  minWords = 13,
+  maxWords = 15,
+  maxCharacters = 140
+) {
+  if (productConfig.normalization_rules?.title_format === "png_design_commas") {
+    return buildPngDesignTitle(
+      rawTitle,
+      components,
+      minWords,
+      maxWords,
+      maxCharacters
+    )
+  }
+
+  if (productConfig.normalization_rules?.title_format === "print_wall_art_commas") {
+    return buildPrintableWallArtTitle(
+      rawTitle,
+      components,
+      productConfig,
+      minWords,
+      maxWords,
+      maxCharacters
+    )
+  }
+
+  let title = cleanText(rawTitle).replace(/\s+,/g, ",")
+
+  if (!title) return ""
+
+  const suffix = getTitleSuffix(productConfig)
+  const productTerms = getProductTerms(productConfig)
+
+  title = titleCase(title)
+
+  const suffixPattern = new RegExp(`${escapeRegex(suffix)}$`, "i")
+
+  if (!suffixPattern.test(title)) {
+    title = title.replace(/\s*\([^)]*\)\s*$/i, "").trim()
+    title += ` ${suffix}`
+  }
+
+  const hasProductTerm = productTerms.all.some((term) => {
+    const pattern = new RegExp(escapeRegex(term), "i")
+    return pattern.test(title)
+  })
+
+  if (!hasProductTerm && productTerms.preferred) {
+    title = `${title.replace(suffixPattern, "").trim()} ${productTerms.preferred} ${suffix}`.trim()
+  }
+
+  const withoutSuffix = title.replace(suffixPattern, "").trim()
+
+  let prefix = withoutSuffix
+  if (prefix.includes(",")) {
+    const firstComma = prefix.indexOf(",")
+    const before = prefix.slice(0, firstComma).trim()
+    const after = prefix.slice(firstComma + 1).replace(/,/g, "").trim()
+    prefix = `${before}, ${after}`.trim()
+  } else if (productConfig.normalization_rules?.comma_after_product_term) {
+    for (const term of productTerms.all) {
+      const pattern = new RegExp(escapeRegex(term), "i")
+      if (pattern.test(prefix)) {
+        prefix = prefix.replace(pattern, (match) => `${match},`)
+        break
+      }
+    }
+  }
+
+  prefix = prefix.replace(/,+/g, ",").replace(/\s+,/g, ",").replace(/,\s*,/g, ",")
+  prefix = prefix.replace(/,\s*$/, "").trim()
+
+  let words = dedupeWordRoots(prefix.split(/\s+/).filter(Boolean))
+  const suffixWords = suffix.replace(/[()]/g, "").split(/\s+/).filter(Boolean).length
+
+  if (words.length > maxWords - suffixWords) {
+    words = words.slice(0, maxWords - suffixWords)
+  }
+
+  let normalized = `${words.join(" ")} ${suffix}`.replace(/\s+/g, " ").trim()
+
+  const commaCount = (normalized.match(/,/g) || []).length
+  if (commaCount === 0 && productConfig.normalization_rules?.comma_after_product_term) {
+    for (const term of productTerms.all) {
+      const pattern = new RegExp(escapeRegex(term), "i")
+      if (pattern.test(normalized)) {
+        normalized = normalized.replace(pattern, (match) => `${match},`)
+        break
+      }
+    }
+  } else if (commaCount > 1) {
+    let usedComma = false
+    normalized = normalized.replace(/,/g, () => {
+      if (usedComma) return ""
+      usedComma = true
+      return ","
+    })
+  }
+
+  normalized = normalized.replace(/\s+/g, " ").trim()
+  normalized = normalized.replace(/\s+/g, " ").trim()
+
+  const finalWords = normalized
+    .replace(/[(),]/g, "")
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (finalWords.length > maxWords) {
+    const parts = normalized
+      .replace(suffixPattern, "")
+      .trim()
+      .split(/\s+/)
+    const allowed = Math.max(minWords, maxWords - suffixWords)
+    normalized = `${parts.slice(0, allowed).join(" ")} ${suffix}`.replace(/\s+/g, " ").trim()
+  }
+
+  if (normalized.length > maxCharacters) {
+    normalized = normalized.slice(0, maxCharacters).replace(/\s+\S*$/, "").trim()
+  }
+
+  return normalized
+}
+
+function normalizeTags(tags: unknown, maxTags = 13, maxChars = 20) {
+  const values = Array.isArray(tags) ? tags : []
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const tag of values) {
+    let clean = cleanText(tag)
+    if (!clean) continue
+
+    if (clean.length > maxChars) {
+      const truncated = clean.slice(0, maxChars)
+      const lastSpace = truncated.lastIndexOf(" ")
+      clean = lastSpace > 0 ? truncated.slice(0, lastSpace) : ""
+    }
+
+    clean = cleanText(clean)
+    if (!clean) continue
+
+    const key = clean.toLowerCase()
+    if (seen.has(key)) continue
+
+    seen.add(key)
+    result.push(clean)
+  }
+
+  return result.slice(0, maxTags)
+}
+
+function uniquePhrases(values: string[]) {
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const value of values) {
+    const cleaned = cleanText(value)
+    if (!cleaned) continue
+
+    const key = cleaned
+      .toLowerCase()
+      .replace(/[^\w\s]/g, "")
+      .split(/\s+/)
+      .map((word) => word.replace(/s$/i, ""))
+      .join(" ")
+
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    result.push(cleaned)
+  }
+
+  return result
+}
+
+const ATTRIBUTE_STOP_WORDS = new Set([
+  "and",
+  "art",
+  "decor",
+  "digital",
+  "download",
+  "for",
+  "home",
+  "in",
+  "nursery",
+  "of",
+  "print",
+  "printable",
+  "room",
+  "the",
+  "wall",
+  "with",
+])
+
+const ATTRIBUTE_SYNONYM_GROUPS = [
+  ["animal", "animals", "zebra", "lion", "tiger", "bear", "bunny", "rabbit", "dog", "cat", "fox", "giraffe", "elephant", "dinosaur", "dragon", "bird", "fish", "whale"],
+  ["beach", "coastal", "tropical", "ocean", "sea", "surf", "surfboard", "palm", "island"],
+  ["fantasy", "sci", "dragon", "dinosaur", "magic", "mythical", "storybook"],
+  ["flower", "flowers", "floral", "botanical", "blossom", "lotus", "cherry"],
+  ["landscape", "scenery", "mountain", "river", "lake", "forest", "jungle", "lagoon", "garden", "nature"],
+  ["celestial", "sun", "moon", "star", "stars", "rainbow", "cloud", "clouds", "sky"],
+  ["minimalist", "minimal", "simple", "clean", "neutral"],
+  ["contemporary", "modern", "abstract", "geometric", "graphic"],
+  ["rustic", "farmhouse", "country", "vintage", "primitive"],
+  ["bohemian", "boho", "eclectic"],
+]
+
+const HOME_STYLE_OPTION_BOOSTS: Array<{
+  optionWords: string[]
+  evidenceWords: string[]
+  boost: number
+}> = [
+  {
+    optionWords: ["coastal", "tropical"],
+    evidenceWords: ["beach", "coastal", "tropical", "ocean", "sea", "surf", "surfboard", "palm", "island"],
+    boost: 12,
+  },
+  {
+    optionWords: ["minimalist"],
+    evidenceWords: ["minimalist", "minimal", "simple", "clean", "neutral", "airy"],
+    boost: 8,
+  },
+  {
+    optionWords: ["contemporary"],
+    evidenceWords: ["contemporary", "modern", "abstract", "geometric", "graphic"],
+    boost: 8,
+  },
+  {
+    optionWords: ["country", "farmhouse"],
+    evidenceWords: ["country", "farmhouse", "rustic", "vintage", "cottage"],
+    boost: 8,
+  },
+  {
+    optionWords: ["rustic", "primitive"],
+    evidenceWords: ["rustic", "primitive", "folk", "vintage", "weathered", "handmade"],
+    boost: 8,
+  },
+  {
+    optionWords: ["bohemian", "eclectic"],
+    evidenceWords: ["bohemian", "boho", "eclectic", "macrame", "mandala"],
+    boost: 6,
+  },
+]
+
+const SUBJECT_FALLBACK_PRIORITY = [
+  "Animal",
+  "Beach & tropical",
+  "Fantasy & Sci Fi",
+  "Flowers",
+  "Landscape & scenery",
+  "Nature",
+  "Celestial & astrology",
+  "Kids & baby",
+  "Abstract & geometric",
+  "Architecture & cityscape",
+  "Educational",
+]
+
+function flattenAttributeEvidence(values: unknown[]): string[] {
+  const result: string[] = []
+
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      result.push(...flattenAttributeEvidence(value))
+      continue
+    }
+
+    if (value && typeof value === "object") {
+      result.push(
+        ...flattenAttributeEvidence(
+          Object.values(value as Record<string, unknown>)
+        )
+      )
+      continue
+    }
+
+    const cleaned = cleanText(value)
+    if (cleaned) result.push(cleaned)
+  }
+
+  return result
+}
+
+function tokenizeAttributeText(values: unknown[]) {
+  const tokens = new Set<string>()
+  const sources = flattenAttributeEvidence(values)
+
+  for (const source of sources) {
+    const words = source
+      .toLowerCase()
+      .replace(/&/g, " ")
+      .replace(/[^\w\s-]/g, " ")
+      .split(/\s+/)
+      .map((word) => wordRoot(word))
+      .filter((word) => word && !ATTRIBUTE_STOP_WORDS.has(word))
+
+    for (const word of words) {
+      tokens.add(word)
+      for (const group of ATTRIBUTE_SYNONYM_GROUPS) {
+        if (group.includes(word)) {
+          group.map(wordRoot).forEach((synonym) => tokens.add(synonym))
+        }
+      }
+    }
+  }
+
+  return tokens
+}
+
+function optionWordRoots(optionName: string) {
+  return optionName
+    .toLowerCase()
+    .replace(/&/g, " ")
+    .replace(/[^\w\s-]/g, " ")
+    .split(/\s+/)
+    .map((word) => wordRoot(word))
+    .filter((word) => word && !ATTRIBUTE_STOP_WORDS.has(word))
+}
+
+function scoreAttributeOption(optionName: string, evidenceTokens: Set<string>) {
+  const optionWords = optionWordRoots(optionName)
+  let score = 0
+
+  for (const word of optionWords) {
+    if (evidenceTokens.has(word)) score += 4
+    for (const token of evidenceTokens) {
+      if (word.length > 3 && token.includes(word)) score += 1
+      if (token.length > 3 && word.includes(token)) score += 1
+    }
+  }
+
+  for (const group of ATTRIBUTE_SYNONYM_GROUPS) {
+    const optionMatches = optionWords.some((word) => group.map(wordRoot).includes(word))
+    const evidenceMatches = group.map(wordRoot).some((word) => evidenceTokens.has(word))
+    if (optionMatches && evidenceMatches) score += 6
+  }
+
+  return score
+}
+
+function fallbackPriorityScore(optionName: string) {
+  const normalized = normalizeAttributeName(optionName)
+  const index = SUBJECT_FALLBACK_PRIORITY.findIndex(
+    (item) => normalizeAttributeName(item) === normalized
+  )
+  return index === -1 ? 0 : SUBJECT_FALLBACK_PRIORITY.length - index
+}
+
+function fillSubjectOptions(
+  selectedOptions: EtsyAttributePromptOption["options"],
+  optionSet: EtsyAttributePromptOption,
+  evidenceTokens: Set<string>
+) {
+  const targetCount = Math.min(3, optionSet.max_values, optionSet.options.length)
+  if (targetCount <= selectedOptions.length) return selectedOptions.slice(0, targetCount)
+
+  const selectedIds = new Set(selectedOptions.map((option) => option.value_id))
+  const ranked = optionSet.options
+    .filter((option) => !selectedIds.has(option.value_id))
+    .map((option, index) => ({
+      option,
+      index,
+      score:
+        scoreAttributeOption(option.name, evidenceTokens) * 10 +
+        fallbackPriorityScore(option.name),
+    }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+
+  const filled = [...selectedOptions]
+  for (const candidate of ranked) {
+    if (filled.length >= targetCount) break
+    filled.push(candidate.option)
+  }
+
+  return filled
+}
+
+function buildPngDesignTitle(
+  rawTitle: unknown,
+  components: Record<string, unknown>,
+  minWords: number,
+  maxWords: number,
+  maxCharacters: number
+) {
+  const suffix = "| (Digital Download)"
+  const subjectiveWords = new Set([
+    "adorable",
+    "aesthetic",
+    "amazing",
+    "beautiful",
+    "charming",
+    "cute",
+    "gorgeous",
+    "lovely",
+    "perfect",
+    "stunning",
+    "trendy",
+    "unique",
+  ])
+  const repeatableWords = new Set(["a", "an", "and", "before", "for", "of", "the", "to", "with"])
+  const countWords = (value: string) =>
+    value.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*/g)?.length || 0
+
+  const sanitizePrefix = (value: string) => {
+    const seenRoots = new Set<string>()
+    const result: string[] = []
+
+    for (const token of value.split(/\s+/).filter(Boolean)) {
+      const word = normalizeWord(token)
+      const root = wordRoot(word)
+      const carriesComma = token.includes(",")
+
+      if (!root || subjectiveWords.has(root) || root === "digital" || root === "download") {
+        if (carriesComma && result.length > 0 && !result[result.length - 1].endsWith(",")) {
+          result[result.length - 1] += ","
+        }
+        continue
+      }
+
+      if (seenRoots.has(root) && !repeatableWords.has(root)) {
+        if (carriesComma && result.length > 0 && !result[result.length - 1].endsWith(",")) {
+          result[result.length - 1] += ","
+        }
+        continue
+      }
+
+      if (!repeatableWords.has(root)) seenRoots.add(root)
+      result.push(token)
+    }
+
+    return result
+      .join(" ")
+      .replace(/\s+,/g, ",")
+      .replace(/,+/g, ",")
+      .replace(/,\s*,/g, ",")
+      .replace(/^,|,$/g, "")
+      .trim()
+  }
+
+  const structuredBlocks = [
+    cleanText(components.buyer_search_phrase || components.niche_subject_phrase),
+    cleanText(components.design_hook_phrase || components.complementary_phrase),
+    cleanText(components.production_use_phrase || components.audience_use_phrase),
+  ]
+  const structuredTitle = structuredBlocks[0]
+    ? `${structuredBlocks[0]} PNG${structuredBlocks[1] ? `, ${structuredBlocks[1]}` : ""}${structuredBlocks[2] ? `, ${structuredBlocks[2]}` : ""}`
+    : ""
+
+  // Preserve the model's polished commercial phrasing. Structured components are
+  // a fallback only; rebuilding every pass used to overwrite good buyer language.
+  const rawCandidate = cleanText(rawTitle)
+  const weakCatalogLanguage = /\b(healthcare apparel|medical icons|versatile physical products?|commercial use graphic)\b/i
+  let prefix = cleanText(
+    weakCatalogLanguage.test(rawCandidate) && structuredTitle
+      ? structuredTitle
+      : rawCandidate || structuredTitle
+  )
+    .replace(/\s*\|?\s*\(?digital download\)?\s*$/i, "")
+    .replace(/\bPNG\b/gi, (match, offset, source) => {
+      const before = source.slice(0, offset)
+      return /\bPNG\b/i.test(before) ? "" : match
+    })
+    .replace(/\s+,/g, ",")
+    .replace(/,+/g, ",")
+    .replace(/,\s*,/g, ",")
+    .trim()
+
+  if (!/\bPNG\b/i.test(prefix)) {
+    const commaIndex = prefix.indexOf(",")
+    prefix = commaIndex >= 0
+      ? `${prefix.slice(0, commaIndex).trim()} PNG, ${prefix.slice(commaIndex + 1).trim()}`
+      : `${prefix} PNG`
+  }
+
+  prefix = sanitizePrefix(titleCase(prefix).replace(/\bPng\b/g, "PNG"))
+
+  if (!/\bPNG\b/i.test(prefix)) {
+    const commaIndex = prefix.indexOf(",")
+    prefix = commaIndex >= 0
+      ? `${prefix.slice(0, commaIndex).trim()} PNG, ${prefix.slice(commaIndex + 1).trim()}`
+      : `${prefix} PNG`
+  }
+
+  const targetPrefixWords = Math.max(1, maxWords - 2)
+  let tokens = prefix.split(/\s+/).filter(Boolean)
+  while (countWords(tokens.join(" ")) > targetPrefixWords) {
+    tokens.pop()
+  }
+  prefix = tokens.join(" ").replace(/[,:;|-]+$/g, "").trim()
+
+  const expansionSources = [
+    components.production_use_phrase,
+    components.audience_use_phrase,
+    components.design_hook_phrase,
+    components.complementary_phrase,
+    "Sublimation Design",
+    "Physical Product Graphic",
+  ]
+
+  for (const source of expansionSources) {
+    if (countWords(`${prefix} ${suffix}`) >= minWords) break
+    const phrase = cleanText(source)
+    if (!phrase) continue
+
+    const candidate = sanitizePrefix(`${prefix}, ${titleCase(phrase)}`)
+    const candidateWords = countWords(`${candidate} ${suffix}`)
+    if (
+      candidateWords <= maxWords &&
+      candidateWords > countWords(`${prefix} ${suffix}`) &&
+      `${candidate} ${suffix}`.length <= maxCharacters
+    ) {
+      prefix = candidate
+    }
+  }
+
+  let normalized = `${prefix} ${suffix}`.replace(/\s+/g, " ").trim()
+  while (normalized.length > maxCharacters && prefix.includes(" ")) {
+    prefix = prefix.replace(/\s+\S+$/, "").replace(/[,:;|-]+$/g, "").trim()
+    normalized = `${prefix} ${suffix}`
+  }
+
+  return normalized
+}
+
+function refineHomeStyleOption(
+  selectedOptions: EtsyAttributePromptOption["options"],
+  optionSet: EtsyAttributePromptOption,
+  evidenceTokens: Set<string>
+) {
+  if (selectedOptions.length === 0) return selectedOptions
+  const selected = selectedOptions[0]
+  const selectedName = normalizeAttributeName(selected.name)
+
+  const ranked = optionSet.options
+    .map((option, index) => {
+      let score = scoreAttributeOption(option.name, evidenceTokens) * 10
+      const optionWords = optionWordRoots(option.name)
+
+      for (const boost of HOME_STYLE_OPTION_BOOSTS) {
+        const optionMatches = boost.optionWords
+          .map(wordRoot)
+          .some((word) => optionWords.includes(word))
+        const evidenceMatches = boost.evidenceWords
+          .map(wordRoot)
+          .some((word) => evidenceTokens.has(word))
+        if (optionMatches && evidenceMatches) score += boost.boost
+      }
+
+      return { option, index, score }
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+
+  const best = ranked[0]
+  if (!best || best.score <= 0) return selectedOptions
+
+  const selectedScore =
+    ranked.find((entry) => entry.option.value_id === selected.value_id)?.score || 0
+
+  if (
+    selectedName === "bohemian & eclectic" &&
+    normalizeAttributeName(best.option.name) !== selectedName &&
+    best.score >= selectedScore
+  ) {
+    return [best.option]
+  }
+
+  if (best.score >= selectedScore + 12) return [best.option]
+
+  return selectedOptions
+}
+
+function normalizeKeywords5(
+  list: unknown,
+  analysis: Record<string, unknown>,
+  productConfig: ProductConfig,
+  title: string
+) {
+  const requested = Array.isArray(list) ? list : []
+  const titlePhrases = cleanText(title)
+    .split(",")
+    .map((item) => cleanText(item))
+    .filter(Boolean)
+  const searchPhrases = Array.isArray(analysis.search_phrases)
+    ? analysis.search_phrases.map((item) => cleanText(item))
+    : []
+
+  const keywordCoreSources = [
+    cleanText((analysis as any).search_core),
+    ...requested.map((item) => cleanText(item)),
+    cleanText(analysis.search_intent),
+    ...searchPhrases,
+    cleanText(analysis.primary_subject),
+    cleanText(analysis.secondary_subject),
+    cleanText(titlePhrases[0]),
+  ].filter(Boolean) as string[]
+
+  const keywordSupportSources = [
+    ...requested.map((item) => cleanText(item)),
+    ...searchPhrases,
+    cleanText(analysis.primary_subject),
+    cleanText(analysis.secondary_subject),
+    cleanText(analysis.style) && `${cleanText(analysis.style)} decor`,
+    cleanText(analysis.decor_context) && `${cleanText(analysis.decor_context)} decor`,
+    cleanText(analysis.mood) && `${cleanText(analysis.mood)} decor`,
+    cleanText(titlePhrases[0]),
+    cleanText(titlePhrases[1]),
+    ...(productConfig.normalization_rules?.keyword_fallback_phrases || []),
+  ].filter(Boolean) as string[]
+
+  const mainKeyword =
+    firstSearchPhrase(keywordCoreSources, 4) ||
+    firstSearchPhrase(keywordSupportSources, 4) ||
+    "Printable Artwork"
+
+  const supportKeywords = uniquePhrases(
+    keywordSupportSources
+      .map((phrase) => cleanSearchPhrase(phrase, 4))
+      .filter((phrase) => {
+        const words = phrase.split(" ").filter(Boolean)
+        return words.length >= 2 && words.length <= 4
+      })
+  ).filter((phrase) => phrase.toLowerCase() !== mainKeyword.toLowerCase())
+
+  const normalized = uniquePhrases([mainKeyword, ...supportKeywords]).slice(0, 5)
+
+  const finalFallbacks = [
+    "nature artwork",
+    "botanical decor",
+    "gallery wall artwork",
+    "home accent art",
+    "statement artwork",
+  ]
+
+  while (normalized.length < 5) {
+    const fallback = cleanSearchPhrase(finalFallbacks[normalized.length % finalFallbacks.length], 4)
+    if (!fallback || normalized.some((item) => item.toLowerCase() === fallback.toLowerCase())) {
+      break
+    }
+    normalized.push(fallback)
+  }
+
+  return normalized
+}
+
+function normalizeEtsyAttributeSelections(
+  rawSelections: unknown,
+  optionSets: EtsyAttributePromptOption[],
+  evidence: unknown[] = []
+): EtsyAttributeSelection[] {
+  if (!Array.isArray(rawSelections) || optionSets.length === 0) return []
+
+  const evidenceTokens = tokenizeAttributeText([
+    ...flattenAttributeEvidence(evidence),
+    ...flattenAttributeEvidence(rawSelections),
+  ])
+  const optionSetById = new Map(optionSets.map((optionSet) => [optionSet.property_id, optionSet]))
+  const optionSetByName = new Map(
+    optionSets.map((optionSet) => [normalizeAttributeName(optionSet.display_name), optionSet])
+  )
+  const result: EtsyAttributeSelection[] = []
+
+  for (const rawSelection of rawSelections) {
+    if (!rawSelection || typeof rawSelection !== "object") continue
+    const selection = rawSelection as Record<string, unknown>
+    const propertyId = Number(selection.property_id || selection.propertyId)
+    const displayName = cleanText(selection.display_name || selection.displayName)
+    const optionSet =
+      (Number.isInteger(propertyId) ? optionSetById.get(propertyId) : null) ||
+      optionSetByName.get(normalizeAttributeName(displayName))
+
+    if (!optionSet) continue
+
+    const requestedValues = Array.isArray(selection.values)
+      ? selection.values.map((value) => cleanText(value)).filter(Boolean)
+      : []
+    const optionsByName = new Map(
+      optionSet.options.map((option) => [normalizeAttributeName(option.name), option])
+    )
+    const selectedOptions = uniquePhrases(requestedValues)
+      .map((value) => optionsByName.get(normalizeAttributeName(value)))
+      .filter((option): option is EtsyAttributePromptOption["options"][number] => Boolean(option))
+      .slice(0, optionSet.max_values)
+
+    const normalizedDisplayName = normalizeAttributeName(optionSet.display_name)
+    const finalOptions =
+      normalizedDisplayName === "subject"
+        ? fillSubjectOptions(selectedOptions, optionSet, evidenceTokens)
+        : normalizedDisplayName === "home style"
+          ? refineHomeStyleOption(selectedOptions, optionSet, evidenceTokens)
+          : selectedOptions
+
+    if (finalOptions.length === 0) continue
+
+    const scaleIds = uniquePhrases(
+      finalOptions
+        .map((option) => (option.scale_id ? String(option.scale_id) : ""))
+        .filter(Boolean)
+    )
+    const scaleId = scaleIds.length === 1 ? Number(scaleIds[0]) : null
+
+    result.push({
+      propertyId: optionSet.property_id,
+      displayName: optionSet.display_name,
+      valueIds: finalOptions.map((option) => option.value_id),
+      values: finalOptions.map((option) => option.name),
+      scaleId,
+    })
+  }
+
+  const subjectOptionSet = optionSets.find(
+    (optionSet) => normalizeAttributeName(optionSet.display_name) === "subject"
+  )
+  const hasSubject = result.some(
+    (selection) => normalizeAttributeName(selection.displayName) === "subject"
+  )
+
+  if (subjectOptionSet && !hasSubject) {
+    const finalOptions = fillSubjectOptions([], subjectOptionSet, evidenceTokens)
+    if (finalOptions.length > 0) {
+      const scaleIds = uniquePhrases(
+        finalOptions
+          .map((option) => (option.scale_id ? String(option.scale_id) : ""))
+          .filter(Boolean)
+      )
+      const scaleId = scaleIds.length === 1 ? Number(scaleIds[0]) : null
+
+      result.push({
+        propertyId: subjectOptionSet.property_id,
+        displayName: subjectOptionSet.display_name,
+        valueIds: finalOptions.map((option) => option.value_id),
+        values: finalOptions.map((option) => option.name),
+        scaleId,
+      })
+    }
+  }
+
+  return result
+}
+
+function fillTemplate(template: string, keywords5: string[]) {
+  let output = template
+
+  for (let i = 0; i < 5; i++) {
+    output = output.replaceAll(`KEYWORD_${i + 1}`, keywords5[i] || "")
+  }
+
+  return output
+}
+
+function appendListingId(description: string, listingId: string | null) {
+  const cleanListingId = cleanText(listingId)
+  if (!cleanListingId) return description
+
+  const shortCode = cleanListingId.split("-").pop() || cleanListingId
+  const marker = cleanText(shortCode)
+  const normalized = description.trim()
+
+  if (!normalized) return marker
+  if (normalized.includes(marker)) return normalized
+
+  return `${normalized}\n\n${marker}`
+}
+
+async function rewriteTitleAndAltTexts({
+  productConfig,
+  listingTitle,
+  analysis,
+  mediaDrafts,
+}: {
+  productConfig: ProductConfig
+  listingTitle: string
+  analysis: Record<string, unknown>
+  mediaDrafts: Array<{
+    id: string
+    position: number
+    alt_text: string
+  }>
+}) {
+  if (mediaDrafts.length === 0) {
+    return {
+      title: listingTitle,
+      media: mediaDrafts,
+    }
+  }
+
+  const minAlt = productConfig?.image_rules?.alt_text?.min_characters ?? 200
+  const maxAlt = productConfig?.image_rules?.alt_text?.max_characters ?? 250
+
+  const systemPrompt = `
+You are polishing an Etsy listing title and rewriting Etsy listing image alt text for a digital art product.
+
+YOUR TITLE GOAL
+- Keep the original title strategy and search intent intact.
+- Improve coherence, readability, and phrasing.
+- Remove awkward redundancy and clumsy wording.
+- Do not turn the title into a completely new title.
+- Preserve the product type and overall keyword intent.
+- For wall art ratio products, avoid redundant constructions such as "Printable Print" or repeated product nouns.
+- For PNG Designs, never repeat the same meaningful word or close grammatical form. Preserve the design's meaning, then use complementary terms or synonyms across the title blocks.
+- For PNG Designs, think like the buyer searching Etsy, not like an image-captioning system. The title must target a realistic product-intent query.
+- For PNG Designs, the first title block must be the strongest buyer search phrase combining the niche with the season, audience, subject, or intended physical product when relevant, such as "Halloween Nurse Shirt PNG". A physical-product word describes what the PNG is intended to make; never imply that the listing delivers that physical item.
+- For PNG Designs, visible text may appear only as a complementary phrase when it has 4 words or fewer and adds useful search meaning. Never copy a long sentence or paragraph from the artwork into the title.
+- For PNG Designs, remove subjective promotional adjectives such as cute, aesthetic, beautiful, perfect, lovely, adorable, stunning, gorgeous, amazing, unique, charming, or trendy. Those ideas belong in the description, not the title.
+- For PNG Designs, never leave a broad word such as Healthcare, Gift, Design, Graphic, or Sublimation dangling by itself at the end of a title block. Attach it to a meaningful buyer phrase.
+- For PNG Designs, prefer natural buyer vocabulary such as nurse shirt, teacher tee, mug design, or sublimation design. Avoid catalog-like abstractions such as "medical icons for healthcare apparel" when a direct shopping phrase exists.
+- Keep the title commercially strong, polished, and natural.
+
+YOUR GOAL
+- Rewrite each alt text so it sounds fully natural, human, and coherent.
+- Describe what is actually visible in the image.
+- Integrate relevant listing keywords naturally, without stuffing.
+- Make each image sound unique.
+
+STRICT RULES
+- Each alt text must be between ${minAlt} and ${maxAlt} characters.
+- Do not append keyword fragments or keyword lists.
+- Do not repeat the exact same keyword phrase across every image.
+- Use complete sentences or one coherent sentence only.
+- Keep the original image id and position exactly.
+- Preserve image-specific differences such as framed mockup, room scene, promo graphic, size guide, or tabletop styling.
+
+OUTPUT
+- Return ONLY valid JSON.
+- Do not add markdown.
+- Do not add commentary.
+  `
+
+  const userPrompt = `
+product_config:
+${JSON.stringify(productConfig)}
+
+listing_title:
+${listingTitle}
+
+listing_analysis:
+${JSON.stringify(analysis)}
+
+Polish the title and rewrite the following alt text drafts into polished final alt text:
+${JSON.stringify(mediaDrafts)}
+
+Return JSON in this exact shape:
+{
+  "title": "",
+  "media": [
+    { "id": "", "position": 0, "alt_text": "" }
+  ]
+}
+`
+
+  const response = await client.responses.create({
+    model: "gpt-5.4-mini",
+    temperature: 0.2,
+    input: [
+      {
+        role: "system",
+        content: [{ type: "input_text", text: systemPrompt }],
+      },
+      {
+        role: "user",
+        content: [{ type: "input_text", text: userPrompt }],
+      },
+    ],
+  })
+
+  const raw = response.output_text || ""
+  const start = raw.indexOf("{")
+  const end = raw.lastIndexOf("}")
+
+  if (start === -1 || end === -1) {
+    return {
+      title: listingTitle,
+      media: mediaDrafts,
+    }
+  }
+
+  const parsed = JSON.parse(raw.slice(start, end + 1))
+  const rewrittenMedia = Array.isArray(parsed.media) ? parsed.media : []
+  const polishedTitle = cleanText(parsed.title) || listingTitle
+
+  return {
+    title: polishedTitle,
+    media: mediaDrafts.map((draft) => {
+      const found =
+        rewrittenMedia.find((entry: any) => entry.id === draft.id) ||
+        rewrittenMedia.find((entry: any) => entry.position === draft.position)
+
+      return {
+        ...draft,
+        alt_text: clampAltText(found?.alt_text || draft.alt_text || "", minAlt, maxAlt),
+      }
+    }),
+  }
+}
+
+function buildTitleFromComponents(
+  components: Record<string, unknown>,
+  productConfig: ProductConfig
+) {
+  const suffix = getTitleSuffix(productConfig)
+  if (productConfig.normalization_rules?.title_format === "png_design_commas") {
+    const buyerSearchPhrase = cleanText(
+      components.buyer_search_phrase || components.niche_subject_phrase
+    )
+    const designHookPhrase = cleanText(
+      components.design_hook_phrase || components.complementary_phrase
+    )
+    const productionUsePhrase = cleanText(
+      components.production_use_phrase || components.audience_use_phrase
+    )
+
+    return `${buyerSearchPhrase} PNG${designHookPhrase ? `, ${designHookPhrase}` : ""}${productionUsePhrase ? `, ${productionUsePhrase}` : ""} ${suffix}`
+      .replace(/\s+/g, " ")
+      .replace(/\s+,/g, ",")
+      .trim()
+  }
+
+  const productTerm =
+    cleanText(components.product_term) ||
+    getProductTerms(productConfig).preferred ||
+    cleanText(productConfig.product_name)
+
+  const parts = [
+    cleanText(components.style),
+    cleanText(components.primary_subject),
+    cleanText(components.secondary_subject),
+    productTerm,
+  ].filter(Boolean)
+
+  const decorContext = cleanText(components.decor_context)
+
+  const prefix = decorContext ? `${parts.join(" ")}, ${decorContext}` : parts.join(" ")
+  return `${prefix} ${suffix}`.replace(/\s+/g, " ").trim()
+}
+
+export type GenerateEtsySeoInput = {
+  productType: string
+  draftListingId: string
+  /** URL pública de la imagen del diseño completo. */
+  designUrl: string
+  mockups: Array<{ id: string; position: number; url: string }>
+  /** Prompt con el que se generó el diseño (Midjourney o Kittl). */
+  midjourneyPrompt: string
+  /** Código del producto; se añade al final de la descripción. */
+  listingId: string | null
+  /** Investigación de keywords hecha por Claude (Alura) para este diseño. */
+  keywordResearch?: string | null
+}
+
+export type EtsySeoResult = {
+  title: string
+  description_keywords_5: string[]
+  description_final: string
+  tags_13: string[]
+  etsy_attributes: EtsyAttributeSelection[]
+  media: Array<{ id: string; position: number; alt_text: string }>
+}
+
+export async function generateEtsySeo(body: GenerateEtsySeoInput): Promise<EtsySeoResult> {
+  {
+    const { designUrl, mockups = [], midjourneyPrompt, listingId } = body
+    const draftListingId = cleanText(body.draftListingId)
+    const productType = normalizeProductType(body.productType)
+
+    const configPath = path.join(process.cwd(), "product_configs", `${productType}.json`)
+    const rawProductConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")) as ProductConfig
+    const productConfig = resolveProductConfig(rawProductConfig)
+    const seoKnowledge = loadSeoKnowledge(productType)
+
+    const templatePath = path.join(
+      process.cwd(),
+      "templates",
+      productConfig.description_rules.template_file
+    )
+    const descriptionTemplate = fs.readFileSync(templatePath, "utf-8")
+    const etsyAttributeOptions = await loadEtsyAttributeOptionsForDraft({
+      draftListingId,
+      productType,
+    })
+    if (etsyAttributeOptions.length === 0) {
+      throw new Error("No dynamic Etsy attribute options were found for this draft category.")
+    }
+
+    const designDataUrl = await fetchRemoteImageAsDataUrl(designUrl, "primary design image")
+    const mockupInputs = await Promise.all(
+      mockups.map(async (img: any) => ({
+        id: img.id,
+        position: img.position,
+        dataUrl: await fetchRemoteImageAsDataUrl(
+          img.url,
+          `mockup ${img.position || img.id || "image"}`
+        ),
+      }))
+    )
+
+    const systemPrompt = `
+You are an elite Etsy SEO strategist working across multiple digital Etsy products.
+
+Your workflow is:
+1. Read the product configuration carefully.
+2. Analyze the design image and the Midjourney prompt together.
+3. Extract the strongest searchable signals for Etsy.
+4. Generate a coherent SEO package for the current product.
+
+ANALYSIS PRINCIPLES
+- Use the image as the source of truth for what is visually present.
+- Use the Midjourney prompt to clarify style, subject intent, mood, and missing visual clues.
+- Do not copy Midjourney syntax, weights, parameters, aspect ratios, or camera jargon into the final SEO.
+- Think like an Etsy SEO expert, not like an image captioning model.
+- Before writing the title, silently ask: "What would a buyer type to find a design like this, and what finished physical product do they intend to create?"
+- Treat visual description as evidence, not as the title outline. Translate that evidence into real buyer search language.
+- Prefer concrete, searchable language over vague aesthetic filler.
+- Choose terms that describe what buyers would actually search for on Etsy.
+
+TITLE STRATEGY
+- Build a title that feels intentional, searchable, and coherent.
+- Follow the title rules from product_config exactly.
+- Use seo_market_reference_examples only as market guidance for title shape, phrase flow, and title-to-tag relationship.
+- Do not copy reference titles or tags verbatim unless the phrase is a normal generic Etsy search phrase.
+- Let the reference examples improve the natural connection between keyword clusters, so the title reads like a human searchable phrase rather than disconnected keywords.
+- Use the strongest subject, style, and decor context discovered from the image plus prompt.
+- Avoid stuffing disconnected words together.
+- Avoid awkward phrases such as "Printable Print", repeated product nouns, or keyword chunks with no connector.
+- Do not repeat a meaningful word anywhere in the title. If a visible phrase already contains a word such as coffee or nurse, use complementary language such as caffeine, healthcare, CNA, caregiver, medical worker, mug, apparel, or profession-specific terms later instead of repeating it.
+- Do not use subjective promotional adjectives in titles, including cute, aesthetic, beautiful, perfect, lovely, adorable, stunning, gorgeous, amazing, unique, charming, or trendy. Put that language in the description when useful.
+- Prefer a strong search phrase cluster over decorative adjectives.
+- If the product rules require a full word budget, use as much of that allowed budget as possible without breaking coherence.
+- For wall art ratio products, think in 3 clear blocks: subject cluster ending in "Print", style/decor cluster ending in "Wall Art", and a final "(Digital Download)" suffix.
+- For wall art ratio products, build title_components as buyer-search phrases, not loose words:
+  1. search_core / subject_phrase = the strongest 2-4 word visual search phrase without product terms.
+  2. style_phrase = the art style or visual category that makes the piece searchable.
+  3. decor_phrase = the decor mood, room fit, or buyer intent without repeating the product term.
+- The title should read like: "[meaningful subject phrase] Print, [style phrase] Wall Art, [decor phrase] Decor (Digital Download)" while staying inside the product_config word and character limits.
+
+PRODUCT-SPECIFIC SEO INTENT
+- For horizontal_wall_art, treat the product as standard wall art for SEO. Do not mention horizontal, wide, orientation, ratio, dimensions, or landscape as a product orientation in the title, tags, or description keywords. Use landscape only when the artwork is genuinely a landscape scene.
+- For nursery_wall_art, keep the same wall art title structure, but make the buyer intent nursery-specific. Include nursery, baby room, kids room, or playroom intent naturally once in the title, preferably in the decor phrase, and avoid repeating nursery/baby/kids roots across the title.
+- For nursery_wall_art, tags and description keywords should acknowledge the nursery niche without becoming repetitive. Use nursery intent as one part of the SEO mix, then keep the rest focused on subject, style, mood, color, and decor context.
+- For png_designs, treat the uploaded transparent graphic as a reusable design for finished physical products, not as wall art and not as a T-shirt-only product. However, when one intended product forms a strong real buyer query, it may lead the title, for example "Halloween Nurse Shirt PNG".
+- For png_designs, identify visible text accurately, but treat it as supporting information rather than the primary title strategy.
+- For png_designs, lead with the strongest realistic buyer query, followed by PNG. Build that query from the most commercially important combination of niche, season, audience, subject, and intended finished product. Do not mechanically lead with the largest object in the image.
+- For png_designs, create a natural three-part title: (1) buyer search phrase ending in PNG, (2) differentiating design hook or short visible phrase, and (3) searchable subject plus production use, followed by the exact suffix "| (Digital Download)".
+- For png_designs, title_components.buyer_search_phrase must be a coherent 3-5 word phrase without PNG or file-format terms. It should resemble a query a buyer would genuinely type, such as "Halloween Nurse Shirt" rather than "Medical Icons".
+- For png_designs, title_components.design_hook_phrase must be 2-4 words and may use the exact visible phrase only when it is short, legible, relevant, and commercially useful; otherwise express the concept, humor, season, or differentiator.
+- For png_designs, title_components.production_use_phrase must be a coherent 2-4 word phrase joining a concrete subject, audience, or production use. Never output disconnected object inventories such as "Stethoscope Cap".
+- For png_designs, do not use formal category language such as "healthcare apparel", "versatile physical product", or "commercial use graphic" merely to fill the word target. Prefer a direct long-tail phrase that carries search intent.
+- For png_designs, use exactly 13 or 14 words including "Digital Download", prefer 14, use PNG exactly once, and do not make Sublimation Design mandatory. Every meaningful word root should appear only once. Vary complementary terms such as sublimation design, shirt graphic, printable graphic, commercial use, profession, hobby, season, and recipient only when they genuinely fit.
+- For png_designs, never describe the file as SVG, editable, layered, a cut file, or a physical product.
+- Before returning a png_designs title, verify all three questions: Could a real buyer plausibly type the opening phrase? Does the rest distinguish this exact design? Is it unmistakable that the item sold is a digital PNG rather than the pictured physical product? Rewrite the title if any answer is no.
+
+SELLER KEYWORD RESEARCH
+- seller_keyword_research, when present, holds real Etsy search data (monthly searches, competition, trend) chosen for this exact design before it was created.
+- Prefer the primary keyword as the opening buyer phrase of the title and as KEYWORD_1 whenever it matches what is visible; adapt word order or plurals so it reads naturally and respects the title rules.
+- Use secondary keywords as tags or description keywords when they fit the artwork. Never force a keyword that contradicts the image.
+
+DESCRIPTION KEYWORDS STRATEGY
+- Generate exactly 5 keyword phrases.
+- These phrases must strengthen the existing description template.
+- KEYWORD_1 must be the strongest Etsy search phrase for this listing, even if it is long-tail, but it must not include format/product terms already provided by the template such as "print", "wall art", "printable", "digital download", or "instant download".
+- For nursery_wall_art, KEYWORD_1 should usually carry the strongest nursery-relevant buyer intent while still avoiding repeated product terms from the template.
+- For png_designs, KEYWORD_1 must be the strongest niche, phrase, subject, profession, season, or audience search phrase. Do not waste a keyword slot on generic format terms such as PNG, digital download, instant download, printable file, or sublimation file.
+- Each keyword must have a distinct role and should not feel generic or repetitive.
+- Keywords must fit the template naturally.
+
+TAG STRATEGY
+- Generate exactly 13 tags.
+- Follow the product configuration.
+- Use seo_market_reference_examples to understand which tag phrases naturally belong with successful titles in this product type.
+- Do not copy an entire reference tag set; adapt the tag mix to the current artwork, title, and search intent.
+- Keep the current good balance across product, style, subject, decor, and digital format.
+- For horizontal_wall_art, do not create orientation tags such as "horizontal art" or "wide wall art"; keep tags about the artwork and buyer search intent.
+- For nursery_wall_art, include only a small number of nursery/baby/kids-room intent tags, then prioritize subject and style tags that fit the design.
+- For png_designs, balance niche, audience, visible phrase, subject, style, season, and physical-use intent. Avoid repeating PNG or sublimation across several tags.
+
+ETSY ATTRIBUTE STRATEGY
+- If etsy_attribute_options is empty, return an empty etsy_attributes array.
+- If etsy_attribute_options contains properties, choose values only from the exact option names provided for each property.
+- Never invent an Etsy attribute value and never return a value that is not listed in etsy_attribute_options.
+- Choose the best Primary color and Secondary color from the actual dominant/supporting colors in the artwork, not from mockup props.
+- Choose Home Style from the actual visual style, subject matter, and buyer decor intent of the artwork. Do not default to "Bohemian & eclectic"; use it only when the design is genuinely boho or eclectic. If the artwork clearly has beach, ocean, surf, palm, island, or tropical cues, prefer "Coastal & tropical" when available. If it is clean/simple, consider "Minimalist" or "Contemporary" when available. If it is rustic, vintage, farmhouse, folk, or primitive, choose the closest available style instead of bohemian.
+- Choose Subject from what is actually represented in the artwork. If Subject is available, select exactly 3 valid Subject values whenever Etsy allows 3. Pick the most specific subject first, then broader supporting subjects, then the closest meaningful fallback from the provided options. Never return fewer than 3 Subject values unless fewer than 3 options are provided.
+- Choose Room only when the property is included in etsy_attribute_options. For nursery_wall_art, Room is normally fixed in the draft and should not be generated.
+- For png_designs, choose Occasion and Holiday only when the artwork has explicit, confident evidence. Omit either property completely when the connection is weak or merely possible.
+- Skip any attribute when none of the available options fit confidently, except Subject, which must still receive the closest 3 valid options when available.
+
+ALT TEXT STRATEGY
+- Analyze each mockup independently.
+- Describe what is actually visible in that image first.
+- Use listing keywords only when they fit naturally.
+- Keep each alt text unique and image-specific.
+- Maintain the original image id and position.
+- Obey the product-specific alt text character range strictly.
+- Rotate keyword emphasis across images instead of repeating the exact same product phrase every time.
+
+OUTPUT
+- Return ONLY valid JSON.
+- Do not add markdown.
+- Do not add commentary.
+`
+
+    const userPrompt = `
+product_config:
+${JSON.stringify(productConfig)}
+
+seo_market_reference_examples:
+${JSON.stringify(seoKnowledge)}
+
+description_template:
+${descriptionTemplate}
+
+etsy_attribute_options:
+${JSON.stringify(etsyAttributeOptions)}
+
+midjourney_prompt:
+${midjourneyPrompt}
+
+seller_keyword_research:
+${body.keywordResearch || "none"}
+
+IMPORTANT IMAGE MAPPING RULES:
+- Use the exact mockup id provided.
+- Do NOT invent, rename, omit, or reorder ids.
+- Each uploaded image must appear exactly once in media when mockups are provided.
+- Keep the exact position value provided for each image.
+
+Return JSON in this exact shape:
+
+{
+  "analysis": {
+    "visible_phrase": "",
+    "buyer_search_phrase": "",
+    "design_hook_phrase": "",
+    "production_use_phrase": "",
+    "niche_subject_phrase": "",
+    "complementary_phrase": "",
+    "audience_use_phrase": "",
+    "primary_subject": "",
+    "secondary_subject": "",
+    "niche": "",
+    "audience": "",
+    "style": "",
+    "decor_context": "",
+    "mood": "",
+    "color_palette": [],
+    "search_intent": "",
+    "physical_product_uses": [],
+    "search_phrases": []
+  },
+  "title_components": {
+    "buyer_search_phrase": "",
+    "design_hook_phrase": "",
+    "production_use_phrase": "",
+    "niche_subject_phrase": "",
+    "complementary_phrase": "",
+    "audience_use_phrase": "",
+    "search_core": "",
+    "subject_phrase": "",
+    "style_phrase": "",
+    "decor_phrase": "",
+    "style": "",
+    "primary_subject": "",
+    "secondary_subject": "",
+    "decor_context": "",
+    "product_term": ""
+  },
+  "title": "",
+  "description_keywords_5": [],
+  "description_final": "",
+  "tags_13": [],
+  "etsy_attributes": [
+    { "property_id": 0, "display_name": "", "values": [] }
+  ],
+  "media": [
+    { "id": "", "position": 0, "alt_text": "" }
+  ]
+}
+`
+    const responseContent = [
+      { type: "input_text" as const, text: userPrompt },
+      { type: "input_text" as const, text: "PRIMARY DESIGN IMAGE" },
+      { type: "input_image" as const, image_url: designDataUrl, detail: "auto" as const },
+      ...mockupInputs.flatMap((img: any) => [
+        {
+          type: "input_text" as const,
+          text: `LISTING IMAGE position=${img.position} id=${img.id}`,
+        },
+        {
+          type: "input_image" as const,
+          image_url: img.dataUrl,
+          detail: "auto" as const,
+        },
+      ]),
+    ]
+
+    const response = await client.responses.create({
+      model: "gpt-5.4-mini",
+      temperature: 0.2,
+      input: [
+        {
+          role: "system",
+          content: [{ type: "input_text", text: systemPrompt }],
+        },
+        {
+          role: "user",
+          content: responseContent,
+        },
+      ],
+    })
+
+    const raw = response.output_text || ""
+    const start = raw.indexOf("{")
+    const end = raw.lastIndexOf("}")
+
+    if (start === -1 || end === -1) {
+      throw new Error("Model did not return JSON")
+    }
+
+    const parsed = JSON.parse(raw.slice(start, end + 1))
+    const analysis = parsed.analysis && typeof parsed.analysis === "object" ? parsed.analysis : {}
+    const titleComponents =
+      parsed.title_components && typeof parsed.title_components === "object"
+        ? { ...analysis, ...parsed.title_components }
+        : analysis
+    const titleBase =
+      cleanText(parsed.title) || buildTitleFromComponents(parsed.title_components || {}, productConfig)
+
+    const title = normalizeTitle(
+      titleBase,
+      productConfig,
+      titleComponents,
+      productConfig?.title_rules?.word_rules?.min_words ?? 13,
+      productConfig?.title_rules?.word_rules?.max_words ?? 15,
+      productConfig?.title_rules?.word_rules?.max_characters ?? 140
+    )
+    const tags = normalizeTags(
+      parsed.tags_13,
+      productConfig.tag_rules.max_tags,
+      productConfig.tag_rules.max_characters
+    )
+    const keywords5 = normalizeKeywords5(parsed.description_keywords_5, titleComponents, productConfig, title)
+    const description = appendListingId(
+      fillTemplate(descriptionTemplate, keywords5),
+      listingId
+    )
+    const etsyAttributes = normalizeEtsyAttributeSelections(
+      parsed.etsy_attributes,
+      etsyAttributeOptions,
+      [
+        midjourneyPrompt,
+        title,
+        tags,
+        keywords5,
+        analysis,
+        titleComponents,
+      ]
+    )
+
+    const parsedMedia = Array.isArray(parsed.media) ? parsed.media : []
+    const mediaDrafts = mockups.map((img: any, index: number) => {
+      const foundById = parsedMedia.find((entry: any) => entry.id === img.id)
+      const foundByPosition = parsedMedia.find(
+        (entry: any) => entry.position === img.position
+      )
+      const found = foundById || foundByPosition
+      const minAlt = productConfig.image_rules.alt_text.min_characters
+      const maxAlt = productConfig.image_rules.alt_text.max_characters
+
+      return {
+        id: img.id,
+        position: img.position,
+        alt_text: clampAltText(found?.alt_text || "", minAlt, maxAlt),
+      }
+    })
+
+    const polished = await rewriteTitleAndAltTexts({
+      productConfig,
+      listingTitle: title,
+      analysis,
+      mediaDrafts,
+    })
+
+    const polishedTitle = normalizeTitle(
+      polished.title,
+      productConfig,
+      titleComponents,
+      productConfig?.title_rules?.word_rules?.min_words ?? 13,
+      productConfig?.title_rules?.word_rules?.max_words ?? 15,
+      productConfig?.title_rules?.word_rules?.max_characters ?? 140
+    )
+
+    const output = {
+      title: polishedTitle,
+      description_keywords_5: keywords5,
+      description_final: description,
+      tags_13: tags,
+      etsy_attributes: etsyAttributes,
+      media: polished.media,
+    }
+
+    return output as EtsySeoResult
+  }
+}

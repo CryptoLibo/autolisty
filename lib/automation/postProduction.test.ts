@@ -1,0 +1,168 @@
+import { afterEach, describe, expect, it, vi } from "vitest"
+import type Database from "better-sqlite3"
+import { openAutomationDatabase } from "./db/database"
+import { AutomationRepository } from "./repository"
+import { classifyAutomationOutput } from "./outputFiles"
+import { advanceJob, keywordResearchFromBrief, runPostProductionTick, type PostProductionDeps } from "./postProduction"
+import type { AutomationJobStatus } from "./types"
+
+const LOCAL_PATH: AutomationJobStatus[] = [
+  "SOURCE_READY", "QUEUED_LOCAL", "LOCAL_CLAIMED", "LOCAL_BUILDING",
+  "LOCAL_VALIDATING", "LOCAL_UPLOADING", "LOCAL_COMPLETE",
+]
+
+function frameTvJob(repository: AutomationRepository, { video = true } = {}) {
+  const job = repository.createJob({
+    productType: "frame_tv_art",
+    sourcePrompt: "Quiet misty lake at dawn",
+    briefJson: JSON.stringify({
+      primaryKeyword: { keyword: "frame tv art lake", etsyMonthlySearches: 1200, competition: "low" },
+      secondaryKeywords: [{ keyword: "misty landscape art" }],
+    }),
+  })
+  const paths = [
+    ...[1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((slot) => `${slot}.jpg`),
+    ...(video ? ["2.mp4"] : []),
+    "Pines/pin-1.jpg", "Pines/pin-2.jpg", "Pines/pin-3.jpg",
+    "Diseños Finales/FrameTVArt.jpg", "Diseños Finales/Quick Setup Guide.pdf",
+  ]
+  for (const status of LOCAL_PATH.slice(0, 6)) repository.transitionJob(job.id, status)
+  for (const relativePath of paths) {
+    const classified = classifyAutomationOutput({ productType: "frame_tv_art", productCode: job.productCode, relativePath })
+    repository.registerOutputUpload(job.id, { ...classified, contentType: "image/jpeg", byteSize: 10, sha256: "a".repeat(64) })
+    repository.verifyOutputUpload(job.id, classified.slotKey)
+  }
+  return repository.transitionJob(job.id, "LOCAL_COMPLETE")
+}
+
+function fakeDeps(repository: AutomationRepository, overrides: Partial<PostProductionDeps> = {}): PostProductionDeps {
+  return {
+    repository,
+    getEtsyToken: async () => ({ access_token: "1.a", refresh_token: "r", expires_at: Date.now() + 3_600_000, token_type: "Bearer", user_id: "1", scope: [] }),
+    getShopId: async () => 42,
+    generateSeo: vi.fn(async (input) => ({
+      title: "Misty Lake Frame TV Art",
+      description_keywords_5: ["a", "b", "c", "d", "e"],
+      description_final: `Description ${input.listingId}`,
+      tags_13: ["frame tv art"],
+      etsy_attributes: [{ propertyId: 1, displayName: "Primary color", valueIds: [2], values: ["Blue"], scaleId: null }],
+      media: input.mockups.map((item) => ({ id: item.id, position: item.position, alt_text: `alt ${item.id}` })),
+    })),
+    buildDeliveryPdf: vi.fn(async (_type, code) => ({ url: `https://files.example/delivery-pdf/${code}.pdf` })),
+    syncText: vi.fn(async () => {}),
+    syncImages: vi.fn(async () => {}),
+    syncFile: vi.fn(async () => {}),
+    syncVideo: vi.fn(async () => {}),
+    getListing: vi.fn(async () => ({ state: "draft" })),
+    publicUrl: (key) => `https://files.example/${key}`,
+    ...overrides,
+  }
+}
+
+describe("post-production worker", () => {
+  let database: Database.Database | null = null
+  afterEach(() => {
+    database?.close()
+    database = null
+  })
+
+  it("lleva un listing de LOCAL_COMPLETE al draft de Etsy listo para revisar", async () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    repository.addDrafts("frame_tv_art", ["9001"])
+    const job = frameTvJob(repository)
+    const deps = fakeDeps(repository)
+
+    const result = await advanceJob(job, deps)
+
+    expect(result.status).toBe("WAITING_ETSY_REVIEW")
+    expect(result.etsyDraftId).toBe("9001")
+    expect(result.deliveryFilename).toBe(`${job.productCode}.pdf`)
+    expect(result.nextAttemptAt).not.toBeNull()
+
+    const seoInput = vi.mocked(deps.generateSeo).mock.calls[0][0]
+    expect(seoInput.designUrl).toBe(`https://files.example/mockups/${job.productCode}/mockup-12.jpg`)
+    expect(seoInput.keywordResearch).toContain('Primary keyword: "frame tv art lake"')
+    expect(seoInput.listingId).toBe(job.productCode)
+
+    // La vista previa (12) es la segunda foto en Etsy.
+    const images = vi.mocked(deps.syncImages).mock.calls[0][1]
+    expect(images.map((image) => image.url.split("/").pop())).toEqual([
+      "mockup-1.jpg", "mockup-12.jpg", "mockup-3.jpg", "mockup-4.jpg", "mockup-5.jpg", "mockup-6.jpg",
+      "mockup-7.jpg", "mockup-8.jpg", "mockup-9.jpg", "mockup-10.jpg", "mockup-11.jpg",
+    ])
+    expect(images.map((image) => image.rank)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+    expect(images[1].altText).toBe("alt listing-12")
+    expect(deps.syncVideo).toHaveBeenCalledWith(expect.anything(), {
+      url: `https://files.example/mockups/${job.productCode}/mockup-2.mp4`,
+      name: `${job.productCode}.mp4`,
+    })
+    expect(deps.syncFile).toHaveBeenCalledWith(expect.anything(), {
+      url: `https://files.example/delivery-pdf/${job.productCode}.pdf`,
+      filename: `${job.productCode}.pdf`,
+    })
+  })
+
+  it("se detiene con un aviso claro si no quedan drafts", async () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    const job = frameTvJob(repository)
+    const result = await advanceJob(job, fakeDeps(repository))
+    expect(result.status).toBe("NEEDS_ATTENTION")
+    expect(result.resumeStatus).toBe("LOCAL_COMPLETE")
+    expect(result.lastError).toMatch(/No quedan drafts/)
+    // Un fallo del servidor no pausa la producción de Automaty.
+    expect(repository.getPipelineMode()).toBe("RUNNING")
+  })
+
+  it("reintenta solo los fallos temporales y retoma en el mismo paso", async () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    repository.addDrafts("frame_tv_art", ["9001"])
+    const job = frameTvJob(repository, { video: false })
+    const syncImages = vi.fn()
+      .mockRejectedValueOnce(new Error("Etsy HTTP 503"))
+      .mockResolvedValue(undefined)
+    const deps = fakeDeps(repository, { syncImages })
+
+    const failed = await advanceJob(job, deps)
+    expect(failed.status).toBe("RETRY_WAIT")
+    expect(failed.resumeStatus).toBe("ETSY_MEDIA_SYNCING")
+
+    const resumed = await advanceJob(repository.getJob(job.id)!, deps)
+    expect(resumed.status).toBe("WAITING_ETSY_REVIEW")
+    expect(deps.generateSeo).toHaveBeenCalledTimes(1)
+  })
+
+  it("detecta la publicación y pasa a ETSY_ACTIVE", async () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    repository.addDrafts("frame_tv_art", ["9001"])
+    const job = frameTvJob(repository, { video: false })
+    const deps = fakeDeps(repository)
+    await advanceJob(job, deps)
+
+    deps.getListing = vi.fn(async () => ({ state: "active", url: "https://www.etsy.com/listing/9001" }))
+    repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
+    const results = await runPostProductionTick(deps)
+    expect(results).toEqual([{ productCode: job.productCode, status: "ETSY_ACTIVE" }])
+    expect(repository.getJob(job.id)!.etsyUrl).toBe("https://www.etsy.com/listing/9001")
+  })
+
+  it("no toca reintentos que pertenecen a Automaty", async () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    const job = repository.createJob({ productType: "frame_tv_art", sourcePrompt: "x" })
+    for (const status of LOCAL_PATH.slice(0, 4)) repository.transitionJob(job.id, status)
+    repository.transitionJob(job.id, "RETRY_WAIT", { error: "Photoshop", resumeStatus: "LOCAL_BUILDING" })
+    expect(await runPostProductionTick(fakeDeps(repository))).toEqual([])
+  })
+
+  it("resume la investigación de keywords del brief", () => {
+    expect(keywordResearchFromBrief(null)).toBeNull()
+    expect(keywordResearchFromBrief(JSON.stringify({
+      primaryKeyword: { keyword: "boho rainbow", etsyMonthlySearches: 500, trend3m: 0.12 },
+      secondaryKeywords: [],
+    }))).toBe('Primary keyword: "boho rainbow" (500 searches/month, 3-month trend 12%)')
+  })
+})
