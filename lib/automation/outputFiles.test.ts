@@ -45,6 +45,19 @@ describe("automation output contracts", () => {
     })
   })
 
+  it("uses the same R2 file names as the manual Listing flow", () => {
+    const code = "LBCreaStudio-ABC123"
+    const key = (productType: Parameters<typeof classifyAutomationOutput>[0]["productType"], relativePath: string) =>
+      classifyAutomationOutput({ productType, productCode: code, relativePath }).r2Key
+    expect(key("frame_tv_art", "1.jpg")).toBe(`mockups/${code}/mockup-1.jpg`)
+    expect(key("frame_tv_art", "2.mp4")).toBe(`mockups/${code}/mockup-2.mp4`)
+    expect(key("frame_tv_art", "Pines/Pin-3.JPG")).toBe(`pinterest/${code}/pin-3.jpg`)
+    expect(key("frame_tv_art", "Diseños Finales/FrameTVArt.jpg")).toBe(`deliverables/${code}/design.jpg`)
+    expect(key("frame_tv_art", "Diseños Finales/Quick Setup Guide.pdf")).toBe(`deliverables/${code}/instructions.pdf`)
+    expect(key("vertical_wall_art", "Diseños Finales/2x3.jpg")).toBe(`deliverables/${code}/ratio-2-3.jpg`)
+    expect(key("horizontal_wall_art", "Diseños Finales/7x5iso.jpg")).toBe(`deliverables/${code}/ratio-7-5-iso.jpg`)
+  })
+
   it("rejects traversal and files outside the production contract", () => {
     expect(() => classifyAutomationOutput({
       productType: "png_designs",

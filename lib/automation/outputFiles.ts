@@ -1,7 +1,7 @@
 import path from "node:path"
 import { getProductionProductContract } from "./productContracts"
 import type { AutomationJobFile } from "./types"
-import type { ProductType } from "../products"
+import { getProductOption, type ProductType } from "../products"
 
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"])
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".m4v"])
@@ -35,6 +35,14 @@ const DELIVERY_SLOT_BY_FILENAME: Record<ProductType, Record<string, string>> = {
   png_designs: {
     "design.png": "design",
   },
+}
+
+// Mismo nombre que usa el flujo manual de Listing/Scale al subir a R2
+// (deliverables/<código>/ratio-2-3.jpg, design.jpg, instructions.pdf, Design.png).
+function deliverableFilename(productType: ProductType, fieldId: string, extension: string) {
+  const field = getProductOption(productType).delivery.fields.find((item) => item.id === fieldId)
+  if (!field) throw new Error(`Unknown deliverable field: ${fieldId}`)
+  return field.filenameBase.includes(".") ? field.filenameBase : `${field.filenameBase}${extension}`
 }
 
 export type ClassifiedAutomationOutput = {
@@ -83,7 +91,8 @@ export function classifyAutomationOutput(input: {
       slotKey: `listing:${position}`,
       role: "LISTING_MEDIA",
       position,
-      r2Key: `mockups/${input.productCode}/${filename}`,
+      // El flujo manual sube los mockups como mockup-N; el video (posición 2) también.
+      r2Key: `mockups/${input.productCode}/mockup-${position}${extension}`,
     }
   }
 
@@ -98,7 +107,7 @@ export function classifyAutomationOutput(input: {
       slotKey: `pinterest:${position}`,
       role: "PINTEREST_IMAGE",
       position,
-      r2Key: `pinterest/${input.productCode}/${filename}`,
+      r2Key: `pinterest/${input.productCode}/pin-${position}${extension}`,
     }
   }
 
@@ -110,7 +119,7 @@ export function classifyAutomationOutput(input: {
       slotKey: `deliverable:${fieldId}`,
       role: "DELIVERABLE",
       position: null,
-      r2Key: `deliverables/${input.productCode}/${filename}`,
+      r2Key: `deliverables/${input.productCode}/${deliverableFilename(input.productType, fieldId, extension)}`,
     }
   }
 
