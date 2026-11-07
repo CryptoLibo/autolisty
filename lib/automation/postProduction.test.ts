@@ -88,7 +88,8 @@ describe("post-production worker", () => {
     expect(result.nextAttemptAt).not.toBeNull()
 
     const seoInput = vi.mocked(deps.generateSeo).mock.calls[0][0]
-    expect(seoInput.designUrl).toBe(`https://files.example/mockups/${job.productCode}/mockup-12.jpg`)
+    // Como en Scale: el archivo final real del diseño, no un mockup.
+    expect(seoInput.designUrl).toBe(`https://files.example/deliverables/${job.productCode}/design.jpg`)
     expect(seoInput.keywordResearch).toContain('Primary keyword: "frame tv art lake"')
     expect(seoInput.listingId).toBe(job.productCode)
 

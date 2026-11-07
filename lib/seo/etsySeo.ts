@@ -198,6 +198,28 @@ async function loadEtsyAttributeOptionsForDraft({
   }
 }
 
+// Los archivos finales pesan mucho (p. ej. 5600×8400 a 300 DPI). Para el análisis
+// basta con 2048 px: se reducen antes de enviarlos al modelo, conservando la
+// transparencia de los PNG.
+const MODEL_IMAGE_MAX_SIDE = 2048
+
+async function prepareImageForModel(buffer: Buffer, contentType: string) {
+  if (buffer.length < 3 * 1024 * 1024) return { buffer, contentType }
+  try {
+    const sharp = (await import("sharp")).default
+    const image = sharp(buffer).rotate().resize({
+      width: MODEL_IMAGE_MAX_SIDE,
+      height: MODEL_IMAGE_MAX_SIDE,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    if (/png/i.test(contentType)) return { buffer: await image.png().toBuffer(), contentType: "image/png" }
+    return { buffer: await image.jpeg({ quality: 88 }).toBuffer(), contentType: "image/jpeg" }
+  } catch {
+    return { buffer, contentType }
+  }
+}
+
 function toDataUrl(buffer: Buffer, mimeType: string) {
   return `data:${mimeType};base64,${buffer.toString("base64")}`
 }
@@ -226,8 +248,11 @@ async function fetchRemoteImageAsDataUrl(url: string, label: string) {
       }
 
       const arrayBuffer = await response.arrayBuffer()
-      const contentType = response.headers.get("content-type") || "image/jpeg"
-      return toDataUrl(Buffer.from(arrayBuffer), contentType)
+      const prepared = await prepareImageForModel(
+        Buffer.from(arrayBuffer),
+        response.headers.get("content-type") || "image/jpeg"
+      )
+      return toDataUrl(prepared.buffer, prepared.contentType)
     } catch (error: any) {
       lastError = error
 

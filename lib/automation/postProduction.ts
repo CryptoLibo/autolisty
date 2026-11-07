@@ -167,6 +167,19 @@ export function keywordResearchFromBrief(briefJson: string | null) {
   }
 }
 
+/**
+ * Imagen del diseño para el SEO, como en Scale: el archivo final real (el PNG en
+ * PNG Designs, el 16:9 en Frame TV, la proporción principal en Wall Art), no un
+ * mockup. Si faltara, la vista previa.
+ */
+export function designFileForSeo(job: AutomationJob, files: AutomationJobFile[]) {
+  const contract = getProductionProductContract(job.productType)
+  const fieldId = contract.delivery.requiredFieldIds.find((id) => id !== "instructions")
+  const file = (fieldId && fileBySlot(files, `deliverable:${fieldId}`)) || fileBySlot(files, "listing:12")
+  if (!file?.r2Key) throw new PostProductionError("No hay imagen del diseño en R2 para generar el SEO.")
+  return file
+}
+
 function parseSeo(job: AutomationJob): EtsySeoResult {
   if (!job.seoJson) throw new PostProductionError("El SEO de este listing no está generado.")
   return JSON.parse(job.seoJson) as EtsySeoResult
@@ -202,11 +215,11 @@ async function stepAssignDraft(ctx: StepContext) {
 async function stepSeo(ctx: StepContext) {
   if (ctx.job.status === "DRAFT_ASSIGNED") move(ctx, "SEO_GENERATING")
   const images = listingImagesInEtsyOrder(ctx.job, ctx.files, ctx.deps.publicUrl)
-  const preview = fileBySlot(ctx.files, "listing:12") || fileBySlot(ctx.files, "listing:1")
+  const design = designFileForSeo(ctx.job, ctx.files)
   const seo = await ctx.deps.generateSeo({
     productType: ctx.job.productType,
     draftListingId: ctx.job.etsyDraftId!,
-    designUrl: ctx.deps.publicUrl(preview!.r2Key!),
+    designUrl: ctx.deps.publicUrl(design.r2Key!),
     mockups: images,
     midjourneyPrompt: ctx.job.sourcePrompt,
     listingId: ctx.job.productCode,
