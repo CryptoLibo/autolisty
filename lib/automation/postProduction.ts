@@ -145,6 +145,8 @@ function move(ctx: StepContext, to: AutomationJobStatus, message?: string) {
 }
 
 async function stepAssignDraft(ctx: StepContext) {
+  // Antes de gastar un draft, comprobar que el listing tiene todas sus fotos.
+  listingImagesInEtsyOrder(ctx.job, ctx.files, ctx.deps.publicUrl)
   const draftId = ctx.deps.repository.assignDraftToJob(ctx.job.id)
   if (!draftId) {
     const label = getProductionProductContract(ctx.job.productType).label
