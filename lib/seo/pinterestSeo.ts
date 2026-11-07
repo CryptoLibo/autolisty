@@ -118,7 +118,7 @@ Return JSON in this exact shape:
           role: "user",
           content: [
             { type: "input_text", text: userPrompt },
-            ...(pins as any[]).flatMap((pin: any, index: number) => [
+            ...(pins as any).flatMap((pin: any, index: number) => [
               {
                 type: "input_text",
                 text: `PINTEREST IMAGE id=${pin.id} position=${index + 1}`,

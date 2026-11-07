@@ -299,7 +299,8 @@ async function stepCheckPublished(ctx: StepContext) {
 
 async function stepPinterest(ctx: StepContext) {
   if (ctx.job.status === "ETSY_ACTIVE") move(ctx, "PINTEREST_PUBLISHING")
-  if (!ctx.job.etsyUrl) throw new PostProductionError("Falta la URL pública del listing de Etsy.")
+  const etsyUrl = ctx.job.etsyUrl
+  if (!etsyUrl) throw new PostProductionError("Falta la URL pública del listing de Etsy.")
   const token = await ctx.deps.getPinterestToken()
   if (!token) throw new PostProductionError("Pinterest no está conectado en Autolisty. Conéctalo y reintenta.")
 
@@ -321,7 +322,7 @@ async function stepPinterest(ctx: StepContext) {
       listingTitle: seo.title,
       listingDescription: seo.description_final,
       listingKeywords: seo.description_keywords_5,
-      destinationLink: ctx.job.etsyUrl,
+      destinationLink: etsyUrl,
       pins: images,
     })
     plan = {
@@ -347,7 +348,7 @@ async function stepPinterest(ctx: StepContext) {
       boardId: plan.boardId,
       title: pin.title,
       description: pin.description,
-      link: ctx.job.etsyUrl,
+      link: etsyUrl,
       imageUrl: pin.imageUrl,
     })
     pin.pinId = published.pinId
@@ -357,7 +358,7 @@ async function stepPinterest(ctx: StepContext) {
         pinId: published.pinId,
         boardId: published.boardId,
         title: pin.title,
-        destinationUrl: ctx.job.etsyUrl,
+        destinationUrl: etsyUrl,
         imageUrl: pin.imageUrl,
       })
     } catch (error) {
