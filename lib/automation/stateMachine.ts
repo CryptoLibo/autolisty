@@ -67,6 +67,8 @@ export function canTransitionAutomationJob(
   }
 
   if (from === "RETRY_WAIT" || from === "NEEDS_ATTENTION") {
+    // El propietario puede descartar un trabajo fallido.
+    if (to === "CANCELED") return true
     return Boolean(resumeStatus && to === resumeStatus && RECOVERABLE_STATUSES.has(to))
   }
 

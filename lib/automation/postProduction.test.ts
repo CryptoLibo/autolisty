@@ -55,6 +55,13 @@ function fakeDeps(repository: AutomationRepository, overrides: Partial<PostProdu
     syncVideo: vi.fn(async () => {}),
     getListing: vi.fn(async () => ({ state: "draft" })),
     publicUrl: (key) => `https://files.example/${key}`,
+    getPinterestToken: async () => ({ access_token: "p", refresh_token: "pr", expires_at: Date.now() + 3_600_000, scope: [], token_type: "bearer" }),
+    generatePinCopy: vi.fn(async (input: { pins: Array<{ id: string }> }) => ({
+      pins: input.pins.map((pin) => ({ id: pin.id, title: `Title ${pin.id}`, description: `Desc ${pin.id}` })),
+    })),
+    findBoard: vi.fn(async (_token: unknown, name: string) => (name === "Frame TV Art" ? { id: "77", name: "Frame TV Art" } : null)),
+    publishPin: vi.fn(async (_token: unknown, input: { imageUrl: string }) => ({ pinId: `pin${input.imageUrl.slice(-5, -4)}`, boardId: "77" })),
+    recordPin: vi.fn(),
     ...overrides,
   }
 }
@@ -134,7 +141,7 @@ describe("post-production worker", () => {
     expect(deps.generateSeo).toHaveBeenCalledTimes(1)
   })
 
-  it("detecta la publicación y pasa a ETSY_ACTIVE", async () => {
+  it("detecta la publicación y publica los 3 pines en el tablero del producto", async () => {
     database = openAutomationDatabase(":memory:")
     const repository = new AutomationRepository(database)
     repository.addDrafts("frame_tv_art", ["9001"])
@@ -145,8 +152,72 @@ describe("post-production worker", () => {
     deps.getListing = vi.fn(async () => ({ state: "active", url: "https://www.etsy.com/listing/9001" }))
     repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
     const results = await runPostProductionTick(deps)
-    expect(results).toEqual([{ productCode: job.productCode, status: "ETSY_ACTIVE" }])
-    expect(repository.getJob(job.id)!.etsyUrl).toBe("https://www.etsy.com/listing/9001")
+    expect(results).toEqual([{ productCode: job.productCode, status: "COMPLETED" }])
+    const done = repository.getJob(job.id)!
+    expect(done.etsyUrl).toBe("https://www.etsy.com/listing/9001")
+    expect(deps.findBoard).toHaveBeenCalledWith(expect.anything(), "Frame TV Art")
+    expect(deps.publishPin).toHaveBeenCalledTimes(3)
+    expect(vi.mocked(deps.publishPin).mock.calls[0][1]).toMatchObject({
+      boardId: "77",
+      link: "https://www.etsy.com/listing/9001",
+      imageUrl: `https://files.example/pinterest/${job.productCode}/pin-1.jpg`,
+      title: "Title pin-1",
+    })
+    expect(deps.recordPin).toHaveBeenCalledTimes(3)
+    expect(JSON.parse(done.pinterestSeoJson!).pins.map((pin: { pinId: string }) => pin.pinId)).toEqual(["pin1", "pin2", "pin3"])
+  })
+
+  it("si un pin falla, el reintento no repite los ya publicados", async () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    repository.addDrafts("frame_tv_art", ["9001"])
+    const job = frameTvJob(repository, { video: false })
+    const publishPin = vi.fn()
+      .mockResolvedValueOnce({ pinId: "a1", boardId: "77" })
+      .mockRejectedValueOnce(new Error("Pinterest HTTP 503"))
+      .mockResolvedValue({ pinId: "a2", boardId: "77" })
+    const deps = fakeDeps(repository, {
+      publishPin,
+      getListing: vi.fn(async () => ({ state: "active", url: "https://www.etsy.com/listing/9001" })),
+    })
+    await advanceJob(job, deps)
+    repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
+    const failed = await advanceJob(repository.getJob(job.id)!, deps)
+    expect(failed.status).toBe("RETRY_WAIT")
+    expect(failed.resumeStatus).toBe("PINTEREST_PUBLISHING")
+
+    const done = await advanceJob(repository.getJob(job.id)!, deps)
+    expect(done.status).toBe("COMPLETED")
+    expect(publishPin).toHaveBeenCalledTimes(4)
+    expect(deps.generatePinCopy).toHaveBeenCalledTimes(1)
+  })
+
+  it("avisa si no existe el tablero con el nombre del producto", async () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    repository.addDrafts("frame_tv_art", ["9001"])
+    const job = frameTvJob(repository, { video: false })
+    const deps = fakeDeps(repository, {
+      findBoard: vi.fn(async () => null),
+      getListing: vi.fn(async () => ({ state: "active", url: "https://www.etsy.com/listing/9001" })),
+    })
+    await advanceJob(job, deps)
+    repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
+    const result = await advanceJob(repository.getJob(job.id)!, deps)
+    expect(result.status).toBe("NEEDS_ATTENTION")
+    expect(result.lastError).toBe('No hay un tablero de Pinterest llamado "Frame TV Art".')
+  })
+
+  it("al cancelar un trabajo fallido devuelve su draft al pool", async () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    repository.addDrafts("frame_tv_art", ["9001"])
+    const job = frameTvJob(repository, { video: false })
+    await advanceJob(job, fakeDeps(repository, { syncText: vi.fn(async () => { throw new Error("Bad request") }) }))
+    expect(repository.getJob(job.id)!.status).toBe("NEEDS_ATTENTION")
+    repository.cancelQueuedJob(job.id)
+    expect(repository.getJob(job.id)!.status).toBe("CANCELED")
+    expect(repository.listDrafts().find((draft) => draft.draftId === "9001")?.status).toBe("AVAILABLE")
   })
 
   it("no toca reintentos que pertenecen a Automaty", async () => {

@@ -10,6 +10,9 @@ import { syncDraftFile, syncDraftImages, syncDraftText, syncDraftVideo } from ".
 import { generateEtsySeo } from "../seo/etsySeo"
 import { generateDeliveryPdf } from "../r2/generateDeliveryPdf"
 import { uploadDeliveryPdf } from "../r2/uploadDeliveryPdf"
+import { generatePinterestCopy } from "../seo/pinterestSeo"
+import { findBoardByName, publishPinterestPin } from "../pinterest/publishing"
+import { recordPublishedPin } from "../dashboard/pinterest-analytics"
 
 const TICK_MS = 60_000
 const LOCK_KEY = "post_production_worker_lock"
@@ -66,6 +69,11 @@ export function createPostProductionDeps(): PostProductionDeps {
     syncVideo: syncDraftVideo,
     getListing: (token, shopId, listingId) => getShopListing(token, shopId, listingId),
     publicUrl: (key) => `${publicBase}/${key}`,
+    getPinterestToken: () => getFreshToken("pinterest"),
+    generatePinCopy: generatePinterestCopy,
+    findBoard: findBoardByName,
+    publishPin: publishPinterestPin,
+    recordPin: (input) => recordPublishedPin(getAutomationDatabase(), input),
   }
 }
 

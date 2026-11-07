@@ -388,12 +388,22 @@ export class AutomationRepository {
   cancelQueuedJob(jobId: string, reason: string | null = null) {
     const current = this.getJob(jobId)
     if (!current) throw new Error(`Automation job not found: ${jobId}`)
-    if (!["PENDING_APPROVAL", "QUEUED_LOCAL", "LOCAL_CLAIMED"].includes(current.status)) {
-      throw new Error("Only designs that have not started production can be canceled.")
+    if (!["PENDING_APPROVAL", "QUEUED_LOCAL", "LOCAL_CLAIMED", "NEEDS_ATTENTION", "RETRY_WAIT"].includes(current.status)) {
+      throw new Error("Only designs that have not started production, or that failed, can be canceled.")
     }
-    return this.transitionJob(jobId, "CANCELED", {
+    const canceled = this.transitionJob(jobId, "CANCELED", {
       message: `Canceled by the owner${reason?.trim() ? `: ${reason.trim().slice(0, 300)}` : "."}`,
     })
+    // Si tenía un draft de Etsy sin publicar, vuelve al pool (el siguiente uso lo reescribe entero).
+    if (current.etsyDraftId && current.etsyState !== "active") {
+      const now = new Date().toISOString()
+      this.database.prepare(`
+        UPDATE etsy_draft_pool
+        SET status = 'AVAILABLE', assigned_job_id = NULL, assigned_at = NULL, updated_at = ?
+        WHERE draft_id = ? AND assigned_job_id = ?
+      `).run(now, current.etsyDraftId, jobId)
+    }
+    return canceled
   }
 
   listJobEvents(jobId: string) {

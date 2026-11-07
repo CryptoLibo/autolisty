@@ -733,6 +733,16 @@ export function AutomationWorkspace() {
                       Retry from last safe step
                     </button>
                   ) : null}
+                  {needsAttention ? (
+                    <button
+                      type="button"
+                      disabled={managingJobId === job.id}
+                      onClick={() => void manageJob(job.id, { action: "cancel" })}
+                      className="mt-2 inline-flex h-9 w-fit items-center border border-red-500/30 px-3 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 disabled:opacity-50"
+                    >
+                      Cancel design
+                    </button>
+                  ) : null}
                   {job.status === "QUEUED_LOCAL" || job.status === "LOCAL_CLAIMED" ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button

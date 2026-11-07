@@ -6,12 +6,16 @@
 //   LOCAL_COMPLETE → DRAFT_ASSIGNED → SEO_GENERATING → SEO_READY
 //   → DELIVERY_PREPARING → DELIVERY_READY → ETSY_TEXT_SYNCING
 //   → ETSY_MEDIA_SYNCING → ETSY_FILE_SYNCING → (ETSY_VIDEO_SYNCING)
-//   → WAITING_ETSY_REVIEW → (publicado por el propietario) → ETSY_ACTIVE
+//   → WAITING_ETSY_REVIEW → (publicado) → ETSY_ACTIVE
+//   → PINTEREST_PUBLISHING → COMPLETED
 //
 // Cada estado "-ING" se puede repetir: si el servidor se reinicia o un paso
 // falla, el trabajo vuelve a ese estado y el paso se ejecuta de nuevo entero.
-// Pinterest (pines tras publicar) y la limpieza de R2 son el siguiente bloque.
+// Los pines se publican uno a uno y se guarda cada id: un reintento nunca
+// duplica un pin ya publicado.
 import type { EtsyTokenPayload } from "../etsy/auth"
+import type { PinterestTokenPayload } from "../pinterest/auth"
+import type { GeneratePinterestCopyInput, PinterestCopy } from "../seo/pinterestSeo"
 import type { DraftSyncAttribute, DraftSyncMockup } from "../etsy/draftSync"
 import type { EtsySeoResult, GenerateEtsySeoInput } from "../seo/etsySeo"
 import { getProductOption, type ProductType } from "../products"
@@ -32,7 +36,21 @@ export type PostProductionDeps = {
   syncVideo: (draft: DraftRef, input: { url: string; name: string }) => Promise<void>
   getListing: (token: EtsyTokenPayload, shopId: number, listingId: string) => Promise<{ state?: string; url?: string } | null>
   publicUrl: (r2Key: string) => string
+  getPinterestToken: () => Promise<PinterestTokenPayload | null>
+  generatePinCopy: (input: GeneratePinterestCopyInput) => Promise<{ pins: PinterestCopy[] }>
+  findBoard: (token: PinterestTokenPayload, name: string) => Promise<{ id: string; name: string } | null>
+  publishPin: (
+    token: PinterestTokenPayload,
+    input: { boardId: string; title: string; description: string; link: string; imageUrl: string }
+  ) => Promise<{ pinId: string; boardId: string }>
+  recordPin: (input: { pinId: string; boardId: string; title: string; destinationUrl: string; imageUrl: string }) => void
   now?: () => Date
+}
+
+type PinterestPlan = {
+  boardId: string
+  boardName: string
+  pins: Array<{ id: string; imageUrl: string; title: string; description: string; pinId: string | null }>
 }
 
 type DraftRef = { token: EtsyTokenPayload; shopId: number; listingId: string }
@@ -50,6 +68,8 @@ export const POST_PRODUCTION_STATUSES = [
   "ETSY_FILE_SYNCING",
   "ETSY_VIDEO_SYNCING",
   "WAITING_ETSY_REVIEW",
+  "ETSY_ACTIVE",
+  "PINTEREST_PUBLISHING",
 ] as const satisfies readonly AutomationJobStatus[]
 
 const SERVER_STATUSES = new Set<AutomationJobStatus>(POST_PRODUCTION_STATUSES)
@@ -277,6 +297,76 @@ async function stepCheckPublished(ctx: StepContext) {
   })!
 }
 
+async function stepPinterest(ctx: StepContext) {
+  if (ctx.job.status === "ETSY_ACTIVE") move(ctx, "PINTEREST_PUBLISHING")
+  if (!ctx.job.etsyUrl) throw new PostProductionError("Falta la URL pública del listing de Etsy.")
+  const token = await ctx.deps.getPinterestToken()
+  if (!token) throw new PostProductionError("Pinterest no está conectado en Autolisty. Conéctalo y reintenta.")
+
+  let plan = ctx.job.pinterestSeoJson ? (JSON.parse(ctx.job.pinterestSeoJson) as PinterestPlan) : null
+  if (!plan) {
+    // El tablero se llama exactamente como el producto (p. ej. "Frame TV Art").
+    const boardName = getProductionProductContract(ctx.job.productType).label
+    const board = await ctx.deps.findBoard(token, boardName)
+    if (!board) throw new PostProductionError(`No hay un tablero de Pinterest llamado "${boardName}".`)
+
+    const images = [1, 2, 3].map((index) => {
+      const file = fileBySlot(ctx.files, `pinterest:${index}`)
+      if (!file?.r2Key) throw new PostProductionError(`Falta el pin ${index} en R2.`)
+      return { id: `pin-${index}`, url: ctx.deps.publicUrl(file.r2Key) }
+    })
+    const seo = parseSeo(ctx.job)
+    const copy = await ctx.deps.generatePinCopy({
+      productType: ctx.job.productType,
+      listingTitle: seo.title,
+      listingDescription: seo.description_final,
+      listingKeywords: seo.description_keywords_5,
+      destinationLink: ctx.job.etsyUrl,
+      pins: images,
+    })
+    plan = {
+      boardId: board.id,
+      boardName: board.name,
+      pins: images.map((image, index) => {
+        const text = copy.pins.find((item) => item.id === image.id) || copy.pins[index]
+        return {
+          id: image.id,
+          imageUrl: image.url,
+          title: text?.title || seo.title.slice(0, 100),
+          description: text?.description || "",
+          pinId: null,
+        }
+      }),
+    }
+    ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan) })!
+  }
+
+  for (const pin of plan.pins) {
+    if (pin.pinId) continue
+    const published = await ctx.deps.publishPin(token, {
+      boardId: plan.boardId,
+      title: pin.title,
+      description: pin.description,
+      link: ctx.job.etsyUrl,
+      imageUrl: pin.imageUrl,
+    })
+    pin.pinId = published.pinId
+    ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan) })!
+    try {
+      ctx.deps.recordPin({
+        pinId: published.pinId,
+        boardId: published.boardId,
+        title: pin.title,
+        destinationUrl: ctx.job.etsyUrl,
+        imageUrl: pin.imageUrl,
+      })
+    } catch (error) {
+      ctx.deps.repository.recordJobEvent(ctx.job.id, "WARNING", `Pin publicado pero sin vínculo analítico: ${errorMessage(error)}`)
+    }
+  }
+  move(ctx, "COMPLETED", `${plan.pins.length} pines publicados en "${plan.boardName}".`)
+}
+
 const STEP_BY_STATUS: Partial<Record<AutomationJobStatus, (ctx: StepContext) => Promise<void>>> = {
   LOCAL_COMPLETE: stepAssignDraft,
   DRAFT_ASSIGNED: stepSeo,
@@ -289,10 +379,12 @@ const STEP_BY_STATUS: Partial<Record<AutomationJobStatus, (ctx: StepContext) => 
   ETSY_FILE_SYNCING: stepEtsyFile,
   ETSY_VIDEO_SYNCING: stepEtsyVideo,
   WAITING_ETSY_REVIEW: stepCheckPublished,
+  ETSY_ACTIVE: stepPinterest,
+  PINTEREST_PUBLISHING: stepPinterest,
 }
 
 // Estados en los que el worker se detiene con este trabajo y pasa al siguiente.
-const STOP_STATUSES = new Set<AutomationJobStatus>(["WAITING_ETSY_REVIEW", "ETSY_ACTIVE"])
+const STOP_STATUSES = new Set<AutomationJobStatus>(["WAITING_ETSY_REVIEW", "COMPLETED"])
 
 /** Avanza un trabajo todo lo posible. Devuelve el estado final. */
 export async function advanceJob(job: AutomationJob, deps: PostProductionDeps): Promise<AutomationJob> {
