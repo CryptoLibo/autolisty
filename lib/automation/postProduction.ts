@@ -11,9 +11,8 @@
 //
 // Cada estado "-ING" se puede repetir: si el servidor se reinicia o un paso
 // falla, el trabajo vuelve a ese estado y el paso se ejecuta de nuevo entero.
-// Los pines se publican de uno en uno, separados 2 días (Pinterest premia el
-// contenido nuevo y constante, no tres pines del mismo enlace a la vez), y se
-// guarda cada id: un reintento nunca duplica un pin ya publicado.
+// Los 3 pines se publican seguidos al detectar la publicación en Etsy, y se
+// guarda cada id al momento: un reintento nunca duplica un pin ya publicado.
 import type { EtsyTokenPayload } from "../etsy/auth"
 import type { PinterestTokenPayload } from "../pinterest/auth"
 import type { GeneratePinterestCopyInput, PinterestCopy } from "../seo/pinterestSeo"
@@ -77,7 +76,6 @@ const SERVER_STATUSES = new Set<AutomationJobStatus>(POST_PRODUCTION_STATUSES)
 
 // Etsy: comprobar si ya publicaste el draft cada 30 minutos.
 const ETSY_REVIEW_POLL_MS = 30 * 60_000
-const PIN_SPACING_MS = 2 * 24 * 60 * 60_000
 const MAX_AUTOMATIC_RETRIES = 3
 const RETRY_DELAY_MS = 10 * 60_000
 
@@ -149,6 +147,17 @@ export function keywordResearchFromBrief(briefJson: string | null) {
     if (brief.primaryKeyword?.keyword) describe("Primary keyword", brief.primaryKeyword)
     for (const keyword of brief.secondaryKeywords || []) {
       if (keyword?.keyword) describe("Secondary keyword", keyword)
+    }
+    for (const keyword of brief.tagCandidates || []) {
+      if (keyword?.keyword) describe("Tag candidate", keyword)
+    }
+    for (const listing of brief.competitorListings || []) {
+      if (!listing?.tags?.length) continue
+      const signals = [
+        listing.estimatedMonthlySales != null ? `~${listing.estimatedMonthlySales} sales/month` : null,
+        listing.listingScore != null ? `listing score ${listing.listingScore}` : null,
+      ].filter(Boolean)
+      lines.push(`Competitor listing${signals.length ? ` (${signals.join(", ")})` : ""}${listing.title ? ` "${listing.title}"` : ""}: tags ${listing.tags.join(" | ")}`)
     }
     if (brief.collection) lines.push(`Collection: ${brief.collection}`)
     if (brief.rationale) lines.push(`Why this design: ${brief.rationale}`)
@@ -313,9 +322,6 @@ async function stepCheckPublished(ctx: StepContext) {
 }
 
 async function stepPinterest(ctx: StepContext) {
-  const now = (ctx.deps.now || (() => new Date()))()
-  // Aún no toca el siguiente pin.
-  if (ctx.job.nextAttemptAt && new Date(ctx.job.nextAttemptAt) > now) return
   if (ctx.job.status === "ETSY_ACTIVE") move(ctx, "PINTEREST_PUBLISHING")
   const etsyUrl = ctx.job.etsyUrl
   if (!etsyUrl) throw new PostProductionError("Falta la URL pública del listing de Etsy.")
@@ -360,8 +366,8 @@ async function stepPinterest(ctx: StepContext) {
     ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan) })!
   }
 
-  const pin = plan.pins.find((candidate) => !candidate.pinId)
-  if (pin) {
+  for (const pin of plan.pins) {
+    if (pin.pinId) continue
     const published = await ctx.deps.publishPin(token, {
       boardId: plan.boardId,
       title: pin.title,
@@ -381,14 +387,6 @@ async function stepPinterest(ctx: StepContext) {
       })
     } catch (error) {
       ctx.deps.repository.recordJobEvent(ctx.job.id, "WARNING", `Pin publicado pero sin vínculo analítico: ${errorMessage(error)}`)
-    }
-    const remaining = plan.pins.filter((candidate) => !candidate.pinId).length
-    if (remaining > 0) {
-      ctx.deps.repository.recordJobEvent(ctx.job.id, "PIN_PUBLISHED", `Pin publicado en "${plan.boardName}". Quedan ${remaining}.`)
-      ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, {
-        nextAttemptAt: new Date(now.getTime() + PIN_SPACING_MS).toISOString(),
-      })!
-      return
     }
   }
   move(ctx, "COMPLETED", `${plan.pins.length} pines publicados en "${plan.boardName}".`)

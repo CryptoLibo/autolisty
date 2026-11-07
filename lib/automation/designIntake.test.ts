@@ -10,6 +10,24 @@ import {
 const KITTL_URL = "https://cache.kittl.com/pr:sharp/plain/api/users/team/uploads/abc.png"
 
 describe("Claude design submissions", () => {
+  it("accepts tag candidates and competitor tags, with limits", () => {
+    const submission = parseDesignSubmission({
+      productType: "nursery_wall_art",
+      prompt: "Watercolor fox",
+      imageUrl: KITTL_URL,
+      tagCandidates: [{ keyword: "woodland nursery", etsyMonthlySearches: 4000 }, "fox nursery print"],
+      competitorListings: [{ title: "Fox Print", tags: ["fox print", "woodland decor"], estimatedMonthlySales: 30, listingScore: 9 }],
+    })
+    expect(submission.brief.tagCandidates?.map((item) => item.keyword)).toEqual(["woodland nursery", "fox nursery print"])
+    expect(submission.brief.competitorListings?.[0]).toEqual({
+      title: "Fox Print", tags: ["fox print", "woodland decor"], estimatedMonthlySales: 30, listingScore: 9,
+    })
+    expect(() => parseDesignSubmission({
+      productType: "nursery_wall_art", prompt: "x", imageUrl: KITTL_URL,
+      competitorListings: [{ tags: Array.from({ length: 14 }, (_, index) => `tag ${index}`) }],
+    })).toThrow(DesignSubmissionError)
+  })
+
   it("accepts a complete package and normalises keywords", () => {
     const submission = parseDesignSubmission({
       productType: "frame_tv_art",

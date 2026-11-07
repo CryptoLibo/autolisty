@@ -1691,6 +1691,9 @@ SELLER KEYWORD RESEARCH
 - seller_keyword_research, when present, holds real Etsy search data (monthly searches, competition, trend) chosen for this exact design before it was created.
 - Prefer the primary keyword as the opening buyer phrase of the title and as KEYWORD_1 whenever it matches what is visible; adapt word order or plurals so it reads naturally and respects the title rules.
 - Use secondary keywords as tags or description keywords when they fit the artwork. Never force a keyword that contradicts the image.
+- Tag candidates carry real monthly searches and competition: when two tags are equally relevant to the image, prefer the one with more searches and lower competition. They complement your own tag ideas; they are not a list to copy.
+- Competitor listings are top sellers for the primary keyword. Treat tags repeated across several of them, or used by the higher-selling ones, as proven search terms for this niche, and reuse them only when they describe this artwork. Never copy a competitor title or a full tag set, and never use another shop's brand or name.
+- Tags must stay within 20 characters; shorten or rephrase a longer candidate instead of truncating it mid-word.
 
 DESCRIPTION KEYWORDS STRATEGY
 - Generate exactly 5 keyword phrases.

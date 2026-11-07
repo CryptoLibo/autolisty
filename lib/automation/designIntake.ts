@@ -16,9 +16,21 @@ export type KeywordMetric = {
   trend3m?: number | null
 }
 
+// Anuncios de la competencia que ganan en la keyword: sus tags muestran qué
+// combinaciones funcionan (ponderadas por ventas estimadas y la nota de Alura).
+export type CompetitorListing = {
+  title: string | null
+  tags: string[]
+  estimatedMonthlySales: number | null
+  listingScore: number | null
+}
+
 export type DesignBrief = {
   primaryKeyword: KeywordMetric | null
   secondaryKeywords: KeywordMetric[]
+  // Keywords con datos reales de Alura candidatas a tag (no obligatorias).
+  tagCandidates?: KeywordMetric[]
+  competitorListings?: CompetitorListing[]
   collection: string | null
   cropAnchor: CropAnchor
   rationale: string | null
@@ -110,6 +122,32 @@ export function parseDesignSubmission(body: unknown): DesignSubmission {
     throw new DesignSubmissionError('"secondaryKeywords" must be an array of at most 20 items.')
   }
 
+  const tagRaw = input.tagCandidates ?? []
+  if (!Array.isArray(tagRaw) || tagRaw.length > 40) {
+    throw new DesignSubmissionError('"tagCandidates" must be an array of at most 40 items.')
+  }
+  const competitorRaw = input.competitorListings ?? []
+  if (!Array.isArray(competitorRaw) || competitorRaw.length > 8) {
+    throw new DesignSubmissionError('"competitorListings" must be an array of at most 8 items.')
+  }
+  const competitorListings = competitorRaw.map((item, index): CompetitorListing => {
+    const field = `competitorListings[${index}]`
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new DesignSubmissionError(`"${field}" must be an object.`)
+    }
+    const value = item as Record<string, unknown>
+    const tags = value.tags ?? []
+    if (!Array.isArray(tags) || tags.length > 13) {
+      throw new DesignSubmissionError(`"${field}.tags" must be an array of at most 13 tags.`)
+    }
+    return {
+      title: text(value.title, `${field}.title`, 200),
+      tags: tags.map((tag, tagIndex) => text(tag, `${field}.tags[${tagIndex}]`, 40, true)!),
+      estimatedMonthlySales: optionalNumber(value.estimatedMonthlySales, `${field}.estimatedMonthlySales`),
+      listingScore: optionalNumber(value.listingScore, `${field}.listingScore`),
+    }
+  })
+
   const cropAnchor = (text(input.cropAnchor, "cropAnchor", 10) || "center") as CropAnchor
   if (!CROP_ANCHORS.includes(cropAnchor)) {
     throw new DesignSubmissionError(`"cropAnchor" must be one of: ${CROP_ANCHORS.join(", ")}.`)
@@ -128,6 +166,8 @@ export function parseDesignSubmission(body: unknown): DesignSubmission {
     brief: {
       primaryKeyword: input.primaryKeyword == null ? null : keywordMetric(input.primaryKeyword, "primaryKeyword"),
       secondaryKeywords: secondaryRaw.map((item, index) => keywordMetric(item, `secondaryKeywords[${index}]`)),
+      tagCandidates: tagRaw.map((item, index) => keywordMetric(item, `tagCandidates[${index}]`)),
+      competitorListings,
       collection: text(input.collection, "collection", 120),
       cropAnchor,
       rationale: text(input.rationale, "rationale", 2000),

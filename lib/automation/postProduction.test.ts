@@ -152,18 +152,8 @@ describe("post-production worker", () => {
     deps.getListing = vi.fn(async () => ({ state: "active", url: "https://www.etsy.com/listing/9001" }))
     repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
     const results = await runPostProductionTick(deps)
-    // Primer pin al publicar; los otros dos, separados 2 días.
-    expect(results).toEqual([{ productCode: job.productCode, status: "PINTEREST_PUBLISHING" }])
-    expect(deps.publishPin).toHaveBeenCalledTimes(1)
-    const waiting = repository.getJob(job.id)!
-    expect(new Date(waiting.nextAttemptAt!).getTime() - Date.now()).toBeGreaterThan(47 * 3_600_000)
-    expect(await runPostProductionTick(deps)).toEqual([])
-    for (let index = 0; index < 2; index += 1) {
-      repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
-      await runPostProductionTick(deps)
-    }
+    expect(results).toEqual([{ productCode: job.productCode, status: "COMPLETED" }])
     const done = repository.getJob(job.id)!
-    expect(done.status).toBe("COMPLETED")
     expect(done.etsyUrl).toBe("https://www.etsy.com/listing/9001")
     expect(deps.findBoard).toHaveBeenCalledWith(expect.anything(), "Frame TV Art")
     expect(deps.publishPin).toHaveBeenCalledTimes(3)
@@ -192,15 +182,10 @@ describe("post-production worker", () => {
     })
     await advanceJob(job, deps)
     repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
-    const first = await advanceJob(repository.getJob(job.id)!, deps)
-    expect(first.status).toBe("PINTEREST_PUBLISHING")
-    repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
     const failed = await advanceJob(repository.getJob(job.id)!, deps)
     expect(failed.status).toBe("RETRY_WAIT")
     expect(failed.resumeStatus).toBe("PINTEREST_PUBLISHING")
 
-    await advanceJob(repository.getJob(job.id)!, deps) // reintento: publica el 2.º
-    repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
     const done = await advanceJob(repository.getJob(job.id)!, deps)
     expect(done.status).toBe("COMPLETED")
     expect(publishPin).toHaveBeenCalledTimes(4)
@@ -250,5 +235,14 @@ describe("post-production worker", () => {
       primaryKeyword: { keyword: "boho rainbow", etsyMonthlySearches: 500, trend3m: 0.12 },
       secondaryKeywords: [],
     }))).toBe('Primary keyword: "boho rainbow" (500 searches/month, 3-month trend 12%)')
+    expect(keywordResearchFromBrief(JSON.stringify({
+      primaryKeyword: null,
+      secondaryKeywords: [],
+      tagCandidates: [{ keyword: "rainbow nursery", etsyMonthlySearches: 900, competition: "low" }],
+      competitorListings: [{ title: "Boho Rainbow Print", tags: ["boho rainbow", "nursery decor"], estimatedMonthlySales: 40, listingScore: 8.5 }],
+    }))).toBe([
+      'Tag candidate: "rainbow nursery" (900 searches/month, competition low)',
+      'Competitor listing (~40 sales/month, listing score 8.5) "Boho Rainbow Print": tags boho rainbow | nursery decor',
+    ].join("\n"))
   })
 })

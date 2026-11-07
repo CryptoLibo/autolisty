@@ -45,6 +45,27 @@ export const MCP_TOOLS = [
         imageUrl: { type: "string", description: "Kittl result URL (https://cache.kittl.com/...)." },
         primaryKeyword: keywordSchema,
         secondaryKeywords: { type: "array", items: keywordSchema, maxItems: 20 },
+        tagCandidates: {
+          type: "array",
+          items: keywordSchema,
+          maxItems: 40,
+          description: "Keywords with real Alura metrics that could become Etsy tags (max 20 characters each to be usable as a tag). The SEO combines them with its own analysis of the image.",
+        },
+        competitorListings: {
+          type: "array",
+          maxItems: 8,
+          description: "Top-selling competitor listings for the primary keyword, with their tags, Alura's estimated monthly sales and listing score.",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              tags: { type: "array", items: { type: "string" }, maxItems: 13 },
+              estimatedMonthlySales: { type: "number" },
+              listingScore: { type: "number" },
+            },
+            required: ["tags"],
+          },
+        },
         collection: { type: "string", description: "Collection or theme, e.g. 'Vintage Christmas'." },
         cropAnchor: { type: "string", enum: [...CROP_ANCHORS], description: "Where the subject sits; default center." },
         rationale: { type: "string", description: "Why this design: the market evidence in one or two sentences." },
