@@ -16,6 +16,11 @@ export type ProductionProductContract = {
     videoSlot: number
     videoRequired: boolean
     pinterestImageCount: number
+    // Archivo 12.jpg = "Artwork Preview" (vista previa plana del entregable, política de Etsy).
+    previewSlot: number
+    // Orden de las fotos en Etsy (el video va aparte): la vista previa es la segunda foto,
+    // justo después de la portada, y el resto mantiene su orden.
+    etsyImageOrder: readonly number[]
   }
   delivery: {
     mode: "pdf" | "direct"
@@ -24,7 +29,8 @@ export type ProductionProductContract = {
 }
 
 const WALL_ART_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const
-const GENERATED_IMAGE_SLOTS = [1, 3, 4, 6, 7, 9, 10] as const
+const PREVIEW_SLOT = 12
+const GENERATED_IMAGE_SLOTS = [1, 3, 4, 6, 7, 9, 10, PREVIEW_SLOT] as const
 const FIXED_IMAGE_SLOTS = [5, 8, 11] as const
 
 const WALL_ART_LISTING = {
@@ -33,6 +39,8 @@ const WALL_ART_LISTING = {
   videoSlot: 2,
   videoRequired: false,
   pinterestImageCount: 3,
+  previewSlot: PREVIEW_SLOT,
+  etsyImageOrder: [1, PREVIEW_SLOT, 3, 4, 5, 6, 7, 8, 9, 10, 11],
 } as const
 
 export const PRODUCTION_PRODUCT_CONTRACTS: Record<

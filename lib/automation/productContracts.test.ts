@@ -14,7 +14,8 @@ describe("production product contracts", () => {
 
   it("keeps the established listing image slots", () => {
     const contract = getProductionProductContract("png_designs")
-    expect(contract.listing.generatedImageSlots).toEqual([1, 3, 4, 6, 7, 9, 10])
+    expect(contract.listing.generatedImageSlots).toEqual([1, 3, 4, 6, 7, 9, 10, 12])
+    expect(contract.listing.etsyImageOrder).toEqual([1, 12, 3, 4, 5, 6, 7, 8, 9, 10, 11])
     expect(contract.listing.fixedImageSlots).toEqual([5, 8, 11])
     expect(contract.listing.videoSlot).toBe(2)
     expect(contract.listing.pinterestImageCount).toBe(3)

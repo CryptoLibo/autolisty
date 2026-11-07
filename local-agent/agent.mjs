@@ -22,7 +22,8 @@ const PRODUCT_OUTPUTS = {
   },
 }
 
-const REQUIRED_LISTING_SLOTS = [1, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+// 12 = Artwork Preview (vista previa plana del entregable).
+const REQUIRED_LISTING_SLOTS = [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"])
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".m4v"])
 const MIME_TYPES = {

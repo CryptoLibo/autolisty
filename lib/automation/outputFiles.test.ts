@@ -50,6 +50,7 @@ describe("automation output contracts", () => {
     const key = (productType: Parameters<typeof classifyAutomationOutput>[0]["productType"], relativePath: string) =>
       classifyAutomationOutput({ productType, productCode: code, relativePath }).r2Key
     expect(key("frame_tv_art", "1.jpg")).toBe(`mockups/${code}/mockup-1.jpg`)
+    expect(key("frame_tv_art", "12.jpg")).toBe(`mockups/${code}/mockup-12.jpg`)
     expect(key("frame_tv_art", "2.mp4")).toBe(`mockups/${code}/mockup-2.mp4`)
     expect(key("frame_tv_art", "Pines/Pin-3.JPG")).toBe(`pinterest/${code}/pin-3.jpg`)
     expect(key("frame_tv_art", "Diseños Finales/FrameTVArt.jpg")).toBe(`deliverables/${code}/design.jpg`)
@@ -74,6 +75,8 @@ describe("automation output contracts", () => {
   it("requires every PNG listing, Pinterest, and delivery slot", () => {
     const files = [1, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((slot) => verified(`listing:${slot}`))
     files.push(verified("pinterest:1"), verified("pinterest:2"), verified("pinterest:3"))
+    expect(() => validateAutomationOutputFiles("png_designs", files)).toThrow("listing:12")
+    files.push(verified("listing:12"))
     expect(() => validateAutomationOutputFiles("png_designs", files)).toThrow("deliverable:design")
     files.push(verified("deliverable:design"))
     expect(validateAutomationOutputFiles("png_designs", files).optionalVideoPresent).toBe(false)

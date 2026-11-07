@@ -83,7 +83,7 @@ export function classifyAutomationOutput(input: {
     const validMedia = position === 2
       ? VIDEO_EXTENSIONS.has(extension)
       : IMAGE_EXTENSIONS.has(extension)
-    if (!match || position < 1 || position > 11 || !validMedia) {
+    if (!match || position < 1 || position > 12 || !validMedia) {
       throw new Error(`Unsupported listing media file: ${relativePath}`)
     }
     return {
