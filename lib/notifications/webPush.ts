@@ -2,7 +2,10 @@
 //
 // Sin dependencias: Web Push con autenticación VAPID (JWT ES256) y SIN cuerpo
 // cifrado. El push solo "despierta" al service worker, que pide al servidor
-// las notificaciones pendientes (con la sesión del propietario) y las muestra.
+// sus notificaciones pendientes identificándose con su propio endpoint de push
+// (secreto, solo lo conocen el dispositivo y el servidor). No depende de la
+// cookie de sesión, que iOS no siempre envía desde el service worker.
+// Cada dispositivo lleva su propio cursor: todos reciben todas.
 // Las claves VAPID se generan solas la primera vez y se guardan cifradas.
 import crypto from "node:crypto"
 import type Database from "better-sqlite3"
@@ -78,8 +81,8 @@ export function isAllowedPushEndpoint(endpoint: string) {
 export function saveSubscription(input: PushSubscriptionInput, userAgent: string | null, database = getAutomationDatabase()) {
   if (!isAllowedPushEndpoint(input.endpoint)) throw new Error("Unsupported push service.")
   database.prepare(`
-    INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent, created_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent, created_at, last_notification_id)
+    VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM owner_notifications))
     ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, user_agent = excluded.user_agent
   `).run(input.endpoint, input.keys.p256dh, input.keys.auth, userAgent?.slice(0, 300) || null, new Date().toISOString())
 }
@@ -92,17 +95,26 @@ export function countSubscriptions(database = getAutomationDatabase()) {
   return (database.prepare("SELECT COUNT(*) AS count FROM push_subscriptions").get() as { count: number }).count
 }
 
-/** Notificaciones aún no mostradas; las marca como entregadas. */
-export function takePendingNotifications(database = getAutomationDatabase()) {
+/**
+ * Notificaciones que este dispositivo aún no ha mostrado (null si el endpoint no
+ * es un dispositivo activado). Avanza su cursor.
+ */
+export function takePendingNotificationsFor(endpoint: string, database = getAutomationDatabase()) {
   const take = database.transaction(() => {
+    const subscription = database
+      .prepare("SELECT last_notification_id FROM push_subscriptions WHERE endpoint = ?")
+      .get(endpoint) as { last_notification_id: number } | undefined
+    if (!subscription) return null
     const rows = database.prepare(`
       SELECT id, title, body, url, tag FROM owner_notifications
-      WHERE delivered_at IS NULL AND created_at >= ?
-      ORDER BY id ASC LIMIT 10
-    `).all(new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString()) as Array<{ id: number; title: string; body: string; url: string | null; tag: string | null }>
+      WHERE id > ? AND created_at >= ?
+      ORDER BY id ASC LIMIT 5
+    `).all(subscription.last_notification_id, new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString()) as Array<{ id: number; title: string; body: string; url: string | null; tag: string | null }>
     if (rows.length) {
-      database.prepare(`UPDATE owner_notifications SET delivered_at = ? WHERE id IN (${rows.map(() => "?").join(",")})`)
-        .run(new Date().toISOString(), ...rows.map((row) => row.id))
+      const now = new Date().toISOString()
+      database.prepare("UPDATE push_subscriptions SET last_notification_id = ? WHERE endpoint = ?").run(rows[rows.length - 1].id, endpoint)
+      database.prepare(`UPDATE owner_notifications SET delivered_at = COALESCE(delivered_at, ?) WHERE id IN (${rows.map(() => "?").join(",")})`)
+        .run(now, ...rows.map((row) => row.id))
     }
     return rows
   })

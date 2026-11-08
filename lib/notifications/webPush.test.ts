@@ -8,7 +8,7 @@ import {
   isAllowedPushEndpoint,
   notifyOwner,
   saveSubscription,
-  takePendingNotifications,
+  takePendingNotificationsFor,
 } from "./webPush"
 
 beforeAll(() => {
@@ -63,8 +63,20 @@ describe("web push", () => {
     expect(url).toBe("https://web.push.apple.com/device")
     expect(init.body).toBeUndefined()
     expect(String((init.headers as Record<string, string>).Authorization)).toMatch(/^vapid t=/)
-    expect(takePendingNotifications(database).map((item) => item.title)).toEqual(["Draft listo"])
-    expect(takePendingNotifications(database)).toEqual([])
+    expect(takePendingNotificationsFor("https://web.push.apple.com/device", database)!.map((item) => item.title)).toEqual(["Draft listo"])
+    expect(takePendingNotificationsFor("https://web.push.apple.com/device", database)).toEqual([])
+    expect(takePendingNotificationsFor("https://web.push.apple.com/unknown", database)).toBeNull()
+  })
+
+  it("cada dispositivo recibe todas las notificaciones, pero no las anteriores a activarse", async () => {
+    database = openAutomationDatabase(":memory:")
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 201 })))
+    await notifyOwner({ title: "vieja", body: "x" }, database)
+    saveSubscription({ endpoint: "https://web.push.apple.com/a", keys: { p256dh: "p", auth: "a" } }, null, database)
+    saveSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/b", keys: { p256dh: "p", auth: "a" } }, null, database)
+    await notifyOwner({ title: "nueva", body: "y" }, database)
+    expect(takePendingNotificationsFor("https://web.push.apple.com/a", database)!.map((item) => item.title)).toEqual(["nueva"])
+    expect(takePendingNotificationsFor("https://fcm.googleapis.com/fcm/send/b", database)!.map((item) => item.title)).toEqual(["nueva"])
   })
 
   it("olvida los dispositivos que el servicio push da por caducados", async () => {

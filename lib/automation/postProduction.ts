@@ -116,7 +116,8 @@ export function listingImagesInEtsyOrder(job: AutomationJob, files: AutomationJo
   for (const slot of order) {
     const file = fileBySlot(files, `listing:${slot}`)
     if (!file?.r2Key) throw new PostProductionError(`Falta la imagen ${slot} del listing en R2.`)
-    images.push({ id: `listing-${slot}`, position: images.length + 1, url: publicUrl(file.r2Key) })
+    // id = posición en Etsy: el modelo no puede confundir "listing-12" con la posición 12.
+    images.push({ id: `image-${images.length + 1}`, position: images.length + 1, url: publicUrl(file.r2Key) })
   }
   return images
 }

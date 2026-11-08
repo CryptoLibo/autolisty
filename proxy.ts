@@ -15,6 +15,8 @@ const PUBLIC_API_PATHS = new Set([
   "/api/contact",
   "/api/etsy/auth/callback",
   "/api/pinterest/auth/callback",
+  // El service worker se identifica con su endpoint de push (lo valida la ruta).
+  "/api/notifications/pending",
 ])
 
 function isPublicPath(pathname: string) {

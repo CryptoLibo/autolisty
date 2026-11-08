@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server"
-import { requireOwnerApi } from "@/lib/auth/owner"
-import { takePendingNotifications } from "@/lib/notifications/webPush"
+import { takePendingNotificationsFor } from "@/lib/notifications/webPush"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// La pide el service worker del móvil al recibir un push.
-export async function GET() {
-  const unauthorized = await requireOwnerApi()
-  if (unauthorized) return unauthorized
-  return NextResponse.json({ notifications: takePendingNotifications() }, { headers: { "Cache-Control": "no-store" } })
+// La pide el service worker del móvil al recibir un push. Se identifica con su
+// endpoint de push (cabecera), que solo conocen el dispositivo y el servidor.
+export async function GET(request: Request) {
+  const endpoint = request.headers.get("x-push-endpoint") || ""
+  const notifications = endpoint ? takePendingNotificationsFor(endpoint) : null
+  if (!notifications) return NextResponse.json({ error: "Unknown device." }, { status: 401 })
+  return NextResponse.json({ notifications }, { headers: { "Cache-Control": "no-store" } })
 }

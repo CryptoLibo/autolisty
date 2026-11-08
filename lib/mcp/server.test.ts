@@ -5,6 +5,7 @@ function tools() {
   return {
     submitDesign: vi.fn(async (input: unknown) => ({ productCode: "LBCreaStudio-ABC123", input })),
     listDesigns: vi.fn(() => [{ productCode: "LBCreaStudio-ABC123", status: "PENDING_APPROVAL" }]),
+    reviewListing: vi.fn(async (input: { productCode?: unknown }) => ({ productCode: input.productCode, checks: [] })),
   }
 }
 
@@ -27,12 +28,22 @@ describe("Autolisty MCP server", () => {
     expect(await handleMcpMessage({ jsonrpc: "2.0", method: "notifications/initialized" }, tools())).toBeNull()
   })
 
-  it("lists both tools", async () => {
+  it("lists the tools", async () => {
     const response = (await handleMcpMessage({ jsonrpc: "2.0", id: 3, method: "tools/list" }, tools())) as {
       result: { tools: Array<{ name: string }> }
     }
-    expect(response.result.tools.map((tool) => tool.name)).toEqual(["submit_design", "list_designs"])
+    expect(response.result.tools.map((tool) => tool.name)).toEqual(["submit_design", "list_designs", "review_listing"])
     expect(MCP_TOOLS[0].inputSchema.required).toEqual(["productType", "prompt", "imageUrl"])
+  })
+
+  it("calls review_listing", async () => {
+    const handlers = tools()
+    const response = (await handleMcpMessage(
+      { jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "review_listing", arguments: { productCode: "LBCreaStudio-FT733P" } } },
+      handlers
+    )) as { result: { structuredContent: { listing: { productCode: string } } } }
+    expect(handlers.reviewListing).toHaveBeenCalledWith({ productCode: "LBCreaStudio-FT733P" })
+    expect(response.result.structuredContent.listing.productCode).toBe("LBCreaStudio-FT733P")
   })
 
   it("calls submit_design and list_designs", async () => {

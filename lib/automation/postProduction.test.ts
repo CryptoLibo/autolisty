@@ -100,7 +100,7 @@ describe("post-production worker", () => {
       "mockup-7.jpg", "mockup-8.jpg", "mockup-9.jpg", "mockup-10.jpg", "mockup-11.jpg",
     ])
     expect(images.map((image) => image.rank)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
-    expect(images[1].altText).toBe("alt listing-12")
+    expect(images[1].altText).toBe("alt image-2")
     expect(deps.syncVideo).toHaveBeenCalledWith(expect.anything(), {
       url: `https://files.example/mockups/${job.productCode}/mockup-2.mp4`,
       name: `${job.productCode}.mp4`,

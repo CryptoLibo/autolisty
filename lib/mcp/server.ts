@@ -13,6 +13,7 @@ type JsonRpcMessage = { jsonrpc?: unknown; id?: JsonRpcId; method?: unknown; par
 export type McpToolHandlers = {
   submitDesign: (input: unknown) => Promise<unknown>
   listDesigns: (input: { status?: string | null; limit?: number }) => Promise<unknown> | unknown
+  reviewListing: (input: { productCode?: unknown }) => Promise<unknown>
 }
 
 export class McpToolInputError extends Error {}
@@ -93,6 +94,20 @@ export const MCP_TOOLS = [
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
+  {
+    name: "review_listing",
+    title: "Review an Etsy listing draft",
+    description:
+      "Read a listing exactly as it is on Etsy (draft or published): title, tags, description, attributes, every photo in order with its alt text and the file Autolisty expected in that position, the digital file, plus the keyword research behind the design, what Autolisty generated and objective checks (lengths, 13 tags, alt text on every photo, duplicates, file attached). Use it before the owner publishes a draft. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productCode: { type: "string", description: 'Product code, e.g. "LBCreaStudio-FT733P".' },
+      },
+      required: ["productCode"],
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
 ] as const
 
 function result(id: JsonRpcId, value: unknown) {
@@ -132,7 +147,7 @@ export async function handleMcpMessage(message: unknown, tools: McpToolHandlers)
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
         instructions:
-          "Autolisty is LBCreaStudio's Etsy production system. Use submit_design for each design the owner should review; use list_designs to read approvals, rejections and their notes.",
+          "Autolisty is LBCreaStudio's Etsy production system. Use submit_design for each design the owner should review; use list_designs to read approvals, rejections and their notes; use review_listing to check an Etsy draft before it is published.",
       })
     }
     case "ping":
@@ -150,6 +165,9 @@ export async function handleMcpMessage(message: unknown, tools: McpToolHandlers)
           const limit = args.limit === undefined ? undefined : Number(args.limit)
           const status = typeof args.status === "string" ? args.status : null
           return result(id, toolResult({ designs: await tools.listDesigns({ status, limit }) }))
+        }
+        if (call.name === "review_listing") {
+          return result(id, toolResult({ listing: await tools.reviewListing({ productCode: args.productCode }) }))
         }
         return error(id, -32602, `Unknown tool: ${String(call.name)}`)
       } catch (caught) {

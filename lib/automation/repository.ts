@@ -834,6 +834,13 @@ export class AutomationRepository {
     return transition()
   }
 
+  getJobByProductCode(productCode: string) {
+    const row = this.database
+      .prepare("SELECT * FROM automation_jobs WHERE product_code = ?")
+      .get(productCode) as AutomationJobRow | undefined
+    return row ? mapJob(row) : null
+  }
+
   // ---- Postproducción en el servidor (después de LOCAL_COMPLETE) ----
 
   /** Trabajos que el worker del servidor debe avanzar, los más antiguos primero. */

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { authenticateClaudeApi, describeClaudeAuthAttempt } from "@/lib/auth/claudeApi"
 import { listClaudeDesigns, submitClaudeDesign } from "@/lib/automation/claudeDesigns"
 import { handleMcpMessage } from "@/lib/mcp/server"
+import { reviewListingDraft } from "@/lib/automation/draftReview"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
   const response = await handleMcpMessage(message, {
     submitDesign: submitClaudeDesign,
     listDesigns: listClaudeDesigns,
+    reviewListing: reviewListingDraft,
   })
   if (response === null) return new Response(null, { status: 202 })
   return NextResponse.json(response)

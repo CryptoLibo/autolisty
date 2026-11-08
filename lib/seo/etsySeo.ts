@@ -1426,6 +1426,64 @@ function appendListingId(description: string, listingId: string | null) {
   return `${normalized}\n\n${marker}`
 }
 
+// Red de seguridad para el alt text: si una foto se quedó sin texto (el modelo a
+// veces omite las imágenes fijas o informativas), se pide de nuevo para ESA foto
+// sola, enviando solo su imagen. Así nunca se cruza el texto de una foto con otra.
+async function fillMissingAltTexts({
+  productConfig,
+  listingTitle,
+  media,
+  images,
+}: {
+  productConfig: ProductConfig
+  listingTitle: string
+  media: Array<{ id: string; position: number; alt_text: string }>
+  images: Array<{ id: string; position: number; dataUrl: string }>
+}) {
+  const minAlt = productConfig?.image_rules?.alt_text?.min_characters ?? 200
+  const maxAlt = productConfig?.image_rules?.alt_text?.max_characters ?? 250
+  const filled = []
+  for (const item of media) {
+    if (cleanText(item.alt_text).length >= Math.min(80, minAlt)) {
+      filled.push(item)
+      continue
+    }
+    const image = images.find((candidate) => candidate.id === item.id)
+    if (!image) throw new Error(`Alt text missing for image ${item.position} and its image is not available.`)
+    let altText = ""
+    for (let attempt = 0; attempt < 2 && !altText; attempt += 1) {
+      const response = await client.responses.create({
+        model: "gpt-5.4-mini",
+        temperature: 0.2,
+        input: [
+          {
+            role: "system",
+            content: [{
+              type: "input_text",
+              text: `You write Etsy image alt text for one listing photo of a digital art product.
+Describe exactly what THIS image shows (scene, artwork, any visible text or layout such as a size guide, a features panel or an artwork preview), naturally including the main search phrase of the listing once.
+${minAlt}-${maxAlt} characters, one or two plain sentences, no quotes, no hashtags, no emojis, do not start with "Image of" or "Picture of".
+Return only the alt text.`,
+            }],
+          },
+          {
+            role: "user",
+            content: [
+              { type: "input_text", text: `Listing title: ${listingTitle}
+Photo position in the listing: ${item.position}` },
+              { type: "input_image", image_url: image.dataUrl, detail: "auto" },
+            ],
+          },
+        ],
+      })
+      altText = clampAltText(String(response.output_text || "").replace(/^["']|["']$/g, ""), minAlt, maxAlt)
+    }
+    if (!altText) throw new Error(`Alt text could not be generated for image ${item.position}.`)
+    filled.push({ ...item, alt_text: altText })
+  }
+  return filled
+}
+
 async function rewriteTitleAndAltTexts({
   productConfig,
   listingTitle,
@@ -1955,13 +2013,20 @@ Return JSON in this exact shape:
       productConfig?.title_rules?.word_rules?.max_characters ?? 140
     )
 
+    const finalMedia = await fillMissingAltTexts({
+      productConfig,
+      listingTitle: polishedTitle,
+      media: polished.media,
+      images: mockupInputs,
+    })
+
     const output = {
       title: polishedTitle,
       description_keywords_5: keywords5,
       description_final: description,
       tags_13: tags,
       etsy_attributes: etsyAttributes,
-      media: polished.media,
+      media: finalMedia,
     }
 
     return output as EtsySeoResult

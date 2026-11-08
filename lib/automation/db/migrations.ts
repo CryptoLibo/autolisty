@@ -899,6 +899,12 @@ const MIGRATIONS = [
       CREATE INDEX owner_notifications_pending_idx ON owner_notifications(delivered_at, id);
     `,
   },
+  {
+    version: 23,
+    sql: `
+      ALTER TABLE push_subscriptions ADD COLUMN last_notification_id INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {
