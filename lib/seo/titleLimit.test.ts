@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { keepSuffixWithinLimit } from "./etsySeo"
+import { keepSuffixWithinLimit } from "./titleLimit"
 
 describe("keepSuffixWithinLimit", () => {
   it("quita palabras antes del sufijo en vez de cortarlo", () => {
