@@ -70,7 +70,8 @@ export async function reviewListingDraft(input: { productCode?: unknown }) {
     { check: "every photo has alt text", ok: etsyImages.every((image) => Boolean(image.altText)), detail: etsyImages.filter((image) => !image.altText).map((image) => `rank ${image.rank}`).join(", ") || "ok" },
     { check: "no repeated alt text", ok: new Set(altTexts).size === altTexts.length, detail: "" },
     { check: "digital file attached", ok: files.length > 0, detail: files.map((file) => file.filename).join(", ") || "none" },
-    { check: "product code in description", ok: String(listing?.description || "").includes(productCode), detail: "" },
+    // Como en Scale, la descripción lleva el código corto (p. ej. "LR16N6").
+    { check: "product code in description", ok: String(listing?.description || "").includes(productCode.split("-").pop()!), detail: productCode.split("-").pop()! },
   ]
 
   return {

@@ -14,7 +14,8 @@ describe("listing edits by Claude", () => {
     expect(() => parseListingEdit({ reason: "r", tags: Array.from({ length: 14 }, (_, i) => `tag ${i}`) }, CODE)).toThrow(/1 to 13/)
     expect(() => parseListingEdit({ reason: "r", tags: ["this tag is far too long"] }, CODE)).toThrow(/at most 20/)
     expect(() => parseListingEdit({ reason: "r", tags: ["Snow", "snow"] }, CODE)).toThrow(/must not repeat/)
-    expect(() => parseListingEdit({ reason: "r", description: "No code here" }, CODE)).toThrow(/keep the product code/)
+    expect(() => parseListingEdit({ reason: "r", description: "No code here" }, CODE)).toThrow(/keep the product code FT733P/)
+    expect(parseListingEdit({ reason: "r", description: "Nice art\nFT733P" }, CODE).description).toBe("Nice art\nFT733P")
     expect(() => parseListingEdit({ reason: "r", altTexts: [{ rank: 0, altText: "x" }] }, CODE)).toThrow(/photo position/)
   })
 

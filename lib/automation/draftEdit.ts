@@ -31,8 +31,9 @@ export function parseListingEdit(input: ListingEditInput, productCode: string) {
   if (!reason) throw new Error("reason is required: explain what is wrong and why the change is better.")
   const title = optionalString(input.title, "title", 140)
   const description = optionalString(input.description, "description", 20_000)
-  if (description && !description.includes(productCode)) {
-    throw new Error(`description must keep the product code ${productCode}.`)
+  const shortCode = productCode.split("-").pop()!
+  if (description && !description.includes(shortCode)) {
+    throw new Error(`description must keep the product code ${shortCode} (as the last line, like every listing).`)
   }
 
   let tags: string[] | undefined
