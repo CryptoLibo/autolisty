@@ -6,6 +6,7 @@ function tools() {
     submitDesign: vi.fn(async (input: unknown) => ({ productCode: "LBCreaStudio-ABC123", input })),
     listDesigns: vi.fn(() => [{ productCode: "LBCreaStudio-ABC123", status: "PENDING_APPROVAL" }]),
     reviewListing: vi.fn(async (input: { productCode?: unknown }) => ({ productCode: input.productCode, checks: [] })),
+    editListing: vi.fn(async () => { throw new Error("Not authorized: the owner has not allowed Claude to edit") }),
   }
 }
 
@@ -32,7 +33,7 @@ describe("Autolisty MCP server", () => {
     const response = (await handleMcpMessage({ jsonrpc: "2.0", id: 3, method: "tools/list" }, tools())) as {
       result: { tools: Array<{ name: string }> }
     }
-    expect(response.result.tools.map((tool) => tool.name)).toEqual(["submit_design", "list_designs", "review_listing"])
+    expect(response.result.tools.map((tool) => tool.name)).toEqual(["submit_design", "list_designs", "review_listing", "edit_listing"])
     expect(MCP_TOOLS[0].inputSchema.required).toEqual(["productType", "prompt", "imageUrl"])
   })
 
@@ -44,6 +45,15 @@ describe("Autolisty MCP server", () => {
     )) as { result: { structuredContent: { listing: { productCode: string } } } }
     expect(handlers.reviewListing).toHaveBeenCalledWith({ productCode: "LBCreaStudio-FT733P" })
     expect(response.result.structuredContent.listing.productCode).toBe("LBCreaStudio-FT733P")
+  })
+
+  it("returns edit refusals as readable tool errors", async () => {
+    const response = (await handleMcpMessage(
+      { jsonrpc: "2.0", id: 10, method: "tools/call", params: { name: "edit_listing", arguments: { productCode: "LBCreaStudio-FT733P", reason: "x" } } },
+      tools()
+    )) as { result: { isError: boolean; content: Array<{ text: string }> } }
+    expect(response.result.isError).toBe(true)
+    expect(response.result.content[0].text).toMatch(/Not authorized/)
   })
 
   it("calls submit_design and list_designs", async () => {

@@ -3,6 +3,7 @@ import { authenticateClaudeApi, describeClaudeAuthAttempt } from "@/lib/auth/cla
 import { listClaudeDesigns, submitClaudeDesign } from "@/lib/automation/claudeDesigns"
 import { handleMcpMessage } from "@/lib/mcp/server"
 import { reviewListingDraft } from "@/lib/automation/draftReview"
+import { editListingDraft } from "@/lib/automation/draftEdit"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -33,6 +34,7 @@ export async function POST(request: Request) {
     submitDesign: submitClaudeDesign,
     listDesigns: listClaudeDesigns,
     reviewListing: reviewListingDraft,
+    editListing: editListingDraft,
   })
   if (response === null) return new Response(null, { status: 202 })
   return NextResponse.json(response)

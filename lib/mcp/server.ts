@@ -14,6 +14,7 @@ export type McpToolHandlers = {
   submitDesign: (input: unknown) => Promise<unknown>
   listDesigns: (input: { status?: string | null; limit?: number }) => Promise<unknown> | unknown
   reviewListing: (input: { productCode?: unknown }) => Promise<unknown>
+  editListing: (input: Record<string, unknown>) => Promise<unknown>
 }
 
 export class McpToolInputError extends Error {}
@@ -108,6 +109,33 @@ export const MCP_TOOLS = [
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
+  {
+    name: "edit_listing",
+    title: "Correct an Etsy listing (owner-authorized only)",
+    description:
+      "Change the title, description, tags and/or photo alt texts of one listing on Etsy. Works ONLY when the owner has pressed 'Allow Claude to edit' on that listing in Automation (the permission expires); otherwise it is refused. Only send the fields that change. Every edit is logged with before, after and your reason, to learn from it. Use it only after the owner agreed to the specific corrections.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productCode: { type: "string", description: 'e.g. "LBCreaStudio-FT733P".' },
+        title: { type: "string", maxLength: 140 },
+        description: { type: "string", description: "Full new description; must keep the product code." },
+        tags: { type: "array", items: { type: "string", maxLength: 20 }, maxItems: 13, description: "Full new tag list (replaces all tags)." },
+        altTexts: {
+          type: "array",
+          maxItems: 20,
+          items: {
+            type: "object",
+            properties: { rank: { type: "integer", minimum: 1, maximum: 20 }, altText: { type: "string", maxLength: 250 } },
+            required: ["rank", "altText"],
+          },
+        },
+        reason: { type: "string", description: "What was wrong and why the change is better (logged as feedback)." },
+      },
+      required: ["productCode", "reason"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
 ] as const
 
 function result(id: JsonRpcId, value: unknown) {
@@ -165,6 +193,9 @@ export async function handleMcpMessage(message: unknown, tools: McpToolHandlers)
           const limit = args.limit === undefined ? undefined : Number(args.limit)
           const status = typeof args.status === "string" ? args.status : null
           return result(id, toolResult({ designs: await tools.listDesigns({ status, limit }) }))
+        }
+        if (call.name === "edit_listing") {
+          return result(id, toolResult({ edit: await tools.editListing(args) }))
         }
         if (call.name === "review_listing") {
           return result(id, toolResult({ listing: await tools.reviewListing({ productCode: args.productCode }) }))

@@ -171,13 +171,13 @@ export async function uploadListingImage({
   rank: number;
   altText?: string;
 }) {
-  async function send(includeAltText: boolean) {
+  async function send(alt: string | undefined) {
     const form = new FormData();
     form.append("image", new Blob([toBlobPart(fileBuffer)], { type: contentType }), filename);
     form.append("rank", String(rank));
 
-    if (includeAltText && altText) {
-      form.append("alt_text", altText);
+    if (alt) {
+      form.append("alt_text", alt);
     }
 
     return await etsyFetch(
@@ -190,16 +190,62 @@ export async function uploadListingImage({
     );
   }
 
-  let response = await send(true);
+  // Antes, si Etsy rechazaba el alt text, la foto se subía sin él sin avisar.
+  // Ahora se reintenta con el texto saneado y, si sigue fallando, se informa.
+  let response = await send(altText);
 
   if (!response.ok && altText) {
-    response = await send(false);
+    const firstError = await parseEtsyError(response, "Etsy rejected the alt text.");
+    response = await send(sanitizeAltText(altText));
+    if (!response.ok) {
+      throw new Error(`Etsy rejected the alt text for the image at position ${rank}: ${firstError}`);
+    }
   }
 
   if (!response.ok) {
     throw new Error(await parseEtsyError(response, "Failed to upload Etsy listing image."));
   }
 
+  return await response.json();
+}
+
+export function sanitizeAltText(text: string) {
+  let clean = text.normalize("NFKC").replace(/[\u0000-\u001f\u007f<>]/g, " ").replace(/\s+/g, " ").trim();
+  if (clean.length > 250) {
+    clean = clean.slice(0, 250);
+    const lastSpace = clean.lastIndexOf(" ");
+    if (lastSpace > 150) clean = clean.slice(0, lastSpace);
+  }
+  return clean.trim();
+}
+
+/** Cambia solo el alt text de una foto ya subida (sin volver a subir la imagen). */
+export async function setListingImageAltText({
+  token,
+  shopId,
+  listingId,
+  listingImageId,
+  rank,
+  altText,
+}: {
+  token: EtsyTokenPayload;
+  shopId: number;
+  listingId: string;
+  listingImageId: number;
+  rank: number;
+  altText: string;
+}) {
+  const form = new FormData();
+  form.append("listing_image_id", String(listingImageId));
+  form.append("rank", String(rank));
+  form.append("alt_text", sanitizeAltText(altText));
+  const response = await etsyFetch(`/application/shops/${shopId}/listings/${listingId}/images`, token, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) {
+    throw new Error(await parseEtsyError(response, `Failed to update the alt text of the image at position ${rank}.`));
+  }
   return await response.json();
 }
 

@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic"
 // Body: { action: "cancel", reason?: string } | { action: "priority", priority: number }
 //     | { action: "discard" }  (incidencia: cancelar y borrar todo de R2)
 //     | { action: "restart" }  (incidencia: descartar y volver a empezar con código nuevo)
+//     | { action: "allow_claude_edit" } (24 h) | { action: "revoke_claude_edit" }
 export async function PATCH(request: Request, context: { params: Promise<{ jobId: string }> }) {
   const unauthorized = await requireOwnerApi()
   if (unauthorized) return unauthorized
@@ -38,6 +39,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ jobId
         }
       }
       return NextResponse.json({ ok: true, job })
+    }
+    if (body?.action === "allow_claude_edit") {
+      const until = new Date(Date.now() + 24 * 60 * 60_000).toISOString()
+      return NextResponse.json({ ok: true, job: repository.setClaudeEditPermission(jobId, until) })
+    }
+    if (body?.action === "revoke_claude_edit") {
+      return NextResponse.json({ ok: true, job: repository.setClaudeEditPermission(jobId, null) })
     }
     if (body?.action === "discard") {
       return NextResponse.json({ ok: true, job: await discardJob(jobId, "Discarded by the owner; files deleted.") })

@@ -89,6 +89,7 @@ export type AutomationJob = {
   localCleanedAt: string | null
   deliveryUrl: string | null
   deliveryFilename: string | null
+  claudeEditUntil: string | null
 }
 
 export const AUTOMATION_JOB_ORIGINS = ["owner", "claude"] as const

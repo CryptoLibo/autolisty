@@ -906,6 +906,12 @@ const MIGRATIONS = [
       UPDATE push_subscriptions SET last_notification_id = (SELECT COALESCE(MAX(id), 0) FROM owner_notifications);
     `,
   },
+  {
+    version: 24,
+    sql: `
+      ALTER TABLE automation_jobs ADD COLUMN claude_edit_until TEXT;
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

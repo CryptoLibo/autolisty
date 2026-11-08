@@ -44,6 +44,7 @@ type AutomationJobRow = {
   local_cleaned_at: string | null
   delivery_url: string | null
   delivery_filename: string | null
+  claude_edit_until: string | null
 }
 
 type AutomationEventRow = {
@@ -142,6 +143,7 @@ function mapJob(row: AutomationJobRow): AutomationJob {
     localCleanedAt: row.local_cleaned_at,
     deliveryUrl: row.delivery_url ?? null,
     deliveryFilename: row.delivery_filename ?? null,
+    claudeEditUntil: row.claude_edit_until ?? null,
   }
 }
 
@@ -832,6 +834,18 @@ export class AutomationRepository {
     })
 
     return transition()
+  }
+
+  /** Autoriza (o retira) a Claude para editar el listing de este trabajo en Etsy. */
+  setClaudeEditPermission(jobId: string, until: string | null) {
+    const job = this.getJob(jobId)
+    if (!job) throw new Error(`Automation job not found: ${jobId}`)
+    if (until && !job.etsyDraftId) throw new Error("This design has no Etsy listing yet.")
+    this.database.prepare("UPDATE automation_jobs SET claude_edit_until = ?, updated_at = ? WHERE id = ?")
+      .run(until, new Date().toISOString(), jobId)
+    this.recordJobEvent(jobId, until ? "CLAUDE_EDIT_ALLOWED" : "CLAUDE_EDIT_REVOKED",
+      until ? `Owner allowed Claude to edit this listing until ${until}.` : "Owner revoked Claude's edit permission.")
+    return this.getJob(jobId)!
   }
 
   getJobByProductCode(productCode: string) {
