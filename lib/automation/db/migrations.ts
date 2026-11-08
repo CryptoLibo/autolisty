@@ -903,6 +903,7 @@ const MIGRATIONS = [
     version: 23,
     sql: `
       ALTER TABLE push_subscriptions ADD COLUMN last_notification_id INTEGER NOT NULL DEFAULT 0;
+      UPDATE push_subscriptions SET last_notification_id = (SELECT COALESCE(MAX(id), 0) FROM owner_notifications);
     `,
   },
 ] as const
