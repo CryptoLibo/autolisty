@@ -10,7 +10,8 @@ Corre solo en Automaty (Windows). Se comunica con Autolisty únicamente por HTTP
 4. **Valida y sube** cada archivo a R2 con URLs firmadas de 15 minutos y marca `LOCAL_COMPLETE`.
 5. **Limpia** la carpeta del listing cuando Autolisty indica que terminó todo el flujo (o se canceló). Solo borra una carpeta cuyo nombre es exactamente el código `LBCreaStudio-XXXXXX`.
 6. Errores de red o 5xx: reintenta en el siguiente ciclo desde el checkpoint. Fallos de producción: `NEEDS_ATTENTION`.
-7. Opcional: apaga Windows tras `shutdownWhenIdleMinutes` sin trabajo.
+7. Apaga Windows `shutdownWhenIdleMinutes` (15) minutos después de terminar la cola, o `shutdownWhenNoWorkMinutes` (30) después de encender si no hubo nada que producir. Para mantenimiento, crea el archivo vacío `C:\Automaty\agent\NO_SHUTDOWN` y no se apagará (bórralo al terminar).
+8. Avisa a Autolisty al encender y antes de apagar; Autolisty manda la notificación al móvil con el resumen de la sesión.
 
 ## Archivos (bajo `spoolRoot`, por defecto `C:\Automaty\agent`)
 

@@ -4,8 +4,10 @@ param(
   [string]$ServerUrl = "https://autolisty.com",
   [string]$AgentId = "automaty",
   [string]$AgentName = "Automaty",
-  # 0 = no apagar. N = apagar Windows tras N minutos sin trabajo.
-  [int]$ShutdownWhenIdleMinutes = 0
+  # 0 = no apagar. N = apagar Windows N minutos después de terminar la cola.
+  [int]$ShutdownWhenIdleMinutes = 15,
+  # Sin nada que producir en la sesión: apagar N minutos después de encender (0 = no).
+  [int]$ShutdownWhenNoWorkMinutes = 30
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,6 +48,7 @@ $config = [ordered]@{
   pollIntervalSeconds = 30
   heartbeatIntervalSeconds = 60
   shutdownWhenIdleMinutes = $ShutdownWhenIdleMinutes
+  shutdownWhenNoWorkMinutes = $ShutdownWhenNoWorkMinutes
 }
 $config | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8
 

@@ -55,8 +55,13 @@ async function readConfiguration(configPath) {
   config.serverUrl = String(config.serverUrl).replace(/\/+$/, "")
   config.pollIntervalSeconds = Math.max(10, Number(config.pollIntervalSeconds) || 30)
   config.heartbeatIntervalSeconds = Math.max(30, Number(config.heartbeatIntervalSeconds) || 60)
-  // 0 = no apagar nunca. N = apagar Windows tras N minutos sin trabajo (cola vacía).
+  // 0 = no apagar nunca. N = apagar Windows N minutos después de terminar la cola.
   config.shutdownWhenIdleMinutes = Math.max(0, Number(config.shutdownWhenIdleMinutes) || 0)
+  // Si en esta sesión no hubo nada que producir: apagar tras N minutos encendido (0 = no).
+  // Por defecto el doble del anterior, para que el PC se apague siempre.
+  config.shutdownWhenNoWorkMinutes = config.shutdownWhenNoWorkMinutes === undefined
+    ? config.shutdownWhenIdleMinutes * 2
+    : Math.max(0, Number(config.shutdownWhenNoWorkMinutes) || 0)
   config.token = (await fsp.readFile(path.resolve(config.tokenFile), "utf8")).trim()
   if (config.token.length < 32) throw new Error("The machine token is missing or invalid.")
   return config
@@ -135,11 +140,13 @@ function createApi(config) {
   }
 
   return {
-    heartbeat: () => request("/api/automation/agent/heartbeat", {
+    // event: "started" | "shutdown" (avisos al propietario); null en el latido normal.
+    heartbeat: (event = null, summary = null) => request("/api/automation/agent/heartbeat", {
       method: "POST",
       body: JSON.stringify({
         name: config.agentName,
         capabilities: { autobuildy: true, photoshop: "2026", upscayl: true },
+        ...(event ? { event, summary } : {}),
       }),
     }).then((result) => result.body),
     sync: (cleanedJobIds) => request("/api/automation/agent/sync", {
@@ -389,9 +396,9 @@ async function cleanupLocalListing(config, item, log) {
   await log("Local listing folder removed.", { productCode: item.productCode, status: item.status })
 }
 
-function shutdownWindows(log) {
+function shutdownWindows(log, reason) {
   return new Promise((resolve) => {
-    void log("Queue finished and idle time reached. Shutting down Windows in 60 seconds.")
+    void log("Idle time reached. Shutting down Windows in 60 seconds.", { reason })
     const child = spawn("shutdown.exe", ["/s", "/t", "60", "/c", "Automaty: production finished"], { windowsHide: true })
     child.on("close", resolve)
     child.on("error", resolve)
@@ -409,12 +416,17 @@ async function main() {
   let pendingCleanupAcks = []
   let idleSince = Date.now()
   let workedThisSession = false
+  const session = { produced: 0, needsAttention: 0 }
+  // Mantenimiento: si existe este archivo, el agente no apaga el PC.
+  const noShutdownPath = path.join(config.spoolRoot, "NO_SHUTDOWN")
+  let noShutdownLogged = false
 
   const heartbeatTimer = setInterval(() => {
     void api.heartbeat().catch((error) => log("Heartbeat failed.", { error: error.message }))
   }, config.heartbeatIntervalSeconds * 1000)
 
   await log("Autolisty local agent started (local queue mode).", { agentId: config.agentId })
+  await api.heartbeat("started").catch((error) => log("Start notice failed.", { error: error.message }))
   try {
     while (true) {
       let processed = false
@@ -451,12 +463,14 @@ async function main() {
           workedThisSession = true
           try {
             await processJob(config, api, next, statePath, log)
+            session.produced += 1
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             if (error instanceof TransientApiError) {
               await log("Connection problem; the listing will resume from its checkpoint.", { productCode: next.productCode, error: message })
               processed = false
             } else {
+              session.needsAttention += 1
               await log("Local production needs attention.", { productCode: next.productCode, error: message })
               await api.status(next.id, "NEEDS_ATTENTION", "Local production stopped safely.", message).catch(() => {})
             }
@@ -470,14 +484,24 @@ async function main() {
         idleSince = Date.now()
         continue
       }
+      // Con trabajo: apagar shutdownWhenIdleMinutes después de terminar.
+      // Sin trabajo en toda la sesión: apagar shutdownWhenNoWorkMinutes después de encender.
+      const idleLimitMinutes = workedThisSession ? config.shutdownWhenIdleMinutes : config.shutdownWhenNoWorkMinutes
       if (
-        config.shutdownWhenIdleMinutes > 0 &&
-        workedThisSession &&
+        idleLimitMinutes > 0 &&
         pendingCleanupAcks.length === 0 &&
-        Date.now() - idleSince >= config.shutdownWhenIdleMinutes * 60_000
+        Date.now() - idleSince >= idleLimitMinutes * 60_000
       ) {
-        await shutdownWindows(log)
-        return
+        if (await pathExists(noShutdownPath)) {
+          if (!noShutdownLogged) await log("NO_SHUTDOWN file present; staying on.")
+          noShutdownLogged = true
+        } else {
+          const reason = workedThisSession ? "idle_after_work" : "no_work"
+          await api.heartbeat("shutdown", { ...session, reason })
+            .catch((error) => log("Shutdown notice failed.", { error: error.message }))
+          await shutdownWindows(log, reason)
+          return
+        }
       }
       await sleep(config.pollIntervalSeconds * 1000)
     }

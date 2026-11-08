@@ -7,5 +7,6 @@
   "spoolRoot": "C:\\Automaty\\agent",
   "pollIntervalSeconds": 30,
   "heartbeatIntervalSeconds": 60,
-  "shutdownWhenIdleMinutes": 0
+  "shutdownWhenIdleMinutes": 15,
+  "shutdownWhenNoWorkMinutes": 30
 }
