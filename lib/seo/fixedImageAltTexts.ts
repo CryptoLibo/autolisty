@@ -34,7 +34,7 @@ export const FIXED_IMAGE_ALT_TEXTS: Record<ProductType, Record<number, string>> 
   },
   png_designs: {
     5: SALE,
-    8: "PNG design details: digital download only, high resolution 5000x5000 px at 300 DPI, transparent background PNG file, ideal for t-shirts, mugs and tumblers, commercial use on physical products only.",
+    8: "PNG design details: digital download only, high resolution 4096x4096 px at 300 DPI, transparent background PNG file, ideal for t-shirts, mugs and tumblers, commercial use on physical products only.",
     11: WHY_CHOOSE_US,
   },
 }
