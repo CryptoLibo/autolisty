@@ -36,6 +36,10 @@ export async function POST(request: Request) {
     reviewListing: reviewListingDraft,
     editListing: editListingDraft,
   })
+  if (method === "tools/list" && response && "result" in response) {
+    const tools = (response.result as { tools?: Array<{ name: string }> }).tools || []
+    console.info(`[mcp] tools/list → ${tools.length}: ${tools.map((tool) => tool.name).join(", ")}`)
+  }
   if (response === null) return new Response(null, { status: 202 })
   return NextResponse.json(response)
 }
