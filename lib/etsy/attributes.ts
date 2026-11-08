@@ -141,3 +141,25 @@ export async function updateListingProperty({
 
   throw new Error(lastError);
 }
+
+/** Quita un atributo del listing (deleteListingProperty). */
+export async function deleteListingProperty({
+  token,
+  shopId,
+  listingId,
+  propertyId,
+}: {
+  token: EtsyTokenPayload;
+  shopId: number;
+  listingId: string;
+  propertyId: number;
+}) {
+  const response = await etsyFetch(
+    `/application/shops/${shopId}/listings/${listingId}/properties/${propertyId}`,
+    token,
+    { method: "DELETE" }
+  );
+  if (!response.ok && response.status !== 404) {
+    throw new Error(await parseEtsyError(response, `Failed to remove Etsy property ${propertyId}.`));
+  }
+}

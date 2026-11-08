@@ -133,7 +133,7 @@ export const MCP_TOOLS = [
         attributes: {
           type: "array",
           maxItems: 12,
-          description: "Etsy attributes to set, by name with option names exactly as listed in review_listing's attributeOptions (replaces that attribute's values), e.g. { name: \"Primary color\", values: [\"Green\"] }.",
+          description: "Etsy attributes to set, by name with option names exactly as listed in review_listing's attributeOptions (replaces that attribute's values), e.g. { name: \"Primary color\", values: [\"Green\"] }. An empty values list removes the attribute (e.g. an Occasion that does not apply).",
           items: {
             type: "object",
             properties: { name: { type: "string" }, values: { type: "array", items: { type: "string" }, maxItems: 10 } },

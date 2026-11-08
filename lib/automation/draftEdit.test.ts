@@ -29,6 +29,6 @@ describe("listing edits by Claude", () => {
     expect(edit.tags).toEqual(["christmas eve art"])
     const attributes = parseListingEdit({ reason: "r", attributes: [{ name: "Primary color", values: ["Green"] }] }, CODE)
     expect(attributes.attributes).toEqual([{ name: "Primary color", values: ["Green"] }])
-    expect(() => parseListingEdit({ reason: "r", attributes: [{ name: "Room", values: [] }] }, CODE)).toThrow(/1 to 10/)
+    expect(parseListingEdit({ reason: "r", attributes: [{ name: "Occasion", values: [] }] }, CODE).attributes).toEqual([{ name: "Occasion", values: [] }])
   })
 })

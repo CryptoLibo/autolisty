@@ -4,7 +4,7 @@
 // la retroalimentación para mejorar los siguientes listings.
 import { getFreshToken } from "../integrations/tokenSession"
 import { getPrimaryShop, getShopListing, listListingImages, setListingImageAltText, updateShopListingText } from "../etsy/listings"
-import { getListingProperties, updateListingProperty } from "../etsy/attributes"
+import { deleteListingProperty, getListingProperties, updateListingProperty } from "../etsy/attributes"
 import { getEditableAttributes } from "../etsy/attributeOptions"
 import { AutomationRepository } from "./repository"
 
@@ -69,8 +69,9 @@ export function parseListingEdit(input: ListingEditInput, productCode: string) {
     attributes = input.attributes.map((item, index) => {
       const value = (item || {}) as { name?: unknown; values?: unknown }
       const name = optionalString(value.name, `attributes[${index}].name`, 60)!
-      if (!Array.isArray(value.values) || value.values.length === 0 || value.values.length > 10) {
-        throw new Error(`attributes[${index}].values must list 1 to 10 option names.`)
+      // values: [] quita el atributo (p. ej. una Occasion que no corresponde).
+      if (!Array.isArray(value.values) || value.values.length > 10) {
+        throw new Error(`attributes[${index}].values must list 0 to 10 option names (empty removes the attribute).`)
       }
       return { name, values: value.values.map((option, optionIndex) => optionalString(option, `attributes[${index}].values[${optionIndex}]`, 80)!) }
     })
@@ -144,6 +145,12 @@ export async function editListingDraft(input: ListingEditInput) {
       if (attribute.values.length > property.maxValues) {
         throw new Error(`"${property.name}" accepts at most ${property.maxValues} value(s).`)
       }
+      const before = (current as Array<{ property_id?: number; values?: string[] }>).find((item) => Number(item.property_id) === property.propertyId)
+      if (attribute.values.length === 0) {
+        await deleteListingProperty({ token, shopId, listingId: job.etsyDraftId, propertyId: property.propertyId })
+        changes[`attribute:${property.name}`] = { before: before?.values ?? null, after: null }
+        continue
+      }
       const options = attribute.values.map((name) => {
         const option = property.options.find((candidate) => norm(candidate.name) === norm(name))
         if (!option) throw new Error(`"${name}" is not a valid option for "${property.name}". Options: ${property.options.map((item) => item.name).join(", ")}.`)
@@ -158,7 +165,6 @@ export async function editListingDraft(input: ListingEditInput) {
         values: options.map((option) => option.name),
         scaleId: null,
       })
-      const before = (current as Array<{ property_id?: number; values?: string[] }>).find((item) => Number(item.property_id) === property.propertyId)
       changes[`attribute:${property.name}`] = { before: before?.values ?? null, after: options.map((option) => option.name) }
     }
   }
