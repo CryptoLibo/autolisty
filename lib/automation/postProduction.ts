@@ -19,6 +19,7 @@ import type { GeneratePinterestCopyInput, PinterestCopy } from "../seo/pinterest
 import type { DraftSyncAttribute, DraftSyncMockup } from "../etsy/draftSync"
 import type { EtsySeoResult, GenerateEtsySeoInput } from "../seo/etsySeo"
 import { getProductOption, type ProductType } from "../products"
+import { fixedImageAltText } from "../seo/fixedImageAltTexts"
 import type { DesignBrief } from "./designIntake"
 import { getProductionProductContract } from "./productContracts"
 import type { AutomationRepository } from "./repository"
@@ -112,12 +113,12 @@ function fileBySlot(files: AutomationJobFile[], slotKey: string) {
 /** Fotos del listing en el orden de Etsy (la vista previa, 12.jpg, va segunda). */
 export function listingImagesInEtsyOrder(job: AutomationJob, files: AutomationJobFile[], publicUrl: (key: string) => string) {
   const order = getProductionProductContract(job.productType).listing.etsyImageOrder
-  const images: Array<{ id: string; position: number; url: string }> = []
+  const images: Array<{ id: string; position: number; url: string; slot: number }> = []
   for (const slot of order) {
     const file = fileBySlot(files, `listing:${slot}`)
     if (!file?.r2Key) throw new PostProductionError(`Falta la imagen ${slot} del listing en R2.`)
     // id = posición en Etsy: el modelo no puede confundir "listing-12" con la posición 12.
-    images.push({ id: `image-${images.length + 1}`, position: images.length + 1, url: publicUrl(file.r2Key) })
+    images.push({ id: `image-${images.length + 1}`, position: images.length + 1, url: publicUrl(file.r2Key), slot })
   }
   return images
 }
@@ -225,7 +226,10 @@ async function stepSeo(ctx: StepContext) {
     productType: ctx.job.productType,
     draftListingId: ctx.job.etsyDraftId!,
     designUrl: ctx.deps.publicUrl(design.r2Key!),
-    mockups: images,
+    // Las fotos fijas no se envían: su alt text está escrito a mano por producto.
+    mockups: images
+      .filter((image) => !fixedImageAltText(ctx.job.productType, image.slot))
+      .map(({ id, position, url }) => ({ id, position, url })),
     midjourneyPrompt: ctx.job.sourcePrompt,
     listingId: ctx.job.productCode,
     keywordResearch: keywordResearchFromBrief(ctx.job.briefJson),
@@ -276,7 +280,11 @@ async function stepEtsyMedia(ctx: StepContext) {
   const images = listingImagesInEtsyOrder(ctx.job, ctx.files, ctx.deps.publicUrl)
   await ctx.deps.syncImages(
     await etsyDraft(ctx),
-    images.map((image) => ({ url: image.url, rank: image.position, altText: altById.get(image.id) }))
+    images.map((image) => ({
+      url: image.url,
+      rank: image.position,
+      altText: fixedImageAltText(ctx.job.productType, image.slot) ?? altById.get(image.id),
+    }))
   )
   move(ctx, "ETSY_FILE_SYNCING", `${images.length} fotos subidas a Etsy.`)
 }

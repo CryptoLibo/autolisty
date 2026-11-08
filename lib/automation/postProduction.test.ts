@@ -101,6 +101,11 @@ describe("post-production worker", () => {
     ])
     expect(images.map((image) => image.rank)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
     expect(images[1].altText).toBe("alt image-2")
+    // Fotos fijas (5, 8, 11): texto fijo del producto, y no se mandan al SEO.
+    expect(images[4].altText).toMatch(/^LBCreaStudio sale banner/)
+    expect(images[7].altText).toMatch(/^Frame TV art details/)
+    expect(images[10].altText).toMatch(/^Why choose LBCreaStudio/)
+    expect(seoInput.mockups.map((item) => item.position)).toEqual([1, 2, 3, 4, 6, 7, 9, 10])
     expect(deps.syncVideo).toHaveBeenCalledWith(expect.anything(), {
       url: `https://files.example/mockups/${job.productCode}/mockup-2.mp4`,
       name: `${job.productCode}.mp4`,

@@ -27,7 +27,7 @@
 
     "word_rules": {
       "min_words": 13,
-      "max_words": 15,
+      "max_words": 14,
       "avoid_word_repetition": true
     },
 

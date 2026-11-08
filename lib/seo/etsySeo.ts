@@ -1423,7 +1423,8 @@ function appendListingId(description: string, listingId: string | null) {
   if (!normalized) return marker
   if (normalized.includes(marker)) return normalized
 
-  return `${normalized}\n\n${marker}`
+  // Justo debajo de la última línea, sin línea en blanco.
+  return `${normalized}\n${marker}`
 }
 
 // Red de seguridad para el alt text: si una foto se quedó sin texto (el modelo a
@@ -1772,7 +1773,7 @@ PRODUCT-SPECIFIC SEO INTENT
 
 SELLER KEYWORD RESEARCH
 - seller_keyword_research, when present, holds real Etsy search data (monthly searches, competition, trend) chosen for this exact design before it was created.
-- Prefer the primary keyword as the opening buyer phrase of the title and as KEYWORD_1 whenever it matches what is visible; adapt word order or plurals so it reads naturally and respects the title rules.
+- Prefer the primary keyword's search intent as the opening buyer phrase of the title and in KEYWORD_1 whenever it matches what is visible. Research keywords are search intent, not text to paste: adapt plurals, word order and the product noun so they read naturally and match what is sold (a Frame TV artwork is not a "print"; "vintage santa claus prints" becomes "Vintage Santa Claus Frame TV Art" in a title or "vintage Santa Claus painting" in a sentence).
 - Use secondary keywords as tags or description keywords when they fit the artwork. Never force a keyword that contradicts the image.
 - Tag candidates carry real monthly searches and competition: when two tags are equally relevant to the image, prefer the one with more searches and lower competition. They complement your own tag ideas; they are not a list to copy.
 - Competitor listings are top sellers for the primary keyword. Treat tags repeated across several of them, or used by the higher-selling ones, as proven search terms for this niche, and reuse them only when they describe this artwork. Never copy a competitor title or a full tag set, and never use another shop's brand or name.
@@ -1785,13 +1786,15 @@ DESCRIPTION KEYWORDS STRATEGY
 - For nursery_wall_art, KEYWORD_1 should usually carry the strongest nursery-relevant buyer intent while still avoiding repeated product terms from the template.
 - For png_designs, KEYWORD_1 must be the strongest niche, phrase, subject, profession, season, or audience search phrase. Do not waste a keyword slot on generic format terms such as PNG, digital download, instant download, printable file, or sublimation file.
 - Each keyword must have a distinct role and should not feel generic or repetitive.
-- Keywords must fit the template naturally.
+- Keywords must fit the template naturally. Each one is inserted verbatim into a sentence of the description template, e.g. "this beautiful KEYWORD_2 designed for…", "this KEYWORD_3 turns your screen…", "anyone searching for KEYWORD_4 that feels…", "high-quality KEYWORD_5 that…". So every keyword (except KEYWORD_1, which heads the description) must be a complete, grammatical, SINGULAR noun phrase that reads correctly after "this beautiful" and after "high-quality", e.g. "old world Santa painting", "Christmas art for Samsung Frame TV". Never a plural ("prints"), never a fragment ("christmas art samsung frame"), never a keyword that names a different product than the one sold.
+- Read each finished template sentence in your head before answering; if it is not natural English, rewrite that keyword.
 
 TAG STRATEGY
 - Generate exactly 13 tags.
 - Follow the product configuration.
 - Use seo_market_reference_examples to understand which tag phrases naturally belong with successful titles in this product type.
 - Do not copy an entire reference tag set; adapt the tag mix to the current artwork, title, and search intent.
+- Every tag must be a phrase a buyer would actually type into Etsy search. Prefer tags backed by seller_keyword_research (searches, competition) or repeated across competitor listings. Avoid invented descriptive phrases nobody searches ("frame tv display", "seasonal tv art"), near-duplicates of another tag ("old world xmas" next to "old world santa"), and very broad category tags with enormous competition ("christmas decor") unless nothing more specific fits.
 - Keep the current good balance across product, style, subject, decor, and digital format.
 - For horizontal_wall_art, do not create orientation tags such as "horizontal art" or "wide wall art"; keep tags about the artwork and buyer search intent.
 - For nursery_wall_art, include only a small number of nursery/baby/kids-room intent tags, then prioritize subject and style tags that fit the design.
@@ -1801,11 +1804,11 @@ ETSY ATTRIBUTE STRATEGY
 - If etsy_attribute_options is empty, return an empty etsy_attributes array.
 - If etsy_attribute_options contains properties, choose values only from the exact option names provided for each property.
 - Never invent an Etsy attribute value and never return a value that is not listed in etsy_attribute_options.
-- Choose the best Primary color and Secondary color from the actual dominant/supporting colors in the artwork, not from mockup props.
+- Choose the best Primary color and Secondary color from the actual dominant/supporting colors in the artwork, not from mockup props. Primary color is the color that covers the largest area of the artwork (often the background or setting), not the color of a small focal element; the focal element's color can be the Secondary color.
 - Choose Home Style from the actual visual style, subject matter, and buyer decor intent of the artwork. Do not default to "Bohemian & eclectic"; use it only when the design is genuinely boho or eclectic. If the artwork clearly has beach, ocean, surf, palm, island, or tropical cues, prefer "Coastal & tropical" when available. If it is clean/simple, consider "Minimalist" or "Contemporary" when available. If it is rustic, vintage, farmhouse, folk, or primitive, choose the closest available style instead of bohemian.
-- Choose Subject from what is actually represented in the artwork. If Subject is available, select exactly 3 valid Subject values whenever Etsy allows 3. Pick the most specific subject first, then broader supporting subjects, then the closest meaningful fallback from the provided options. Never return fewer than 3 Subject values unless fewer than 3 options are provided.
+- Choose Subject from what is actually represented in the artwork: 1 to 3 values, most specific first. Every value must be clearly visible in the artwork; never add a value just to reach 3 (no "Nautical" without sea, boats or coast; no "Animal" without an animal). Fewer correct values are better than a wrong one.
 - Choose Room only when the property is included in etsy_attribute_options. For nursery_wall_art, Room is normally fixed in the draft and should not be generated.
-- For png_designs, choose Occasion and Holiday only when the artwork has explicit, confident evidence. Omit either property completely when the connection is weak or merely possible.
+- Choose Holiday and Occasion (for every product type) only when the artwork has explicit, confident evidence, e.g. Santa Claus, a decorated Christmas tree or Christmas village means Holiday "Christmas"; pumpkins and ghosts mean "Halloween". Omit either property completely when the connection is weak or merely possible.
 - Skip any attribute when none of the available options fit confidently, except Subject, which must still receive the closest 3 valid options when available.
 
 ALT TEXT STRATEGY

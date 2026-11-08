@@ -5,6 +5,7 @@ import { getPrimaryShop, getShopListing, listListingFiles, listListingImages } f
 import { getListingProperties } from "../etsy/attributes"
 import type { EtsySeoResult } from "../seo/etsySeo"
 import { getProductionProductContract } from "./productContracts"
+import { fixedImageAltText } from "../seo/fixedImageAltTexts"
 import { AutomationRepository } from "./repository"
 import { keywordResearchFromBrief } from "./postProduction"
 
@@ -34,7 +35,7 @@ export async function reviewListingDraft(input: { productCode?: unknown }) {
     rank: index + 1,
     sourceFile: `${slot}.jpg`,
     role: imageRole(slot, contract.listing.previewSlot, contract.listing.fixedImageSlots),
-    generatedAltText: seo?.media?.find((item) => item.position === index + 1)?.alt_text ?? null,
+    generatedAltText: fixedImageAltText(job.productType, slot) ?? seo?.media?.find((item) => item.position === index + 1)?.alt_text ?? null,
   }))
 
   const token = await getFreshToken("etsy")
