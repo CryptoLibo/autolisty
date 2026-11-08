@@ -7,6 +7,7 @@ import { getFreshToken } from "@/lib/integrations/tokenSession"
 import { getSellerTaxonomyProperties } from "@/lib/etsy/attributes"
 import { getPrimaryShop, getShopListing } from "@/lib/etsy/listings"
 import { normalizeProductType } from "@/lib/products"
+import { shouldGenerateEtsyAttribute } from "./attributeRules"
 
 
 const client = new OpenAI({
@@ -97,15 +98,7 @@ type EtsyAttributeSelection = {
   scaleId: number | null
 }
 
-const ETSY_DYNAMIC_ATTRIBUTE_NAMES = new Set([
-  "primary color",
-  "secondary color",
-  "home style",
-  "room",
-  "subject",
-  "occasion",
-  "holiday",
-])
+
 
 function cleanText(value: unknown) {
   return String(value || "").replace(/\s+/g, " ").trim()
@@ -115,24 +108,6 @@ function normalizeAttributeName(value: unknown) {
   return cleanText(value).toLowerCase()
 }
 
-function shouldGenerateEtsyAttribute(productType: string, displayName: string) {
-  const normalized = normalizeAttributeName(displayName)
-  if (!ETSY_DYNAMIC_ATTRIBUTE_NAMES.has(normalized)) return false
-  if (
-    productType !== "png_designs" &&
-    (normalized === "occasion" || normalized === "holiday")
-  ) {
-    return false
-  }
-  if (
-    productType === "png_designs" &&
-    !["subject", "occasion", "holiday"].includes(normalized)
-  ) {
-    return false
-  }
-  if (productType === "nursery_wall_art" && normalized === "room") return false
-  return true
-}
 
 async function loadEtsyAttributeOptionsForDraft({
   draftListingId,
@@ -1804,12 +1779,14 @@ ETSY ATTRIBUTE STRATEGY
 - If etsy_attribute_options is empty, return an empty etsy_attributes array.
 - If etsy_attribute_options contains properties, choose values only from the exact option names provided for each property.
 - Never invent an Etsy attribute value and never return a value that is not listed in etsy_attribute_options.
-- Choose the best Primary color and Secondary color from the actual dominant/supporting colors in the artwork, not from mockup props. Primary color is the color that covers the largest area of the artwork (often the background or setting), not the color of a small focal element; the focal element's color can be the Secondary color.
+- Always fill every color property offered (Primary color, Secondary color, Frame color). Use the actual colors of the artwork, not mockup props. Primary color is the color that covers the largest area of the artwork (often the background or setting), not the color of a small focal element; the focal element's color can be the Secondary color. These are digital files sold unframed, so Frame color describes the artwork's overall dominant color: use the same value as Primary color.
+- Always fill Room when it is offered: choose every room where this artwork genuinely fits, up to the allowed maximum (e.g. living room, bedroom, office, entryway, kitchen & dining for general decor; a nursery or kids room only for children's art).
+- Always fill Home style with the closest available style.
 - Choose Home Style from the actual visual style, subject matter, and buyer decor intent of the artwork. Do not default to "Bohemian & eclectic"; use it only when the design is genuinely boho or eclectic. If the artwork clearly has beach, ocean, surf, palm, island, or tropical cues, prefer "Coastal & tropical" when available. If it is clean/simple, consider "Minimalist" or "Contemporary" when available. If it is rustic, vintage, farmhouse, folk, or primitive, choose the closest available style instead of bohemian.
-- Choose Subject from what is actually represented in the artwork: 1 to 3 values, most specific first. Every value must be clearly visible in the artwork; never add a value just to reach 3 (no "Nautical" without sea, boats or coast; no "Animal" without an animal). Fewer correct values are better than a wrong one.
+- Choose Subject (or Art subject): always exactly 3 values when Etsy allows 3. Analyze what the artwork represents and pick the most specific matching value first, then the next closest ones. When nothing fits exactly, choose the closest values that stay coherent with what is visible (a Santa Claus scene can use people/figures, landscape/scenery and a holiday or fantasy-related value); never a value that contradicts the image (no "Nautical" without sea, boats or coast; no "Animal" without an animal).
 - Choose Room only when the property is included in etsy_attribute_options. For nursery_wall_art, Room is normally fixed in the draft and should not be generated.
 - Choose Holiday and Occasion (for every product type) only when the artwork has explicit, confident evidence, e.g. Santa Claus, a decorated Christmas tree or Christmas village means Holiday "Christmas"; pumpkins and ghosts mean "Halloween". Omit either property completely when the connection is weak or merely possible.
-- Skip any attribute when none of the available options fit confidently, except Subject, which must still receive the closest 3 valid options when available.
+- Holiday and Occasion are the only attributes you may skip (when the theme is not evident). Every other offered property must receive the closest coherent value.
 
 ALT TEXT STRATEGY
 - Analyze each mockup independently.

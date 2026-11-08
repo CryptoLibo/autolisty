@@ -4,6 +4,8 @@
 // la retroalimentación para mejorar los siguientes listings.
 import { getFreshToken } from "../integrations/tokenSession"
 import { getPrimaryShop, getShopListing, listListingImages, setListingImageAltText, updateShopListingText } from "../etsy/listings"
+import { getListingProperties, updateListingProperty } from "../etsy/attributes"
+import { getEditableAttributes } from "../etsy/attributeOptions"
 import { AutomationRepository } from "./repository"
 
 type EtsyImage = { listing_image_id?: number; rank?: number; alt_text?: string | null }
@@ -14,6 +16,7 @@ export type ListingEditInput = {
   description?: unknown
   tags?: unknown
   altTexts?: unknown
+  attributes?: unknown
   reason?: unknown
 }
 
@@ -58,8 +61,25 @@ export function parseListingEdit(input: ListingEditInput, productCode: string) {
     })
   }
 
-  if (!title && !description && !tags && !altTexts) throw new Error("Nothing to change: send title, description, tags and/or altTexts.")
-  return { reason, title, description, tags, altTexts }
+  let attributes: Array<{ name: string; values: string[] }> | undefined
+  if (input.attributes !== undefined) {
+    if (!Array.isArray(input.attributes) || input.attributes.length === 0 || input.attributes.length > 12) {
+      throw new Error("attributes must be an array of 1 to 12 { name, values } items.")
+    }
+    attributes = input.attributes.map((item, index) => {
+      const value = (item || {}) as { name?: unknown; values?: unknown }
+      const name = optionalString(value.name, `attributes[${index}].name`, 60)!
+      if (!Array.isArray(value.values) || value.values.length === 0 || value.values.length > 10) {
+        throw new Error(`attributes[${index}].values must list 1 to 10 option names.`)
+      }
+      return { name, values: value.values.map((option, optionIndex) => optionalString(option, `attributes[${index}].values[${optionIndex}]`, 80)!) }
+    })
+  }
+
+  if (!title && !description && !tags && !altTexts && !attributes) {
+    throw new Error("Nothing to change: send title, description, tags, altTexts and/or attributes.")
+  }
+  return { reason, title, description, tags, altTexts, attributes }
 }
 
 export async function editListingDraft(input: ListingEditInput) {
@@ -111,6 +131,37 @@ export async function editListingDraft(input: ListingEditInput) {
         altText,
       })
       changes[`altText:${rank}`] = { before: image.alt_text || null, after: altText }
+    }
+  }
+
+  if (edit.attributes) {
+    const editable = await getEditableAttributes(token, Number(listing?.taxonomy_id), job.productType)
+    const current = await getListingProperties(token, shopId, job.etsyDraftId).catch(() => [])
+    const norm = (value: string) => value.trim().toLowerCase()
+    for (const attribute of edit.attributes) {
+      const property = editable.find((candidate) => norm(candidate.name) === norm(attribute.name))
+      if (!property) {
+        throw new Error(`"${attribute.name}" is not an editable attribute here. Editable: ${editable.map((item) => item.name).join(", ")}.`)
+      }
+      if (attribute.values.length > property.maxValues) {
+        throw new Error(`"${property.name}" accepts at most ${property.maxValues} value(s).`)
+      }
+      const options = attribute.values.map((name) => {
+        const option = property.options.find((candidate) => norm(candidate.name) === norm(name))
+        if (!option) throw new Error(`"${name}" is not a valid option for "${property.name}". Options: ${property.options.map((item) => item.name).join(", ")}.`)
+        return option
+      })
+      await updateListingProperty({
+        token,
+        shopId,
+        listingId: job.etsyDraftId,
+        propertyId: property.propertyId,
+        valueIds: options.map((option) => option.valueId),
+        values: options.map((option) => option.name),
+        scaleId: null,
+      })
+      const before = (current as Array<{ property_id?: number; values?: string[] }>).find((item) => Number(item.property_id) === property.propertyId)
+      changes[`attribute:${property.name}`] = { before: before?.values ?? null, after: options.map((option) => option.name) }
     }
   }
 

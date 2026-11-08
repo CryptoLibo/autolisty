@@ -3,6 +3,7 @@
 import { getFreshToken } from "../integrations/tokenSession"
 import { getPrimaryShop, getShopListing, listListingFiles, listListingImages } from "../etsy/listings"
 import { getListingProperties } from "../etsy/attributes"
+import { getEditableAttributes } from "../etsy/attributeOptions"
 import type { EtsySeoResult } from "../seo/etsySeo"
 import { getProductionProductContract } from "./productContracts"
 import { fixedImageAltText } from "../seo/fixedImageAltTexts"
@@ -59,6 +60,11 @@ export async function reviewListingDraft(input: { productCode?: unknown }) {
     expected: expectedImages.find((item) => item.rank === image.rank) ?? null,
   }))
 
+  // Opciones válidas de los atributos que se pueden corregir (por categoría del draft).
+  const attributeOptions = await getEditableAttributes(token, Number(listing?.taxonomy_id), job.productType)
+    .then((items) => items.map((item) => ({ name: item.name, maxValues: item.maxValues, options: item.options.map((option) => option.name) })))
+    .catch(() => [])
+
   const title = String(listing?.title || "")
   const tags: string[] = Array.isArray(listing?.tags) ? listing.tags : []
   const altTexts = etsyImages.map((image) => image.altText).filter(Boolean) as string[]
@@ -91,6 +97,7 @@ export async function reviewListingDraft(input: { productCode?: unknown }) {
       description: listing?.description ?? null,
       price: listing?.price ?? null,
       attributes: properties,
+      attributeOptions,
       images: etsyImages,
       files: files.map((file) => ({ filename: file.filename, size: file.filesize ?? file.size_bytes ?? null })),
     },

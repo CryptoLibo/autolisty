@@ -113,7 +113,7 @@ export const MCP_TOOLS = [
     name: "edit_listing",
     title: "Correct an Etsy listing (owner-authorized only)",
     description:
-      "Change the title, description, tags and/or photo alt texts of one listing on Etsy. Works ONLY when the owner has pressed 'Allow Claude to edit' on that listing in Automation (the permission expires); otherwise it is refused. Only send the fields that change. Every edit is logged with before, after and your reason, to learn from it. Use it only after the owner agreed to the specific corrections.",
+      "Change the title, description, tags, photo alt texts and/or attributes (colors, room, home style, subject, holiday…) of one listing on Etsy. Works ONLY when the owner has pressed 'Allow Claude to edit' on that listing in Automation (the permission expires); otherwise it is refused. Only send the fields that change. Every edit is logged with before, after and your reason, to learn from it. Use it only after the owner agreed to the specific corrections.",
     inputSchema: {
       type: "object",
       properties: {
@@ -128,6 +128,16 @@ export const MCP_TOOLS = [
             type: "object",
             properties: { rank: { type: "integer", minimum: 1, maximum: 20 }, altText: { type: "string", maxLength: 250 } },
             required: ["rank", "altText"],
+          },
+        },
+        attributes: {
+          type: "array",
+          maxItems: 12,
+          description: "Etsy attributes to set, by name with option names exactly as listed in review_listing's attributeOptions (replaces that attribute's values), e.g. { name: \"Primary color\", values: [\"Green\"] }.",
+          items: {
+            type: "object",
+            properties: { name: { type: "string" }, values: { type: "array", items: { type: "string" }, maxItems: 10 } },
+            required: ["name", "values"],
           },
         },
         reason: { type: "string", description: "What was wrong and why the change is better (logged as feedback)." },
