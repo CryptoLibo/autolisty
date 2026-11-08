@@ -24,7 +24,7 @@ export const FIXED_IMAGE_ALT_TEXTS: Record<ProductType, Record<number, string>> 
   },
   horizontal_wall_art: {
     5: SALE,
-    8: "Horizontal wall art size guide above a white sofa: 3:2 ratio from 12x8 to 36x24 in, 5:4 from 10x8 to 30x24 in, 4:3, 1:1 square, 14x11 in and ISO A4 to A1, with cm sizes.",
+    8: "Horizontal wall art size guide above a white sofa: 3:2 ratio from 12x8 to 36x24 in, 5:4 from 10x8 to 30x24 in, 4:3 from 12x9 to 24x18 in, 14x11 in and ISO A4 to A1, with cm sizes.",
     11: WHY_CHOOSE_US,
   },
   nursery_wall_art: {

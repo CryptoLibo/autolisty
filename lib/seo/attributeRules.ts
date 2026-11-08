@@ -2,7 +2,6 @@
 export const ETSY_DYNAMIC_ATTRIBUTE_NAMES = new Set([
   "primary color",
   "secondary color",
-  "frame color",
   "home style",
   "room",
   "subject",
