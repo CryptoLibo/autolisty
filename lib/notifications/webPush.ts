@@ -40,7 +40,8 @@ export function getVapidKeys(database: Database.Database = getAutomationDatabase
     INSERT INTO automation_settings (setting_key, setting_value, updated_at) VALUES (?, ?, ?)
     ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, updated_at = excluded.updated_at
   `).run(VAPID_SETTING, encryptCredential("vapid", keys), new Date().toISOString())
-  database.prepare("DELETE FROM push_subscriptions").run()
+  // Si había claves (ilegibles), los dispositivos suscritos con ellas ya no sirven.
+  if (row) database.prepare("DELETE FROM push_subscriptions").run()
   return keys
 }
 
