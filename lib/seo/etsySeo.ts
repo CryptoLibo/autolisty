@@ -627,13 +627,39 @@ function buildPrintableWallArtTitle(
     }
   }
 
+  // Límite de caracteres: quitar palabras de los bloques, nunca cortar el sufijo "(Digital Download)".
+  while (normalized.length > maxCharacters && decorWords.length > 1) {
+    decorWords = decorWords.slice(0, -1)
+    normalized = buildCandidate()
+  }
+  while (normalized.length > maxCharacters && styleWords.length > 1) {
+    styleWords = styleWords.slice(0, -1)
+    normalized = buildCandidate()
+  }
+  while (normalized.length > maxCharacters && subjectWords.length > 2) {
+    subjectWords = subjectWords.slice(0, -1)
+    normalized = buildCandidate()
+  }
+
   normalized = titleCase(normalized).replace(/\s+,/g, ",").trim()
 
   if (normalized.length > maxCharacters) {
-    return normalized.slice(0, maxCharacters).replace(/\s+\S*$/, "").trim()
+    return keepSuffixWithinLimit(normalized, `(${suffix})`, maxCharacters)
   }
 
   return normalized
+}
+
+/** Recorta palabras antes del sufijo para respetar el límite, sin cortar nunca el sufijo. */
+export function keepSuffixWithinLimit(title: string, suffix: string, maxCharacters: number) {
+  const index = title.toLowerCase().lastIndexOf(suffix.toLowerCase())
+  if (index < 0) return title.slice(0, maxCharacters).replace(/\s+\S*$/, "").trim()
+  const tail = title.slice(index).trim()
+  let head = title.slice(0, index).trim()
+  while (head && `${head} ${tail}`.length > maxCharacters) {
+    head = head.replace(/\s*\S+$/, "").trim()
+  }
+  return `${head.replace(/[,|\s]+$/, "")} ${tail}`.trim()
 }
 
 function normalizeTitle(
@@ -756,7 +782,7 @@ function normalizeTitle(
   }
 
   if (normalized.length > maxCharacters) {
-    normalized = normalized.slice(0, maxCharacters).replace(/\s+\S*$/, "").trim()
+    normalized = keepSuffixWithinLimit(normalized, suffix, maxCharacters)
   }
 
   return normalized
