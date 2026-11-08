@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { PRODUCT_OPTIONS, type ProductType } from "@/lib/products"
 import { ImageLightbox } from "./ImageLightbox"
+import { PushNotificationsButton } from "./PushNotificationsButton"
 import type {
   AutomationJob,
   AutomationAgent,
@@ -417,6 +418,7 @@ export function AutomationWorkspace() {
                   : `Offline${automaty.lastSeenAt ? ` · last seen ${formatDate(automaty.lastSeenAt)}` : ""}`}
             </div>
           </div>
+          <PushNotificationsButton />
           <button
             type="button"
             title="Refresh production status"

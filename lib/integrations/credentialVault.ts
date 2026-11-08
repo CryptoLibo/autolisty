@@ -21,7 +21,7 @@ function getKey() {
   return Buffer.from(crypto.hkdfSync("sha256", secret, "autolisty", "integration-credentials-v1", 32))
 }
 
-export function encryptCredential(provider: CredentialProvider, payload: unknown) {
+export function encryptCredential(provider: CredentialProvider | "vapid", payload: unknown) {
   const iv = crypto.randomBytes(12)
   const cipher = crypto.createCipheriv("aes-256-gcm", getKey(), iv)
   cipher.setAAD(Buffer.from(provider))
@@ -29,7 +29,7 @@ export function encryptCredential(provider: CredentialProvider, payload: unknown
   return [VERSION_PREFIX, iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), encrypted.toString("base64url")].join(".")
 }
 
-export function decryptCredential<T>(provider: CredentialProvider, value: string): T {
+export function decryptCredential<T>(provider: CredentialProvider | "vapid", value: string): T {
   const [version, iv, tag, data] = value.split(".")
   if (version !== VERSION_PREFIX || !iv || !tag || !data) throw new Error("Unsupported credential format.")
   const decipher = crypto.createDecipheriv("aes-256-gcm", getKey(), Buffer.from(iv, "base64url"))

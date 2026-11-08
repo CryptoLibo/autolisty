@@ -13,6 +13,8 @@ import { uploadDeliveryPdf } from "../r2/uploadDeliveryPdf"
 import { generatePinterestCopy } from "../seo/pinterestSeo"
 import { findBoardByName, publishPinterestPin } from "../pinterest/publishing"
 import { recordPublishedPin } from "../dashboard/pinterest-analytics"
+import { etsyFetch } from "../etsy/client"
+import { notifyOwner } from "../notifications/webPush"
 
 const TICK_MS = 60_000
 const LOCK_KEY = "post_production_worker_lock"
@@ -68,6 +70,20 @@ export function createPostProductionDeps(): PostProductionDeps {
     syncFile: syncDraftFile,
     syncVideo: syncDraftVideo,
     getListing: (token, shopId, listingId) => getShopListing(token, shopId, listingId),
+    getListingsBatch: async (token, listingIds) => {
+      const states = new Map<string, { state?: string; url?: string }>()
+      for (let index = 0; index < listingIds.length; index += 100) {
+        const ids = listingIds.slice(index, index + 100).join(",")
+        const response = await etsyFetch(`/application/listings/batch?listing_ids=${ids}`, token)
+        if (!response.ok) throw new Error(`Etsy listings batch failed (HTTP ${response.status}).`)
+        const data = await response.json() as { results?: Array<{ listing_id: number; state?: string; url?: string }> }
+        for (const listing of data.results || []) {
+          states.set(String(listing.listing_id), { state: listing.state, url: listing.url })
+        }
+      }
+      return states
+    },
+    notify: (input) => notifyOwner(input),
     publicUrl: (key) => `${publicBase}/${key}`,
     getPinterestToken: () => getFreshToken("pinterest"),
     generatePinCopy: generatePinterestCopy,

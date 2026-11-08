@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server"
+import { notificationFor } from "@/lib/automation/postProduction"
+import { notifyOwner } from "@/lib/notifications/webPush"
 import { requireAutomationAgent } from "@/lib/auth/automationAgent"
 import { AutomationRepository } from "@/lib/automation/repository"
 import { validateAutomationOutputFiles } from "@/lib/automation/outputFiles"
@@ -74,6 +76,11 @@ export async function PATCH(
     } else {
       if (nextStatus === "LOCAL_BUILDING") repository.setAgentCurrentJob(agent.agentId, jobId)
       repository.renewAgentLease(agent.agentId)
+    }
+
+    if (nextStatus === "NEEDS_ATTENTION") {
+      const notification = notificationFor(updated)
+      if (notification) await notifyOwner({ ...notification, title: "Automaty necesita atención" })
     }
 
     return NextResponse.json({ ok: true, job: updated })

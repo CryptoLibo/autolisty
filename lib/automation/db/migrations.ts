@@ -875,6 +875,30 @@ const MIGRATIONS = [
       CREATE INDEX automation_jobs_status_updated_idx ON automation_jobs(status, updated_at);
     `,
   },
+  {
+    version: 22,
+    sql: `
+      CREATE TABLE push_subscriptions (
+        endpoint TEXT PRIMARY KEY,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        user_agent TEXT,
+        created_at TEXT NOT NULL,
+        last_success_at TEXT
+      );
+
+      CREATE TABLE owner_notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        url TEXT,
+        tag TEXT,
+        created_at TEXT NOT NULL,
+        delivered_at TEXT
+      );
+      CREATE INDEX owner_notifications_pending_idx ON owner_notifications(delivered_at, id);
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

@@ -35,6 +35,9 @@ export type PostProductionDeps = {
   syncFile: (draft: DraftRef, input: { url: string; filename: string }) => Promise<void>
   syncVideo: (draft: DraftRef, input: { url: string; name: string }) => Promise<void>
   getListing: (token: EtsyTokenPayload, shopId: number, listingId: string) => Promise<{ state?: string; url?: string } | null>
+  /** Estado de varios listings en una sola llamada a Etsy (opcional). */
+  getListingsBatch?: (token: EtsyTokenPayload, listingIds: string[]) => Promise<Map<string, { state?: string; url?: string }>>
+  notify?: (input: { title: string; body: string; url?: string | null; tag?: string | null }) => Promise<void>
   publicUrl: (r2Key: string) => string
   getPinterestToken: () => Promise<PinterestTokenPayload | null>
   generatePinCopy: (input: GeneratePinterestCopyInput) => Promise<{ pins: PinterestCopy[] }>
@@ -74,8 +77,9 @@ export const POST_PRODUCTION_STATUSES = [
 
 const SERVER_STATUSES = new Set<AutomationJobStatus>(POST_PRODUCTION_STATUSES)
 
-// Etsy: comprobar si ya publicaste el draft cada 30 minutos.
-const ETSY_REVIEW_POLL_MS = 30 * 60_000
+// Etsy: comprobar cada 5 minutos si ya publicaste los drafts. Todos los que
+// esperan se consultan juntos en UNA llamada (getListingsByListingIds).
+const ETSY_REVIEW_POLL_MS = 5 * 60_000
 const MAX_AUTOMATIC_RETRIES = 3
 const RETRY_DELAY_MS = 10 * 60_000
 
@@ -459,17 +463,74 @@ export async function advanceJob(job: AutomationJob, deps: PostProductionDeps): 
   return ctx.job
 }
 
+/** Consulta en bloque los drafts que esperan revisión y devuelve deps que usan ese resultado. */
+async function withBatchedListingStates(deps: PostProductionDeps, jobs: AutomationJob[]): Promise<PostProductionDeps> {
+  const waiting = jobs.filter((job) => job.status === "WAITING_ETSY_REVIEW" && job.etsyDraftId)
+  if (!deps.getListingsBatch || waiting.length === 0) return deps
+  try {
+    const token = await deps.getEtsyToken()
+    if (!token) return deps
+    const states = await deps.getListingsBatch(token, waiting.map((job) => job.etsyDraftId!))
+    return {
+      ...deps,
+      getListing: async (token, shopId, listingId) => states.get(listingId) ?? deps.getListing(token, shopId, listingId),
+    }
+  } catch {
+    return deps // Si el lote falla, cada trabajo consulta el suyo.
+  }
+}
+
+const EDIT_DRAFT_URL = (listingId: string) => `https://www.etsy.com/your/shops/me/listing-editor/edit/${listingId}`
+
+/** Avisos al móvil cuando hay algo que hacer o algo terminado. */
+export function notificationFor(job: AutomationJob): { title: string; body: string; url: string | null; tag: string } | null {
+  if (job.status === "WAITING_ETSY_REVIEW") {
+    let title = ""
+    try { title = job.seoJson ? (JSON.parse(job.seoJson) as EtsySeoResult).title : "" } catch { title = "" }
+    return {
+      title: "Draft listo para revisar en Etsy",
+      body: `${job.productCode}${title ? ` · ${title}` : ""}`,
+      url: job.etsyDraftId ? EDIT_DRAFT_URL(job.etsyDraftId) : "/automation",
+      tag: `draft-${job.productCode}`,
+    }
+  }
+  if (job.status === "COMPLETED") {
+    let board = ""
+    try { board = job.pinterestSeoJson ? (JSON.parse(job.pinterestSeoJson) as PinterestPlan).boardName : "" } catch { board = "" }
+    return {
+      title: "Listing completado",
+      body: `${job.productCode}: publicado en Etsy y pines en Pinterest${board ? ` ("${board}")` : ""}.`,
+      url: job.etsyUrl || "/automation",
+      tag: `done-${job.productCode}`,
+    }
+  }
+  if (job.status === "NEEDS_ATTENTION") {
+    return {
+      title: "Un listing necesita atención",
+      body: `${job.productCode}: ${(job.lastError || "revisa Automation").slice(0, 200)}`,
+      url: "/automation",
+      tag: `attention-${job.productCode}`,
+    }
+  }
+  return null
+}
+
 /** Una pasada: avanza cada trabajo pendiente (uno tras otro, nunca en paralelo). */
-export async function runPostProductionTick(deps: PostProductionDeps, limit = 10) {
+export async function runPostProductionTick(deps: PostProductionDeps, limit = 25) {
   const candidates = [
     ...deps.repository.listPostProductionJobs(POST_PRODUCTION_STATUSES, limit),
     ...deps.repository.listPostProductionJobs(["RETRY_WAIT"], limit)
       .filter((job) => job.resumeStatus && SERVER_STATUSES.has(job.resumeStatus)),
   ]
+  const tickDeps = await withBatchedListingStates(deps, candidates)
   const results: Array<{ productCode: string; status: AutomationJobStatus }> = []
   for (const job of candidates) {
-    const updated = await advanceJob(job, deps)
+    const updated = await advanceJob(job, tickDeps)
     results.push({ productCode: updated.productCode, status: updated.status })
+    if (updated.status !== job.status && deps.notify) {
+      const notification = notificationFor(updated)
+      if (notification) await deps.notify(notification).catch(() => {})
+    }
   }
   return results
 }

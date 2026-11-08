@@ -3,7 +3,7 @@ import type Database from "better-sqlite3"
 import { openAutomationDatabase } from "./db/database"
 import { AutomationRepository } from "./repository"
 import { classifyAutomationOutput } from "./outputFiles"
-import { advanceJob, keywordResearchFromBrief, runPostProductionTick, type PostProductionDeps } from "./postProduction"
+import { advanceJob, keywordResearchFromBrief, notificationFor, runPostProductionTick, type PostProductionDeps } from "./postProduction"
 import type { AutomationJobStatus } from "./types"
 
 const LOCAL_PATH: AutomationJobStatus[] = [
@@ -228,6 +228,46 @@ describe("post-production worker", () => {
     for (const status of LOCAL_PATH.slice(0, 4)) repository.transitionJob(job.id, status)
     repository.transitionJob(job.id, "RETRY_WAIT", { error: "Photoshop", resumeStatus: "LOCAL_BUILDING" })
     expect(await runPostProductionTick(fakeDeps(repository))).toEqual([])
+  })
+
+  it("consulta en bloque los drafts que esperan y avisa al móvil", async () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    repository.addDrafts("frame_tv_art", ["9001", "9002"])
+    const first = frameTvJob(repository, { video: false })
+    const second = frameTvJob(repository, { video: false })
+    const notify = vi.fn(async () => {})
+    const deps = fakeDeps(repository, { notify })
+    await runPostProductionTick(deps)
+    expect(notify).toHaveBeenCalledTimes(2)
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Draft listo para revisar en Etsy",
+      url: "https://www.etsy.com/your/shops/me/listing-editor/edit/9001",
+    }))
+
+    const getListingsBatch = vi.fn(async () => new Map([
+      ["9001", { state: "active", url: "https://www.etsy.com/listing/9001" }],
+      ["9002", { state: "draft" }],
+    ]))
+    const getListing = vi.fn(async () => ({ state: "draft" }))
+    for (const job of [first, second]) {
+      repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
+    }
+    notify.mockClear()
+    await runPostProductionTick({ ...deps, getListing, getListingsBatch })
+    expect(getListingsBatch).toHaveBeenCalledTimes(1)
+    expect(getListing).not.toHaveBeenCalled()
+    expect(repository.getJob(first.id)!.status).toBe("COMPLETED")
+    expect(repository.getJob(second.id)!.status).toBe("WAITING_ETSY_REVIEW")
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: "Listing completado", url: "https://www.etsy.com/listing/9001" }))
+  })
+
+  it("no avisa de estados intermedios", () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    const job = frameTvJob(repository)
+    expect(notificationFor(job)).toBeNull()
   })
 
   it("resume la investigación de keywords del brief", () => {

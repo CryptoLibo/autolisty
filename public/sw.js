@@ -1,0 +1,44 @@
+// Service worker de Autolisty: muestra las notificaciones del servidor.
+// El push llega vacío; aquí se piden las notificaciones pendientes con la sesión.
+self.addEventListener("install", () => self.skipWaiting())
+self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()))
+
+self.addEventListener("push", (event) => {
+  event.waitUntil((async () => {
+    let notifications = []
+    try {
+      const response = await fetch("/api/notifications/pending", { credentials: "same-origin", cache: "no-store" })
+      if (response.ok) notifications = (await response.json()).notifications || []
+    } catch {
+      notifications = []
+    }
+    if (!notifications.length) {
+      // iOS exige mostrar algo en cada push.
+      notifications = [{ title: "Autolisty", body: "Hay novedades en Automation.", url: "/automation", tag: "autolisty" }]
+    }
+    await Promise.all(notifications.map((item) =>
+      self.registration.showNotification(item.title, {
+        body: item.body,
+        tag: item.tag || `autolisty-${item.id || Date.now()}`,
+        icon: "/app-icons/icon-192.png",
+        badge: "/app-icons/icon-192.png",
+        data: { url: item.url || "/automation" },
+      })
+    ))
+  })())
+})
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close()
+  const url = (event.notification.data && event.notification.data.url) || "/automation"
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true })
+    for (const client of windows) {
+      if ("focus" in client && new URL(client.url).origin === self.location.origin && !/^https?:/.test(url)) {
+        await client.navigate(url).catch(() => {})
+        return client.focus()
+      }
+    }
+    return self.clients.openWindow(url)
+  })())
+})
