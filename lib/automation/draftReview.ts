@@ -40,9 +40,13 @@ export async function reviewListingDraft(input: { productCode?: unknown }) {
   const token = await getFreshToken("etsy")
   if (!token) throw new Error("Etsy is not connected in Autolisty.")
   const shopId = Number((await getPrimaryShop(token)).shop_id)
+  const step = <T,>(label: string, promise: Promise<T>) =>
+    promise.catch((error: unknown) => {
+      throw new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`)
+    })
   const [listing, images, files, properties] = await Promise.all([
-    getShopListing(token, shopId, job.etsyDraftId),
-    listListingImages(token, shopId, job.etsyDraftId) as Promise<EtsyImage[]>,
+    step("Reading the Etsy listing", getShopListing(token, shopId, job.etsyDraftId)),
+    step("Reading the Etsy photos", listListingImages(token, shopId, job.etsyDraftId)) as Promise<EtsyImage[]>,
     listListingFiles(token, shopId, job.etsyDraftId).catch(() => []) as Promise<EtsyFile[]>,
     getListingProperties(token, shopId, job.etsyDraftId).catch(() => []),
   ])

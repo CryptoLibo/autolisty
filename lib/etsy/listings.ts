@@ -120,8 +120,13 @@ export async function listListingImages(
   shopId: number,
   listingId: string
 ) {
+  // Lectura: Etsy expone las fotos en /listings/{id}/images (getListingImages).
+  // La ruta con /shops/{shop_id}/ solo sirve para subir y borrar; al leer por
+  // ella Etsy responde "Resource not found", y la sincronización lo tomaba como
+  // "sin fotos" (no borraba las anteriores de un draft reutilizado).
+  void shopId;
   const response = await etsyFetch(
-    `/application/shops/${shopId}/listings/${listingId}/images`,
+    `/application/listings/${listingId}/images`,
     token
   );
 
