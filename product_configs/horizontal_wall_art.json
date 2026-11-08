@@ -19,7 +19,7 @@
     "word_rules": {
       "min_words": 13,
       "max_words": 14,
-      "max_characters": 100,
+      "max_characters": 140,
       "avoid_word_repetition": true,
       "target_full_word_budget": true
     },

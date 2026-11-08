@@ -20,6 +20,5 @@ export function shouldGenerateEtsyAttribute(productType: string, displayName: st
   ) {
     return false
   }
-  if (productType === "nursery_wall_art" && normalized === "room") return false
   return true
 }

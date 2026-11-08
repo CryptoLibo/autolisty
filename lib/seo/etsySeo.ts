@@ -2,6 +2,7 @@
 // manual /api/generate y el flujo automático del servidor.
 import OpenAI from "openai"
 import { keepSuffixWithinLimit } from "./titleLimit"
+import { fillRoomOptions, subjectTargetCount } from "./attributeFill"
 import fs from "fs"
 import path from "path"
 import { getFreshToken } from "@/lib/integrations/tokenSession"
@@ -1007,7 +1008,7 @@ function fillSubjectOptions(
   optionSet: EtsyAttributePromptOption,
   evidenceTokens: Set<string>
 ) {
-  const targetCount = Math.min(3, optionSet.max_values, optionSet.options.length)
+  const targetCount = subjectTargetCount(selectedOptions.length, optionSet.max_values, optionSet.options.length)
   if (targetCount <= selectedOptions.length) return selectedOptions.slice(0, targetCount)
 
   const selectedIds = new Set(selectedOptions.map((option) => option.value_id))
@@ -1301,7 +1302,8 @@ function normalizeKeywords5(
 function normalizeEtsyAttributeSelections(
   rawSelections: unknown,
   optionSets: EtsyAttributePromptOption[],
-  evidence: unknown[] = []
+  evidence: unknown[] = [],
+  productType = ""
 ): EtsyAttributeSelection[] {
   if (!Array.isArray(rawSelections) || optionSets.length === 0) return []
 
@@ -1343,7 +1345,9 @@ function normalizeEtsyAttributeSelections(
         ? fillSubjectOptions(selectedOptions, optionSet, evidenceTokens)
         : normalizedDisplayName === "home style"
           ? refineHomeStyleOption(selectedOptions, optionSet, evidenceTokens)
-          : selectedOptions
+          : normalizedDisplayName === "room"
+            ? fillRoomOptions(selectedOptions, optionSet.options, optionSet.max_values, productType)
+            : selectedOptions
 
     if (finalOptions.length === 0) continue
 
@@ -1369,6 +1373,22 @@ function normalizeEtsyAttributeSelections(
   const hasSubject = result.some(
     (selection) => normalizeAttributeName(selection.displayName) === "subject"
   )
+
+  const roomOptionSet = optionSets.find(
+    (optionSet) => normalizeAttributeName(optionSet.display_name) === "room"
+  )
+  if (roomOptionSet && !result.some((selection) => normalizeAttributeName(selection.displayName) === "room")) {
+    const rooms = fillRoomOptions([], roomOptionSet.options, roomOptionSet.max_values, productType)
+    if (rooms.length > 0) {
+      result.push({
+        propertyId: roomOptionSet.property_id,
+        displayName: roomOptionSet.display_name,
+        valueIds: rooms.map((option) => option.value_id),
+        values: rooms.map((option) => option.name),
+        scaleId: null,
+      })
+    }
+  }
 
   if (subjectOptionSet && !hasSubject) {
     const finalOptions = fillSubjectOptions([], subjectOptionSet, evidenceTokens)
@@ -1796,11 +1816,11 @@ ETSY ATTRIBUTE STRATEGY
 - If etsy_attribute_options contains properties, choose values only from the exact option names provided for each property.
 - Never invent an Etsy attribute value and never return a value that is not listed in etsy_attribute_options.
 - Fill Primary color and Secondary color whenever they are offered. Use the actual colors of the artwork, not mockup props. Primary color is the color that covers the largest area of the artwork (often the background or setting), not the color of a small focal element; the focal element's color can be the Secondary color. Never fill Frame color: the files are digital and unframed.
-- Always fill Room when it is offered: choose every room where this artwork genuinely fits, up to the allowed maximum (e.g. living room, bedroom, office, entryway, kitchen & dining for general decor; a nursery or kids room only for children's art).
+- Always fill Room when it is offered, with at least 4 rooms (or the allowed maximum if lower): choose every room where this artwork genuinely fits, up to the allowed maximum (e.g. living room, bedroom, office, entryway, kitchen & dining for general decor). For nursery_wall_art use Nursery, Kids and Bedroom plus the closest coherent extra (e.g. Game room as a playroom); never Dorm, Office, Laundry or Kitchen & dining for baby or children's art.
 - Always fill Home style with the closest available style.
 - Choose Home Style from the actual visual style, subject matter, and buyer decor intent of the artwork. Do not default to "Bohemian & eclectic"; use it only when the design is genuinely boho or eclectic. If the artwork clearly has beach, ocean, surf, palm, island, or tropical cues, prefer "Coastal & tropical" when available. If it is clean/simple, consider "Minimalist" or "Contemporary" when available. Do not default to "Rustic & primitive" either: use it only for naive folk art, primitive/country-store style or distressed hand-painted signs. For vintage or antique paintings choose by the scene and the buyer: woodland wildlife, cabins, mountains or snowy pine forests (deer, reindeer, elk, bears, moose) → "Lodge"; neutral farmhouse, pastoral, country or cozy cottage scenes → "Country & farmhouse"; ornate old-master, gilded or Victorian-era subjects → "Victorian"; calm, sparse, neutral compositions with lots of empty space → "Minimalist".
 - Choose Subject (or Art subject): at least 2 values, and a 3rd whenever one is genuinely coherent. Analyze what the artwork represents and pick the most specific matching value first, then the next closest ones. After choosing two, always go through the whole option list again looking for a third that truly describes something visible in the artwork (a Santa Claus scene: people & portrait, landscape & scenery, fantasy; a reindeer in a forest: animal, landscape & scenery, plants & trees). Return only 2 when no remaining option describes the artwork; never add a filler value just to reach 3, and never a value that contradicts the image (no "Nautical" without sea, boats or coast; no "Animal" without an animal; no "Stars & celestial" without visible stars, moon or planets — fairy lights, glowing windows or bokeh are not stars).
-- Choose Room only when the property is included in etsy_attribute_options. For nursery_wall_art, Room is normally fixed in the draft and should not be generated.
+- Choose Room only when the property is included in etsy_attribute_options.
 - Choose Holiday and Occasion (for every product type) only when the artwork has explicit, confident evidence, e.g. Santa Claus, a decorated Christmas tree or Christmas village means Holiday "Christmas"; pumpkins and ghosts mean "Halloween". Omit either property completely when the connection is weak or merely possible.
 - Occasion is the life event the artwork itself is about (a nursery print for a baby shower, wedding rings or vows for a wedding, a retirement saying, a pet memorial for pet loss). Never use "Housewarming" or "Moving" just because the item is home decor or could be a gift: almost all wall art could be, so it says nothing. For seasonal or landscape art, Occasion is normally omitted.
 - Holiday and Occasion are the only attributes you may skip (when the theme is not evident). Every other offered property must receive the closest coherent value.
@@ -1974,7 +1994,8 @@ Return JSON in this exact shape:
         keywords5,
         analysis,
         titleComponents,
-      ]
+      ],
+      productType
     )
 
     const parsedMedia = Array.isArray(parsed.media) ? parsed.media : []
