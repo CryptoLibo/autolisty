@@ -23,6 +23,7 @@ export async function getEditableAttributes(token: EtsyTokenPayload, taxonomyId:
         .map((value) => ({ valueId: Number(value.value_id), name: String(value.name || "").trim() }))
         .filter((value) => Number.isInteger(value.valueId) && value.valueId > 0 && value.name),
     }))
-    .filter((property) => property.supports && property.options.length > 0 && shouldGenerateEtsyAttribute(productType, property.name))
+    // Igual que el SEO: solo propiedades con opciones (supports_attributes puede no venir).
+    .filter((property) => property.options.length > 0 && shouldGenerateEtsyAttribute(productType, property.name))
     .map(({ supports: _supports, ...property }) => property) as EditableAttribute[]
 }

@@ -63,7 +63,7 @@ export async function reviewListingDraft(input: { productCode?: unknown }) {
   // Opciones válidas de los atributos que se pueden corregir (por categoría del draft).
   const attributeOptions = await getEditableAttributes(token, Number(listing?.taxonomy_id), job.productType)
     .then((items) => items.map((item) => ({ name: item.name, maxValues: item.maxValues, options: item.options.map((option) => option.name) })))
-    .catch(() => [])
+    .catch((error: unknown) => [{ error: `Could not load attribute options: ${error instanceof Error ? error.message : String(error)}` }])
 
   const title = String(listing?.title || "")
   const tags: string[] = Array.isArray(listing?.tags) ? listing.tags : []
