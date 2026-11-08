@@ -88,9 +88,7 @@ export async function editListingDraft(input: ListingEditInput) {
   const job = productCode ? repository.getJobByProductCode(productCode) : null
   if (!job) throw new Error(`No listing found for "${productCode}".`)
   if (!job.etsyDraftId) throw new Error(`${productCode} has no Etsy listing yet.`)
-  if (!job.claudeEditUntil || new Date(job.claudeEditUntil) <= new Date()) {
-    throw new Error(`Not authorized: the owner has not allowed Claude to edit ${productCode} (or the permission expired). Ask the owner to press "Allow Claude to edit" on this listing in Automation.`)
-  }
+  // La autorización la da el propietario en el chat, para estos cambios concretos.
 
   const edit = parseListingEdit(input, productCode)
   const token = await getFreshToken("etsy")
@@ -169,5 +167,5 @@ export async function editListingDraft(input: ListingEditInput) {
     reason: edit.reason,
     changes,
   })
-  return { productCode, changed: Object.keys(changes), changes, permissionUntil: job.claudeEditUntil }
+  return { productCode, changed: Object.keys(changes), changes }
 }

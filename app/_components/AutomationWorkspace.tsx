@@ -321,7 +321,7 @@ export function AutomationWorkspace() {
   async function manageJob(
     jobId: string,
     payload:
-      | { action: "cancel" | "discard" | "restart" | "allow_claude_edit" | "revoke_claude_edit" }
+      | { action: "cancel" | "discard" | "restart" }
       | { action: "priority"; priority: number }
   ) {
     const confirmations: Record<string, string> = {
@@ -348,11 +348,7 @@ export function AutomationWorkspace() {
             ? `${data.job.productCode} discarded and its files deleted.`
             : payload.action === "restart"
               ? `${data.previous} discarded. Restarted as ${data.job.productCode} and queued for Automaty.`
-              : payload.action === "allow_claude_edit"
-                ? `Claude can edit ${data.job.productCode} on Etsy for the next 24 hours.`
-                : payload.action === "revoke_claude_edit"
-                  ? `Claude can no longer edit ${data.job.productCode}.`
-                  : `${data.job.productCode} priority updated.`
+              : `${data.job.productCode} priority updated.`
       )
       await loadDashboard(true)
     } catch (error) {
@@ -776,28 +772,6 @@ export function AutomationWorkspace() {
                       </button>
                     </div>
                   ) : null}
-                  {job.etsyDraftId && job.status !== "CANCELED" ? (() => {
-                    const editAllowed = Boolean(job.claudeEditUntil && new Date(job.claudeEditUntil) > new Date())
-                    return (
-                      <div className="mt-3 flex flex-col gap-1">
-                        <button
-                          type="button"
-                          disabled={managingJobId === job.id}
-                          onClick={() => void manageJob(job.id, { action: editAllowed ? "revoke_claude_edit" : "allow_claude_edit" })}
-                          className={`inline-flex h-9 w-fit items-center border px-3 text-xs font-semibold transition disabled:opacity-50 ${
-                            editAllowed
-                              ? "border-[#eeba2b]/40 bg-[#eeba2b]/10 text-[#f1cc61] hover:bg-[#eeba2b]/15"
-                              : "border-neutral-700 text-neutral-200 hover:border-[#eeba2b]/40"
-                          }`}
-                        >
-                          {editAllowed ? "Revoke Claude's edit permission" : "Allow Claude to edit (24 h)"}
-                        </button>
-                        {editAllowed ? (
-                          <span className="text-[11px] text-neutral-500">Claude can edit this listing until {formatDate(job.claudeEditUntil!)}</span>
-                        ) : null}
-                      </div>
-                    )
-                  })() : null}
                   {job.status === "QUEUED_LOCAL" || job.status === "LOCAL_CLAIMED" ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button

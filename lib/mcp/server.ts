@@ -113,7 +113,7 @@ export const MCP_TOOLS = [
     name: "edit_listing",
     title: "Correct an Etsy listing (owner-authorized only)",
     description:
-      "Change the title, description, tags, photo alt texts and/or attributes (colors, room, home style, subject, holiday…) of one listing on Etsy. Works ONLY when the owner has pressed 'Allow Claude to edit' on that listing in Automation (the permission expires); otherwise it is refused. Only send the fields that change. Every edit is logged with before, after and your reason, to learn from it. Use it only after the owner agreed to the specific corrections.",
+      "Change the title, description, tags, photo alt texts and/or attributes (colors, room, home style, subject, holiday…) of one listing on Etsy. Use it ONLY after the owner explicitly approved these specific corrections in the conversation (review with review_listing first, propose, wait for the owner's yes). Only send the fields that change. Every edit is logged with before, after and your reason, to learn from it.",
     inputSchema: {
       type: "object",
       properties: {
