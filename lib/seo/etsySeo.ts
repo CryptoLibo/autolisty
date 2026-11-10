@@ -788,11 +788,9 @@ function normalizeTags(tags: unknown, maxTags = 13, maxChars = 20) {
     let clean = cleanText(tag)
     if (!clean) continue
 
-    if (clean.length > maxChars) {
-      const truncated = clean.slice(0, maxChars)
-      const lastSpace = truncated.lastIndexOf(" ")
-      clean = lastSpace > 0 ? truncated.slice(0, lastSpace) : ""
-    }
+    // Un tag largo NO se recorta (quitar palabras cambia la búsqueda: "samsung christmas art"
+    // → "samsung christmas"); se descarta y entra el siguiente de la lista.
+    if (clean.length > maxChars) continue
 
     clean = cleanText(clean)
     if (!clean) continue
@@ -1793,7 +1791,7 @@ SELLER KEYWORD RESEARCH
 DESCRIPTION KEYWORDS STRATEGY
 - Generate exactly 5 keyword phrases.
 - These phrases must strengthen the existing description template.
-- KEYWORD_1 must be the strongest Etsy search phrase for this listing, even if it is long-tail, but it must not include format/product terms already provided by the template such as "print", "wall art", "printable", "digital download", or "instant download".
+- KEYWORD_1 must be the strongest Etsy search phrase for this listing, even if it is long-tail, but it must not include format/product terms already provided by the template such as "print", "wall art", "printable", "digital download", or "instant download". It heads the description, so it must name what the artwork shows ("Vintage Christmas Sleigh", "Old World Santa") and still make sense on its own: never the leftover of a keyword after removing those terms ("christmas wall art for tv" must not become "Christmas Tv").
 - For nursery_wall_art, KEYWORD_1 should usually carry the strongest nursery-relevant buyer intent while still avoiding repeated product terms from the template.
 - For png_designs, KEYWORD_1 must be the strongest niche, phrase, subject, profession, season, or audience search phrase. Do not waste a keyword slot on generic format terms such as PNG, digital download, instant download, printable file, or sublimation file.
 - Each keyword must have a distinct role and should not feel generic or repetitive.
@@ -1801,11 +1799,11 @@ DESCRIPTION KEYWORDS STRATEGY
 - Read each finished template sentence in your head before answering; if it is not natural English, rewrite that keyword.
 
 TAG STRATEGY
-- Generate exactly 13 tags.
+- Generate 16 tags ordered from best to worst (the first 13 valid ones are used; the extras replace any that fail validation). Every tag must be 20 characters or fewer as written. Never shorten a longer search phrase by dropping or cutting words ("samsung christmas art" → "samsung christmas", "christmas wall art for tv" → "christmas wall tv"): that creates a phrase nobody searches. Use a different real phrase that fits in 20 characters instead (e.g. "samsung xmas art", "christmas tv art").
 - Follow the product configuration.
 - Use seo_market_reference_examples to understand which tag phrases naturally belong with successful titles in this product type.
 - Do not copy an entire reference tag set; adapt the tag mix to the current artwork, title, and search intent.
-- Every tag must be a phrase a buyer would actually type into Etsy search. Prefer tags backed by seller_keyword_research (searches, competition) or repeated across competitor listings. Avoid invented descriptive phrases nobody searches ("frame tv display", "seasonal tv art"), near-duplicates of another tag ("old world xmas" next to "old world santa"), and very broad category tags with enormous competition ("christmas decor") unless nothing more specific fits.
+- Every tag must be a phrase a buyer would actually type into Etsy search. Prefer tags backed by seller_keyword_research (searches, competition) or repeated across competitor listings. Avoid invented descriptive phrases nobody searches (made-up combinations of adjectives and nouns with no research behind them), near-duplicates of another tag (the same words in a different order), and very broad category tags with enormous competition ("christmas decor") unless nothing more specific fits.
 - Keep the current good balance across product, style, subject, decor, and digital format.
 - For horizontal_wall_art, do not create orientation tags such as "horizontal art" or "wide wall art"; keep tags about the artwork and buyer search intent.
 - For nursery_wall_art, include only a small number of nursery/baby/kids-room intent tags, then prioritize subject and style tags that fit the design.
