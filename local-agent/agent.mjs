@@ -189,12 +189,20 @@ async function runProcess(executablePath, args, log) {
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     })
+    let stderrTail = ""
     child.stdout.on("data", (chunk) => void log("Autobuildy", { output: String(chunk).trim().slice(0, 1000) }))
-    child.stderr.on("data", (chunk) => void log("Autobuildy warning", { output: String(chunk).trim().slice(0, 1000) }))
+    child.stderr.on("data", (chunk) => {
+      stderrTail = (stderrTail + String(chunk)).slice(-4000)
+      void log("Autobuildy warning", { output: String(chunk).trim().slice(0, 1000) })
+    })
     child.on("error", reject)
-    child.on("close", (code) => code === 0
-      ? resolve()
-      : reject(new Error(`Autobuildy exited with code ${code}.`)))
+    child.on("close", (code) => {
+      if (code === 0) return resolve()
+      // La primera línea del error de Autobuildy (sin la pila) llega a Autolisty.
+      const reason = stderrTail.split(/\r?\n/).map((line) => line.trim())
+        .find((line) => line && !/^at\s/.test(line))
+      reject(new Error(`Autobuildy exited with code ${code}${reason ? `: ${reason.slice(0, 400)}` : "."}`))
+    })
   })
 }
 

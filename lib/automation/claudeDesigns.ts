@@ -1,5 +1,6 @@
 import crypto from "node:crypto"
 import {
+  assertPngDesignReady,
   assertSourceAcceptedForProduct,
   DesignSubmissionError,
   isAllowedDesignImageUrl,
@@ -71,6 +72,7 @@ export async function submitClaudeDesign(body: unknown) {
   const submission = parseDesignSubmission(body)
   const source = await downloadDesign(submission.imageUrl)
   const contentType = assertSourceAcceptedForProduct(submission.productType, sniffImageMimeType(source))
+  assertPngDesignReady(submission.productType, source)
   const sha256 = crypto.createHash("sha256").update(source).digest("hex")
 
   const repository = new AutomationRepository()

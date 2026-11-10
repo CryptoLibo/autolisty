@@ -206,3 +206,47 @@ export function assertSourceAcceptedForProduct(productType: ProductType, mimeTyp
   }
   return mimeType
 }
+
+/** Ancho, alto y transparencia leídos de la cabecera PNG (IHDR y tRNS), sin decodificar. */
+export function readPngInfo(bytes: Uint8Array): { width: number; height: number; hasAlpha: boolean } | null {
+  if (sniffImageMimeType(bytes) !== "image/png" || bytes.length < 33) return null
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const width = view.getUint32(16)
+  const height = view.getUint32(20)
+  const colorType = bytes[25]
+  let hasAlpha = colorType === 4 || colorType === 6
+  // tRNS (transparencia en PNG de paleta/RGB) aparece antes de IDAT.
+  let offset = 8
+  while (!hasAlpha && offset + 8 <= bytes.length) {
+    const length = view.getUint32(offset)
+    const type = String.fromCharCode(...bytes.slice(offset + 4, offset + 8))
+    if (type === "tRNS") hasAlpha = true
+    if (type === "IDAT" || type === "IEND") break
+    offset += 12 + length
+  }
+  return { width, height, hasAlpha }
+}
+
+export const PNG_DESIGN_MIN_SIZE = 4096
+
+/**
+ * PNG Designs: el entregable es el propio PNG (Autobuildy no lo escala), así que
+ * debe llegar ya a 4096 px, cuadrado y con transparencia. Se rechaza al enviarlo,
+ * no al día siguiente en Automaty.
+ */
+export function assertPngDesignReady(productType: ProductType, bytes: Uint8Array) {
+  if (productType !== "png_designs") return
+  const info = readPngInfo(bytes)
+  if (!info) throw new DesignSubmissionError("PNG Designs needs a PNG file.")
+  const problems: string[] = []
+  if (info.width < PNG_DESIGN_MIN_SIZE || info.height < PNG_DESIGN_MIN_SIZE) {
+    problems.push(`it is ${info.width} x ${info.height} px and must be at least ${PNG_DESIGN_MIN_SIZE} x ${PNG_DESIGN_MIN_SIZE} px`)
+  }
+  if (Math.abs(1 - info.width / info.height) > 0.02) problems.push("the canvas must be square")
+  if (!info.hasAlpha) problems.push("it has no transparency")
+  if (problems.length) {
+    throw new DesignSubmissionError(
+      `PNG design not ready: ${problems.join("; ")}. Upscale it with kittl-upscale-image (free) to 4096 px, then remove the background, and submit that result.`
+    )
+  }
+}
