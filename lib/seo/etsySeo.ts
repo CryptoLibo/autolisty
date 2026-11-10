@@ -519,7 +519,7 @@ function buildPrintableWallArtTitle(
 
   const countWords = (value: string) =>
     value
-      .replace(/[(),]/g, "")
+      .replace(/[(),|]/g, "")
       .split(/\s+/)
       .filter(Boolean).length
 
@@ -586,7 +586,7 @@ function buildPrintableWallArtTitle(
   }
 
   const buildCandidate = () =>
-    `${subjectWords.join(" ")} Print, ${styleWords.join(" ")} Wall Art, ${decorWords.join(" ")} Decor (${suffix})`
+    `${subjectWords.join(" ")} Print, ${styleWords.join(" ")} Wall Art, ${decorWords.join(" ")} Decor | (${suffix})`
       .replace(/\s+/g, " ")
       .replace(/\s+,/g, ",")
       .trim()
@@ -618,7 +618,7 @@ function buildPrintableWallArtTitle(
     const extra = expansionPool.shift()
     if (!extra) continue
     const nextDecorWords = uniquePhrases([...decorWords, ...extra.split(/\s+/)]).slice(0, 3)
-    const candidate = `${subjectWords.join(" ")} Print, ${styleWords.join(" ")} Wall Art, ${nextDecorWords.join(" ")} Decor (${suffix})`
+    const candidate = `${subjectWords.join(" ")} Print, ${styleWords.join(" ")} Wall Art, ${nextDecorWords.join(" ")} Decor | (${suffix})`
       .replace(/\s+/g, " ")
       .replace(/\s+,/g, ",")
       .trim()
@@ -646,7 +646,7 @@ function buildPrintableWallArtTitle(
   normalized = titleCase(normalized).replace(/\s+,/g, ",").trim()
 
   if (normalized.length > maxCharacters) {
-    return keepSuffixWithinLimit(normalized, `(${suffix})`, maxCharacters)
+    return keepSuffixWithinLimit(normalized, `| (${suffix})`, maxCharacters)
   }
 
   return normalized
@@ -694,7 +694,12 @@ function normalizeTitle(
   const suffixPattern = new RegExp(`${escapeRegex(suffix)}$`, "i")
 
   if (!suffixPattern.test(title)) {
-    title = title.replace(/\s*\([^)]*\)\s*$/i, "").trim()
+    // Quitar cualquier variante final ("(Digital Download)", "| Digital Download", "|") y poner el sufijo exacto.
+    title = title
+      .replace(/\s*\([^)]*\)\s*$/i, "")
+      .replace(/\s*\|?\s*digital download\s*$/i, "")
+      .replace(/\s*\|\s*$/, "")
+      .trim()
     title += ` ${suffix}`
   }
 
@@ -729,7 +734,7 @@ function normalizeTitle(
   prefix = prefix.replace(/,\s*$/, "").trim()
 
   let words = dedupeWordRoots(prefix.split(/\s+/).filter(Boolean))
-  const suffixWords = suffix.replace(/[()]/g, "").split(/\s+/).filter(Boolean).length
+  const suffixWords = suffix.replace(/[()|]/g, "").split(/\s+/).filter(Boolean).length
 
   if (words.length > maxWords - suffixWords) {
     words = words.slice(0, maxWords - suffixWords)
@@ -1757,12 +1762,13 @@ TITLE STRATEGY
 - Do not use subjective promotional adjectives in titles, including cute, aesthetic, beautiful, perfect, lovely, adorable, stunning, gorgeous, amazing, unique, charming, or trendy. Put that language in the description when useful.
 - Prefer a strong search phrase cluster over decorative adjectives.
 - If the product rules require a full word budget, use as much of that allowed budget as possible without breaking coherence.
-- For wall art ratio products, think in 3 clear blocks: subject cluster ending in "Print", style/decor cluster ending in "Wall Art", and a final "(Digital Download)" suffix.
+- Every title, for every product, ends with " | (Digital Download)": the "|" separates the title itself from the delivery type. The "|" does not count as a word.
+- For wall art ratio products, think in 3 clear blocks: subject cluster ending in "Print", style/decor cluster ending in "Wall Art", and a final "| (Digital Download)" suffix.
 - For wall art ratio products, build title_components as buyer-search phrases, not loose words:
   1. search_core / subject_phrase = the strongest 2-4 word visual search phrase without product terms.
   2. style_phrase = the art style or visual category that makes the piece searchable.
   3. decor_phrase = the decor mood, room fit, or buyer intent without repeating the product term.
-- The title should read like: "[meaningful subject phrase] Print, [style phrase] Wall Art, [decor phrase] Decor (Digital Download)" while staying inside the product_config word and character limits.
+- The title should read like: "[meaningful subject phrase] Print, [style phrase] Wall Art, [decor phrase] Decor | (Digital Download)" while staying inside the product_config word and character limits.
 
 PRODUCT-SPECIFIC SEO INTENT
 - For horizontal_wall_art, treat the product as standard wall art for SEO. Do not mention horizontal, wide, orientation, ratio, dimensions, or landscape as a product orientation in the title, tags, or description keywords. Use landscape only when the artwork is genuinely a landscape scene.
