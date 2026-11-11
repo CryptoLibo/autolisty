@@ -11,10 +11,10 @@ describe("matchFixedValues", () => {
     expect(matchFixedValues(["16:9"], OPTIONS).matched.map((o) => o.valueId)).toEqual([5180])
   })
 
-  it("si Etsy solo tiene la proporción vertical, la usa para la horizontal", () => {
-    const { matched, missing } = matchFixedValues(["3:2", "4:3", "5:4", "14:11", "7:5 (ISO ratio)"], OPTIONS)
-    expect(matched.map((o) => o.name)).toEqual(["2:3", "3:4", "4:5", "11:14", "5:7 (ISO ratio)"])
-    expect(missing).toEqual([])
+  it("no usa proporciones verticales para valores horizontales", () => {
+    const { matched, missing } = matchFixedValues(["3:2", "4:3"], OPTIONS)
+    expect(matched).toEqual([])
+    expect(missing).toEqual(["3:2", "4:3"])
   })
 
   it("informa de lo que no existe", () => {
