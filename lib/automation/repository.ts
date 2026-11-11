@@ -434,8 +434,41 @@ export class AutomationRepository {
     return rows.map(mapFile)
   }
 
+  /** Draft plantilla de cada producto (el que se duplica en Etsy; nunca entra en el pool). */
+  getDraftTemplates(): Record<string, string> {
+    const rows = this.database.prepare(
+      "SELECT setting_key, setting_value FROM automation_settings WHERE setting_key LIKE 'draft_template.%'"
+    ).all() as Array<{ setting_key: string; setting_value: string }>
+    return Object.fromEntries(rows.map((row) => [row.setting_key.slice("draft_template.".length), row.setting_value]))
+  }
+
+  /** Guarda (o borra, con null) la plantilla de un producto y la saca del pool si estaba disponible. */
+  setDraftTemplate(productType: EtsyDraftPoolItem["productType"], draftId: string | null) {
+    const key = `draft_template.${productType}`
+    const now = new Date().toISOString()
+    const save = this.database.transaction(() => {
+      if (!draftId) {
+        this.database.prepare("DELETE FROM automation_settings WHERE setting_key = ?").run(key)
+        return
+      }
+      const assigned = this.database.prepare(
+        "SELECT 1 FROM etsy_draft_pool WHERE draft_id = ? AND status != 'AVAILABLE' UNION SELECT 1 FROM automation_jobs WHERE etsy_draft_id = ?"
+      ).get(draftId, draftId)
+      if (assigned) throw new Error(`Draft ${draftId} is already used by a listing; it cannot be a template.`)
+      this.database.prepare(`
+        INSERT INTO automation_settings (setting_key, setting_value, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, updated_at = excluded.updated_at
+      `).run(key, draftId, now)
+      this.database.prepare("DELETE FROM etsy_draft_pool WHERE draft_id = ? AND status = 'AVAILABLE'").run(draftId)
+    })
+    save()
+    return this.getDraftTemplates()
+  }
+
   addDrafts(productType: EtsyDraftPoolItem["productType"], draftIds: string[]) {
-    const uniqueDraftIds = [...new Set(draftIds.map((value) => value.trim()))]
+    // Las plantillas nunca entran en el pool.
+    const templates = new Set(Object.values(this.getDraftTemplates()))
+    const uniqueDraftIds = [...new Set(draftIds.map((value) => value.trim()))].filter((id) => !templates.has(id))
     const now = new Date().toISOString()
     const insert = this.database.prepare(`
       INSERT INTO etsy_draft_pool (
@@ -456,6 +489,7 @@ export class AutomationRepository {
     return {
       added,
       duplicates: uniqueDraftIds.length - added,
+      templatesSkipped: new Set(draftIds.map((value) => value.trim())).size - uniqueDraftIds.length,
       totalSubmitted: uniqueDraftIds.length,
     }
   }
@@ -466,7 +500,8 @@ export class AutomationRepository {
       SELECT draft_id AS id FROM etsy_draft_pool
       UNION SELECT etsy_draft_id AS id FROM automation_jobs WHERE etsy_draft_id IS NOT NULL
     `).all() as Array<{ id: string }>
-    return new Set(rows.map((row) => String(row.id)))
+    // Las plantillas cuentan como conocidas: no aparecen al importar.
+    return new Set([...rows.map((row) => String(row.id)), ...Object.values(this.getDraftTemplates())])
   }
 
   listDrafts(limit = 200) {
@@ -900,12 +935,14 @@ export class AutomationRepository {
       const job = this.getJob(jobId)
       if (!job) throw new Error(`Automation job not found: ${jobId}`)
       if (job.etsyDraftId) return job.etsyDraftId
+      const templates = Object.values(this.getDraftTemplates())
       const draft = this.database.prepare(`
         SELECT draft_id FROM etsy_draft_pool
         WHERE product_type = ? AND status = 'AVAILABLE'
+          AND draft_id NOT IN (SELECT value FROM json_each(?))
         ORDER BY created_at ASC
         LIMIT 1
-      `).get(job.productType) as { draft_id: string } | undefined
+      `).get(job.productType, JSON.stringify(templates)) as { draft_id: string } | undefined
       if (!draft) return null
       const now = new Date().toISOString()
       this.database.prepare(`

@@ -154,6 +154,41 @@ export function AutomationWorkspace() {
   const [etsyDraftGroups, setEtsyDraftGroups] = useState<Array<{ title: string; imageUrl: string | null; listingIds: string[] }> | null>(null)
   const [etsyDraftLoading, setEtsyDraftLoading] = useState(false)
   const [groupProducts, setGroupProducts] = useState<Record<string, ProductType>>({})
+  const [draftTemplates, setDraftTemplates] = useState<Record<string, string>>({})
+  const [templateInputs, setTemplateInputs] = useState<Record<string, string>>({})
+  const [templateSaving, setTemplateSaving] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch("/api/automation/drafts/templates", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data) => {
+        setDraftTemplates(data.templates || {})
+        setTemplateInputs(data.templates || {})
+      })
+      .catch(() => {})
+  }, [])
+
+  async function saveDraftTemplate(productType: ProductType) {
+    setTemplateSaving(productType)
+    try {
+      const response = await fetch("/api/automation/drafts/templates", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productType, draftId: (templateInputs[productType] || "").trim() }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "No se pudo guardar la plantilla.")
+      setDraftTemplates(data.templates || {})
+      setMessageTone("success")
+      setMessage(`Plantilla de ${PRODUCT_OPTIONS.find((product) => product.value === productType)?.label} guardada. No se usará ni se importará nunca.`)
+      await loadDashboard(true)
+    } catch (error) {
+      setMessageTone("error")
+      setMessage(error instanceof Error ? error.message : "No se pudo guardar la plantilla.")
+    } finally {
+      setTemplateSaving(null)
+    }
+  }
   const [draftSubmitting, setDraftSubmitting] = useState(false)
   const [pipelineUpdating, setPipelineUpdating] = useState(false)
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null)
@@ -794,14 +829,41 @@ export function AutomationWorkspace() {
           </div>
 
           <div className="mt-6 divide-y divide-neutral-800 border-y border-neutral-800">
-            {PRODUCT_OPTIONS.map((product) => (
-              <div key={product.value} className="flex items-center justify-between gap-4 py-3 text-sm">
-                <span className="text-neutral-400">{product.label}</span>
-                <span className="font-semibold text-neutral-100">
-                  {availableDraftsByProduct.get(product.value) || 0} available
-                </span>
-              </div>
-            ))}
+            {PRODUCT_OPTIONS.map((product) => {
+              const saved = draftTemplates[product.value] || ""
+              const value = templateInputs[product.value] ?? ""
+              return (
+                <div key={product.value} className="py-3 text-sm">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-neutral-300">{product.label}</span>
+                    <span className="font-semibold text-neutral-100">
+                      {availableDraftsByProduct.get(product.value) || 0} disponibles
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <label className="shrink-0 text-xs text-neutral-500" htmlFor={`template-${product.value}`}>
+                      Plantilla base
+                    </label>
+                    <input
+                      id={`template-${product.value}`}
+                      inputMode="numeric"
+                      value={value}
+                      onChange={(event) => setTemplateInputs((current) => ({ ...current, [product.value]: event.target.value.replace(/\D/g, "") }))}
+                      placeholder="ID del draft plantilla"
+                      className="h-9 min-w-0 flex-1 border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-[#eeba2b]/45"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void saveDraftTemplate(product.value)}
+                      disabled={templateSaving === product.value || value === saved}
+                      className="h-9 shrink-0 border border-neutral-700 px-3 text-xs text-neutral-200 transition hover:border-[#eeba2b]/40 hover:text-[#f1cc61] disabled:opacity-40"
+                    >
+                      {templateSaving === product.value ? "Guardando…" : saved && !value ? "Quitar" : "Guardar"}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       </section>
