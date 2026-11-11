@@ -1,15 +1,15 @@
 // Worker de Cloudflare para download.autolisty.com
 //
-// Sirve los entregables de cada listing desde R2, SOLO si el enlace lleva la
-// firma correcta (?k=...). La firma es HMAC-SHA256 del código del listing con el
-// secreto DOWNLOAD_LINK_SECRET (el mismo valor que en el servidor de Autolisty),
-// en base64url y recortada a 22 caracteres.
+// Sirve los entregables de cada listing desde R2.
+// - Códigos con marca deliverables/<código>/.signed (todos los de Automation y los
+//   PDF regenerados): SOLO con la firma correcta (?k=...). La firma es
+//   HMAC-SHA256 del código con DOWNLOAD_LINK_SECRET (el mismo valor que en el
+//   servidor de Autolisty), en base64url y recortada a 22 caracteres.
+// - Códigos sin marca (listings antiguos, creados antes de Automation): como
+//   siempre, sin firma.
 //
 // Variables del Worker (Settings → Variables and Secrets):
-//   DOWNLOAD_LINK_SECRET   (Secret)  mismo valor que en el .env del servidor.
-//   LEGACY_UNSIGNED_CODES  (Text, opcional) códigos separados por comas cuyos PDF
-//                          antiguos (sin firma) deben seguir funcionando, p. ej.
-//                          los de listings manuales que no se pueden regenerar.
+//   DOWNLOAD_LINK_SECRET   (Secret)  mismo valor que en el .env.local del servidor.
 // Binding: R2_BUCKET → el bucket de Autolisty.
 
 const SIGNATURE_LENGTH = 22
@@ -58,11 +58,9 @@ async function isAuthorized(env, code, signature) {
     const expected = await expectedSignature(env.DOWNLOAD_LINK_SECRET, code)
     if (constantTimeEqual(signature, expected)) return true
   }
-  const legacy = String(env.LEGACY_UNSIGNED_CODES || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean)
-  return legacy.includes(code)
+  // Sin firma válida: solo se permite si el código NO exige firma (listing antiguo).
+  const requiresSignature = await env.R2_BUCKET.head(`deliverables/${code}/.signed`)
+  return !requiresSignature
 }
 
 async function findFirst(env, candidates) {
