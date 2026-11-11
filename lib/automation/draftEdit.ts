@@ -179,7 +179,7 @@ export async function editListingDraft(input: ListingEditInput) {
     await notifyOwner({
       title: `Claude editó ${productCode}`,
       body: `Cambios: ${Object.keys(changes).map((key) => key.replace("attribute:", "")).join(", ")}.`,
-      url: job.etsyUrl || "/?section=automation",
+      url: job.etsyUrl || "/automation",
       tag: `claude-edit-${productCode}`,
     }).catch(() => {})
   }

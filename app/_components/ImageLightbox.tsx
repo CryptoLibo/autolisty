@@ -129,16 +129,16 @@ export function ImageLightbox({ src, alt, caption, onClose }: Props) {
       <div className="flex items-center justify-between gap-3 px-4 py-3 text-sm text-neutral-300">
         <span className="truncate">{caption || alt}</span>
         <div className="flex items-center gap-2">
-          <button type="button" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.5)} className="flex h-10 w-10 items-center justify-center border border-neutral-700 text-neutral-200">
+          <button type="button" aria-label="Alejar" onClick={() => zoomBy(1 / 1.5)} className="flex h-10 w-10 items-center justify-center border border-neutral-700 text-neutral-200">
             <Minus size={18} />
           </button>
-          <button type="button" aria-label="Reset zoom" onClick={reset} className="h-10 min-w-14 border border-neutral-700 px-2 text-xs text-neutral-200">
+          <button type="button" aria-label="Restablecer zoom" onClick={reset} className="h-10 min-w-14 border border-neutral-700 px-2 text-xs text-neutral-200">
             {Math.round(scale * 100)}%
           </button>
-          <button type="button" aria-label="Zoom in" onClick={() => zoomBy(1.5)} className="flex h-10 w-10 items-center justify-center border border-neutral-700 text-neutral-200">
+          <button type="button" aria-label="Acercar" onClick={() => zoomBy(1.5)} className="flex h-10 w-10 items-center justify-center border border-neutral-700 text-neutral-200">
             <Plus size={18} />
           </button>
-          <button type="button" aria-label="Close" onClick={onClose} className="flex h-10 w-10 items-center justify-center bg-neutral-800 text-neutral-100">
+          <button type="button" aria-label="Cerrar" onClick={onClose} className="flex h-10 w-10 items-center justify-center bg-neutral-800 text-neutral-100">
             <X size={18} />
           </button>
         </div>
@@ -153,7 +153,7 @@ export function ImageLightbox({ src, alt, caption, onClose }: Props) {
         onWheel={onWheel}
       >
         {!loaded ? (
-          <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-500">Loading full resolution…</div>
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-500">Cargando…</div>
         ) : null}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img

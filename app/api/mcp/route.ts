@@ -49,7 +49,7 @@ export async function POST(request: Request) {
         await notifyOwner({
           title: "Nueva lección propuesta para el SEO",
           body: lesson.lesson.slice(0, 140),
-          url: "/?section=automation",
+          url: "/automation",
           tag: `lesson-${lesson.id}`,
         }).catch(() => {})
       }

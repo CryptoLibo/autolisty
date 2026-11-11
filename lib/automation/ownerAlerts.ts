@@ -62,7 +62,7 @@ export async function alertNewPendingDesigns(database: Database.Database, notify
     body: total > batch.count
       ? `Hay ${total} pendientes en total. Apruébalos hoy para que Automaty los produzca mañana.`
       : "Apruébalos hoy para que Automaty los produzca mañana.",
-    url: "/?section=automation",
+    url: "/automation",
     tag: "designs-pending",
   }
   await notify(notification).catch(() => {})
@@ -119,7 +119,7 @@ export async function alertAgentLifecycle(
       body: queued
         ? `${plural(queued, "diseño", "diseños")} en cola para producir.`
         : "No hay diseños en cola; se apagará en 30 minutos.",
-      url: "/?section=automation",
+      url: "/automation",
       tag: "automaty-power",
     }
   } else {
@@ -132,7 +132,7 @@ export async function alertAgentLifecycle(
     notification = {
       title: `${input.agentName} se apaga`,
       body: parts.join(" "),
-      url: "/?section=automation",
+      url: "/automation",
       tag: "automaty-power",
     }
   }
@@ -172,7 +172,7 @@ export async function alertStalledLocalJobs(database: Database.Database, notify:
     await notify({
       title: `${job.productCode} parado en Automaty`,
       body: "Automaty dejó de responder a mitad de la producción. Si no vuelve solo, reinícialo desde Automation.",
-      url: "/?section=automation",
+      url: "/automation",
       tag: `stalled-${job.productCode}`,
     }).catch(() => {})
   }

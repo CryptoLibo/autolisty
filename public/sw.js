@@ -19,7 +19,7 @@ self.addEventListener("push", (event) => {
     }
     if (!notifications.length) {
       // iOS exige mostrar algo en cada push.
-      notifications = [{ title: "Autolisty", body: "Hay novedades en Automation.", url: "/?section=automation", tag: "autolisty" }]
+      notifications = [{ title: "Autolisty", body: "Hay novedades en Automation.", url: "/automation", tag: "autolisty" }]
     }
     await Promise.all(notifications.map((item) =>
       self.registration.showNotification(item.title, {
@@ -27,7 +27,7 @@ self.addEventListener("push", (event) => {
         tag: item.tag || `autolisty-${item.id || Date.now()}`,
         icon: "/app-icons/icon-192.png",
         badge: "/app-icons/icon-192.png",
-        data: { url: item.url || "/?section=automation" },
+        data: { url: item.url || "/automation" },
       })
     ))
   })())
@@ -35,7 +35,7 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close()
-  const url = (event.notification.data && event.notification.data.url) || "/?section=automation"
+  const url = (event.notification.data && event.notification.data.url) || "/automation"
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true })
     for (const client of windows) {

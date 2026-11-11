@@ -3,16 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import SeoLessonsPanel from "./SeoLessonsPanel"
 import {
-  AlertCircle,
-  CheckCircle2,
-  Clock3,
   Database,
   FileImage,
   Loader2,
   Pause,
   Play,
   RefreshCw,
-  RotateCcw,
+  Settings2,
   Trash2,
   Upload,
 } from "lucide-react"
@@ -20,17 +17,21 @@ import { PRODUCT_OPTIONS, type ProductType } from "@/lib/products"
 import { ImageLightbox } from "./ImageLightbox"
 import { PushNotificationsButton } from "./PushNotificationsButton"
 import type {
-  AutomationJob,
   AutomationAgent,
-  AutomationJobFile,
   AutomationPipelineMode,
   EtsyDraftPoolItem,
 } from "@/lib/automation/types"
-
-type QueueJob = AutomationJob & {
-  files: AutomationJobFile[]
-  sourcePreviewUrl: string
-}
+import {
+  STAGE_TABS,
+  STATUS_LABELS,
+  defaultStageTab,
+  stageTabOf,
+  timeAgo,
+  type StageTab,
+} from "@/lib/automation/stages"
+import { JobCard, productLabel, type QueueJob } from "./automation/JobCard"
+import { ApprovalCard, ApprovalFlow } from "./automation/Approval"
+import { EmptyState, Toast, buttonPrimary, buttonSecondary, card, useConfirm } from "./automation/ui"
 
 type DraftSummaryItem = {
   productType: ProductType
@@ -38,78 +39,11 @@ type DraftSummaryItem = {
   count: number
 }
 
-const STATUS_LABELS: Partial<Record<AutomationJob["status"], string>> = {
-  CREATED: "Creating intake",
-  SOURCE_READY: "Source ready",
-  PENDING_APPROVAL: "Waiting for your approval",
-  QUEUED_LOCAL: "Approved · waiting for Automaty to sync",
-  LOCAL_CLAIMED: "In Automaty's local queue",
-  LOCAL_BUILDING: "Building mockups",
-  LOCAL_VALIDATING: "Validating listing folder",
-  LOCAL_UPLOADING: "Returning production files",
-  LOCAL_COMPLETE: "Local production complete",
-  DRAFT_ASSIGNED: "Etsy draft assigned",
-  SEO_GENERATING: "Generating Etsy SEO",
-  SEO_READY: "Etsy SEO ready",
-  PINTEREST_SEO_GENERATING: "Generating Pinterest SEO",
-  PINTEREST_SEO_READY: "Pinterest SEO ready",
-  DELIVERY_PREPARING: "Preparing delivery",
-  DELIVERY_READY: "Delivery ready",
-  ETSY_TEXT_SYNCING: "Syncing Etsy text",
-  ETSY_MEDIA_SYNCING: "Syncing Etsy media",
-  ETSY_FILE_SYNCING: "Syncing customer file",
-  ETSY_VIDEO_SYNCING: "Syncing Etsy video",
-  WAITING_ETSY_REVIEW: "Draft ready for review",
-  ETSY_ACTIVE: "Published on Etsy",
-  PINTEREST_PUBLISHING: "Publishing Pinterest pins",
-  COMPLETED: "Completed",
-  RETRY_WAIT: "Retry scheduled",
-  NEEDS_ATTENTION: "Needs attention",
-  CANCELED: "Canceled",
-}
-
-function productLabel(productType: ProductType) {
-  return PRODUCT_OPTIONS.find((product) => product.value === productType)?.label || productType
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value))
-}
-
-function formatBytes(value: number | null) {
-  if (!value) return "Unknown size"
-  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`
-  return `${Math.ceil(value / 1024)} KB`
-}
-
-type DesignBriefView = {
-  primaryKeyword?: { keyword: string; etsyMonthlySearches?: number | null; competingListings?: number | null } | null
-  secondaryKeywords?: Array<{ keyword: string }>
-  collection?: string | null
-  rationale?: string | null
-  imageUrl?: string | null
-}
-
-function parseBrief(job: AutomationJob): DesignBriefView | null {
-  if (!job.briefJson) return null
-  try {
-    return JSON.parse(job.briefJson) as DesignBriefView
-  } catch {
-    return null
-  }
-}
-
 const AGENT_ONLINE_WINDOW_MS = 3 * 60 * 1000
+const LOW_DRAFT_STOCK = 5
 
 function isAgentOnline(agent: AutomationAgent) {
   return Boolean(agent.lastSeenAt && Date.now() - new Date(agent.lastSeenAt).getTime() < AGENT_ONLINE_WINDOW_MS)
-}
-
-function isFinished(status: AutomationJob["status"]) {
-  return status === "COMPLETED" || status === "CANCELED"
 }
 
 export function AutomationWorkspace() {
@@ -125,7 +59,11 @@ export function AutomationWorkspace() {
   const [regeneratingPdfs, setRegeneratingPdfs] = useState(false)
 
   async function regenerateDeliveryPdfs() {
-    if (!window.confirm("¿Regenerar el PDF de entrega de todos los listings con enlaces firmados y sustituirlo en Etsy?")) return
+    if (!(await confirm({
+      title: "¿Regenerar los PDF de entrega?",
+      body: "Se regenera el PDF de todos los listings creados por Automation con enlaces firmados y se sustituye en Etsy.",
+      confirmLabel: "Regenerar",
+    }))) return
     setRegeneratingPdfs(true)
     try {
       const response = await fetch("/api/automation/delivery-pdfs", { method: "POST" })
@@ -220,8 +158,20 @@ export function AutomationWorkspace() {
   const [pipelineUpdating, setPipelineUpdating] = useState(false)
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null)
   const [reviewingJobId, setReviewingJobId] = useState<string | null>(null)
-  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({})
   const [lightbox, setLightbox] = useState<{ src: string; alt: string; caption: string } | null>(null)
+  const [tab, setTab] = useState<StageTab | null>(null)
+  const [approvalFlowOpen, setApprovalFlowOpen] = useState(false)
+  const [selecting, setSelecting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [bulkApproving, setBulkApproving] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const { confirm, dialog: confirmDialog } = useConfirm()
+  const clearMessage = useCallback(() => setMessage(null), [])
+
+  function zoom(job: QueueJob) {
+    // Primero una versión de 1400 px: el original puede pesar hasta 100 MB.
+    setLightbox({ src: `${job.sourcePreviewUrl}?w=1400`, alt: job.productCode, caption: `${job.productCode} · ${productLabel(job.productType)}` })
+  }
 
   const loadDashboard = useCallback(async (quiet = false) => {
     if (!quiet) setRefreshing(true)
@@ -232,8 +182,8 @@ export function AutomationWorkspace() {
       ])
       const jobsData = await jobsResponse.json()
       const draftsData = await draftsResponse.json()
-      if (!jobsResponse.ok) throw new Error(jobsData.error || "Unable to load production queue.")
-      if (!draftsResponse.ok) throw new Error(draftsData.error || "Unable to load Etsy drafts.")
+      if (!jobsResponse.ok) throw new Error(jobsData.error || "No se pudo cargar la producción.")
+      if (!draftsResponse.ok) throw new Error(draftsData.error || "No se pudo cargar el inventario de drafts.")
 
       setJobs(jobsData.jobs || [])
       setPipelineMode(jobsData.pipelineMode || "RUNNING")
@@ -242,7 +192,7 @@ export function AutomationWorkspace() {
       setDraftSummary(draftsData.summary || [])
     } catch (error) {
       setMessageTone("error")
-      setMessage(error instanceof Error ? error.message : "Unable to load Automation.")
+      setMessage(error instanceof Error ? error.message : "No se pudo cargar Automation.")
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -251,10 +201,18 @@ export function AutomationWorkspace() {
 
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void loadDashboard(), 0)
-    const interval = window.setInterval(() => void loadDashboard(true), 15000)
+    // Se refresca cada 15 s solo con la pantalla visible; al volver a ella, al momento.
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadDashboard(true)
+    }, 15000)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadDashboard(true)
+    }
+    document.addEventListener("visibilitychange", onVisible)
     return () => {
       window.clearTimeout(initialLoad)
       window.clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVisible)
     }
   }, [loadDashboard])
 
@@ -289,7 +247,7 @@ export function AutomationWorkspace() {
   async function submitSource() {
     if (!sourceFile || !sourcePrompt.trim()) {
       setMessageTone("error")
-      setMessage("Select the design and include the prompt that created it.")
+      setMessage("Elige el diseño e incluye el prompt que lo creó.")
       return
     }
 
@@ -302,16 +260,16 @@ export function AutomationWorkspace() {
       formData.set("sourceFile", sourceFile)
       const response = await fetch("/api/automation/jobs", { method: "POST", body: formData })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || "Unable to add the design.")
+      if (!response.ok) throw new Error(data.error || "No se pudo añadir el diseño.")
 
       setMessageTone("success")
-      setMessage(`${data.job.productCode} was added to the production queue.`)
+      setMessage(`${data.job.productCode} añadido a la cola.`)
       setSourceFile(null)
       setSourcePrompt("")
       await loadDashboard(true)
     } catch (error) {
       setMessageTone("error")
-      setMessage(error instanceof Error ? error.message : "Unable to add the design.")
+      setMessage(error instanceof Error ? error.message : "No se pudo añadir el diseño.")
     } finally {
       setSubmitting(false)
     }
@@ -327,17 +285,17 @@ export function AutomationWorkspace() {
         body: JSON.stringify({ action }),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || "Unable to update production mode.")
+      if (!response.ok) throw new Error(data.error || "No se pudo cambiar el modo de producción.")
       setPipelineMode(data.mode)
       setMessageTone("success")
       setMessage(
         data.mode === "RUNNING"
-          ? "Production is active: Automaty syncs approved designs and works through its queue whenever it is on."
-          : "Production paused: Automaty finishes the listing in progress and does not start another."
+          ? "Producción activa: Automaty recoge los diseños aprobados y trabaja la cola cuando está encendido."
+          : "Producción en pausa: Automaty termina el listing en curso y no empieza otro."
       )
     } catch (error) {
       setMessageTone("error")
-      setMessage(error instanceof Error ? error.message : "Unable to update production mode.")
+      setMessage(error instanceof Error ? error.message : "No se pudo cambiar el modo de producción.")
     } finally {
       setPipelineUpdating(false)
     }
@@ -394,17 +352,17 @@ export function AutomationWorkspace() {
         body: JSON.stringify({ productType: draftProductType, draftIds }),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || "Unable to add Etsy drafts.")
+      if (!response.ok) throw new Error(data.error || "No se pudieron añadir los drafts.")
       setDraftIds("")
       setMessageTone("success")
       setMessage(
-        `${data.added} Etsy draft${data.added === 1 ? "" : "s"} added` +
-          (data.duplicates ? `; ${data.duplicates} already existed.` : ".")
+        `${data.added} drafts añadidos` +
+          (data.duplicates ? `; ${data.duplicates} ya existían.` : ".")
       )
       await loadDashboard(true)
     } catch (error) {
       setMessageTone("error")
-      setMessage(error instanceof Error ? error.message : "Unable to add Etsy drafts.")
+      setMessage(error instanceof Error ? error.message : "No se pudieron añadir los drafts.")
     } finally {
       setDraftSubmitting(false)
     }
@@ -418,11 +376,11 @@ export function AutomationWorkspace() {
         body: JSON.stringify({ draftId }),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || "Unable to remove the draft.")
+      if (!response.ok) throw new Error(data.error || "No se pudo quitar el draft.")
       await loadDashboard(true)
     } catch (error) {
       setMessageTone("error")
-      setMessage(error instanceof Error ? error.message : "Unable to remove the draft.")
+      setMessage(error instanceof Error ? error.message : "No se pudo quitar el draft.")
     }
   }
 
@@ -432,13 +390,13 @@ export function AutomationWorkspace() {
     try {
       const response = await fetch(`/api/automation/jobs/${jobId}/retry`, { method: "PATCH" })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || "Unable to retry the job.")
+      if (!response.ok) throw new Error(data.error || "No se pudo reintentar.")
       setMessageTone("success")
-      setMessage(`${data.job.productCode} will continue from its last safe step.`)
+      setMessage(`${data.job.productCode} sigue desde el último paso seguro.`)
       await loadDashboard(true)
     } catch (error) {
       setMessageTone("error")
-      setMessage(error instanceof Error ? error.message : "Unable to retry the job.")
+      setMessage(error instanceof Error ? error.message : "No se pudo reintentar.")
     } finally {
       setRetryingJobId(null)
     }
@@ -450,12 +408,22 @@ export function AutomationWorkspace() {
       | { action: "cancel" | "discard" | "restart" }
       | { action: "priority"; priority: number }
   ) {
-    const confirmations: Record<string, string> = {
-      cancel: "Cancel this design? It will be removed from the queue.",
-      discard: "Discard this design?\n\nIt is canceled, its Etsy draft goes back to the pool and every file with its code is deleted from R2 (mockups, pins, deliverables, PDF). This cannot be undone.",
-      restart: "Start this design again?\n\nA new design with a NEW code is created from the same Kittl image and queued for Automaty. The current one is discarded: its Etsy draft goes back to the pool and its files are deleted from R2.",
+    const confirmations: Record<string, { title: string; body: string; confirmLabel: string; danger?: boolean }> = {
+      cancel: { title: "¿Cancelar este diseño?", body: "Sale de la cola de producción.", confirmLabel: "Cancelar diseño", danger: true },
+      discard: {
+        title: "¿Descartar este diseño?",
+        body: "Se cancela, su draft de Etsy vuelve al inventario y se borran de R2 todos los archivos con su código (mockups, pines, entregables, PDF). No se puede deshacer.",
+        confirmLabel: "Descartar",
+        danger: true,
+      },
+      restart: {
+        title: "¿Empezar de nuevo?",
+        body: "Se crea un diseño con un código NUEVO a partir de la misma imagen de Kittl y entra en la cola de Automaty. El actual se descarta: su draft vuelve al inventario y sus archivos se borran de R2.",
+        confirmLabel: "Empezar de nuevo",
+      },
     }
-    if (confirmations[payload.action] && !window.confirm(confirmations[payload.action])) return
+    const request = confirmations[payload.action]
+    if (request && !(await confirm(request))) return
     setManagingJobId(jobId)
     setMessage(null)
     try {
@@ -465,257 +433,345 @@ export function AutomationWorkspace() {
         body: JSON.stringify(payload),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || "Unable to update the design.")
+      if (!response.ok) throw new Error(data.error || "No se pudo actualizar el diseño.")
       setMessageTone("success")
       setMessage(
         payload.action === "cancel"
-          ? `${data.job.productCode} canceled.`
+          ? `${data.job.productCode} cancelado.`
           : payload.action === "discard"
-            ? `${data.job.productCode} discarded and its files deleted.`
+            ? `${data.job.productCode} descartado y sus archivos borrados.`
             : payload.action === "restart"
-              ? `${data.previous} discarded. Restarted as ${data.job.productCode} and queued for Automaty.`
-              : `${data.job.productCode} priority updated.`
+              ? `${data.previous} descartado. Empieza de nuevo como ${data.job.productCode}, en la cola de Automaty.`
+              : `Prioridad de ${data.job.productCode} actualizada.`
       )
       await loadDashboard(true)
     } catch (error) {
       setMessageTone("error")
-      setMessage(error instanceof Error ? error.message : "Unable to update the design.")
+      setMessage(error instanceof Error ? error.message : "No se pudo actualizar el diseño.")
     } finally {
       setManagingJobId(null)
     }
   }
 
-  async function reviewDesign(jobId: string, decision: "approve" | "reject") {
-    setReviewingJobId(jobId)
-    setMessage(null)
+  async function reviewDesign(job: QueueJob, decision: "approve" | "reject", note: string | null, quiet = false) {
+    setReviewingJobId(job.id)
+    if (!quiet) setMessage(null)
     try {
-      const response = await fetch(`/api/automation/jobs/${jobId}/review`, {
+      const response = await fetch(`/api/automation/jobs/${job.id}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision, note: reviewNotes[jobId] || null }),
+        body: JSON.stringify({ decision, note }),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || "Unable to review the design.")
-      setMessageTone("success")
-      setMessage(
-        decision === "approve"
-          ? `${data.job.productCode} approved and added to the production queue.`
-          : `${data.job.productCode} rejected.`
-      )
-      setReviewNotes((current) => {
-        const next = { ...current }
-        delete next[jobId]
-        return next
-      })
-      await loadDashboard(true)
+      if (!response.ok) throw new Error(data.error || "No se pudo revisar el diseño.")
+      if (!quiet) {
+        setMessageTone("success")
+        setMessage(decision === "approve" ? `${data.job.productCode} aprobado y en la cola.` : `${data.job.productCode} rechazado.`)
+        await loadDashboard(true)
+      }
+      return true
     } catch (error) {
       setMessageTone("error")
-      setMessage(error instanceof Error ? error.message : "Unable to review the design.")
+      setMessage(error instanceof Error ? error.message : "No se pudo revisar el diseño.")
+      return false
     } finally {
       setReviewingJobId(null)
     }
   }
 
+  async function approveSelected() {
+    const chosen = pendingApproval.filter((job) => selectedIds.includes(job.id))
+    if (!chosen.length) return
+    setBulkApproving(true)
+    let approved = 0
+    for (const job of chosen) {
+      if (await reviewDesign(job, "approve", null, true)) approved += 1
+    }
+    setBulkApproving(false)
+    setSelecting(false)
+    setSelectedIds([])
+    setMessageTone(approved === chosen.length ? "success" : "error")
+    setMessage(`${approved} de ${chosen.length} diseños aprobados.`)
+    await loadDashboard(true)
+  }
+
+  const jobsByTab = new Map<StageTab, QueueJob[]>()
+  for (const job of jobs) {
+    const key = stageTabOf(job.status)
+    jobsByTab.set(key, [...(jobsByTab.get(key) || []), job])
+  }
+  const tabCounts = Object.fromEntries(STAGE_TABS.map(({ id }) => [id, jobsByTab.get(id)?.length || 0])) as Record<StageTab, number>
+  const currentTab: StageTab = tab ?? defaultStageTab(tabCounts)
+  const tabJobs = jobsByTab.get(currentTab) || []
+  const issues = jobsByTab.get("issues") || []
+  const inProduction = tabCounts.production
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  const doneToday = jobs.filter((job) =>
+    (job.status === "WAITING_ETSY_REVIEW" || stageTabOf(job.status) === "published") &&
+    new Date(job.updatedAt).getTime() >= startOfToday.getTime()
+  ).length
+  const automatyStatus = !automaty
+    ? "Sin conectar"
+    : automatyOnline
+      ? activeJob ? `Produciendo ${activeJob.productCode}` : "Encendido · sin trabajo"
+      : "Apagado"
+
   return (
-    <div className="space-y-8">
-      <header className="flex flex-col gap-5 border-b border-neutral-800 pb-7 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <div className="text-xs font-semibold uppercase text-[#f1cc61]">Production controller</div>
-          <h1 className="mt-2 text-2xl font-semibold text-neutral-100">Automation</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
-            Approve designs, follow Automaty and control production from any device.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="border border-neutral-800 bg-neutral-950 px-4 py-3">
-            <div className="text-[11px] uppercase text-neutral-500">Production</div>
-            <div className="mt-1 text-sm font-semibold text-neutral-100">
-              {pipelineMode === "PAUSED" ? "Paused" : "Active"}
-            </div>
-          </div>
-          <div className="border border-neutral-800 bg-neutral-950 px-4 py-3">
-            <div className="flex items-center gap-2 text-[11px] uppercase text-neutral-500">
-              <span className={`h-2 w-2 rounded-full ${automatyOnline ? "bg-emerald-400" : "bg-neutral-600"}`} />
-              Automaty
-            </div>
-            <div className="mt-1 text-sm font-semibold text-neutral-100">
-              {!automaty
-                ? "Not connected yet"
-                : automatyOnline
-                  ? activeJob ? `Producing ${activeJob.productCode}` : "Online · idle"
-                  : `Offline${automaty.lastSeenAt ? ` · last seen ${formatDate(automaty.lastSeenAt)}` : ""}`}
-            </div>
-          </div>
+    <div className="space-y-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold tracking-tight text-neutral-100">Automation</h1>
+        <div className="flex flex-wrap items-center gap-2">
           <PushNotificationsButton />
           <button
             type="button"
-            title="Regenerar los PDF de entrega con enlaces firmados"
-            onClick={() => void regenerateDeliveryPdfs()}
-            disabled={regeneratingPdfs}
-            className="flex h-11 items-center justify-center border border-neutral-800 bg-neutral-950 px-3 text-xs text-neutral-300 transition hover:border-[#eeba2b]/35 hover:text-[#f1cc61] disabled:opacity-50"
-          >
-            {regeneratingPdfs ? "Regenerando PDFs…" : "Regenerar PDFs"}
-          </button>
-          <button
-            type="button"
-            title="Refresh production status"
+            aria-label="Actualizar"
+            title="Actualizar"
             onClick={() => void loadDashboard()}
             disabled={refreshing}
-            className="flex h-11 w-11 items-center justify-center border border-neutral-800 bg-neutral-950 text-neutral-300 transition hover:border-[#eeba2b]/35 hover:text-[#f1cc61] disabled:opacity-50"
+            className={`${buttonSecondary} w-10 px-0`}
           >
-            <RefreshCw size={17} className={refreshing ? "animate-spin" : ""} />
+            <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} aria-hidden="true" />
           </button>
           {pipelineMode === "PAUSED" ? (
-            <button
-              type="button"
-              onClick={() => void updatePipeline("resume")}
-              disabled={pipelineUpdating}
-              className="inline-flex h-11 items-center gap-2 bg-[#eeba2b] px-5 text-sm font-semibold text-neutral-950 transition hover:bg-[#f1cc61] disabled:opacity-50"
-            >
-              {pipelineUpdating ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
-              Resume production
+            <button type="button" onClick={() => void updatePipeline("resume")} disabled={pipelineUpdating} className={buttonPrimary}>
+              {pipelineUpdating ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} aria-hidden="true" />}
+              Reanudar producción
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={() => void updatePipeline("pause")}
-              disabled={pipelineUpdating}
-              className="inline-flex h-11 items-center gap-2 border border-amber-400/30 bg-amber-400/10 px-5 text-sm font-semibold text-amber-100 transition hover:bg-amber-400/15 disabled:opacity-50"
-            >
-              {pipelineUpdating ? <Loader2 size={16} className="animate-spin" /> : <Pause size={16} />}
-              Pause production
+            <button type="button" onClick={() => void updatePipeline("pause")} disabled={pipelineUpdating} className={buttonSecondary}>
+              {pipelineUpdating ? <Loader2 size={16} className="animate-spin" /> : <Pause size={16} aria-hidden="true" />}
+              Pausar
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              setSettingsOpen(true)
+              window.setTimeout(() => document.getElementById("automation-settings")?.scrollIntoView({ behavior: "smooth" }), 50)
+            }}
+            className={buttonSecondary}
+          >
+            <Settings2 size={16} aria-hidden="true" />
+            Ajustes
+          </button>
         </div>
       </header>
 
-      {message ? (
-        <div className={`flex items-start gap-3 border px-4 py-3 text-sm ${
-          messageTone === "error"
-            ? "border-red-500/30 bg-red-500/10 text-red-200"
-            : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-        }`}>
-          {messageTone === "error" ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
-          <span>{message}</span>
-        </div>
-      ) : null}
-
-      {pendingApproval.length > 0 ? (
-        <section className="border-b border-neutral-800 pb-8">
-          <div className="flex items-center gap-3">
-            <Clock3 size={18} className="text-[#f1cc61]" />
-            <h2 className="text-lg font-semibold">Designs waiting for approval</h2>
-            <span className="text-sm text-neutral-500">{pendingApproval.length}</span>
+      <section aria-label="Estado" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className={`col-span-2 p-4 lg:col-span-1 ${card}`}>
+          <div className="flex items-center gap-2 text-[13px] text-neutral-400">
+            <span className={`h-2 w-2 rounded-full ${automatyOnline ? "bg-emerald-400" : "bg-neutral-600"}`} aria-hidden="true" />
+            Automaty
           </div>
-          <p className="mt-2 text-sm text-neutral-400">
-            Submitted by Claude. Approved designs join the production queue; rejected ones are canceled and the note is kept as feedback.
-          </p>
-          <div className="mt-5 grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
-            {pendingApproval.map((job) => {
-              const brief = parseBrief(job)
-              const busy = reviewingJobId === job.id
+          <div className="mt-2 text-[17px] font-semibold text-neutral-100">{automatyStatus}</div>
+          <div className="mt-1 text-[13px] text-neutral-400">
+            {activeJob
+              ? `${STATUS_LABELS[activeJob.status]} · ${timeAgo(activeJob.updatedAt)}`
+              : automaty?.lastSeenAt ? `Visto ${timeAgo(automaty.lastSeenAt)}` : "—"}
+          </div>
+        </div>
+        <div className={`p-4 ${card}`}>
+          <div className="text-[13px] text-neutral-400">Producción</div>
+          <div className="mt-2 text-2xl font-semibold text-neutral-100">
+            {inProduction}
+            <span className="ml-1.5 text-sm font-normal text-neutral-400">en curso</span>
+          </div>
+          <div className="mt-1 text-[13px] text-neutral-400">
+            {pipelineMode === "PAUSED" ? "Pausada" : `${queuedCount + localQueueCount} en cola · ${doneToday} listos hoy`}
+          </div>
+        </div>
+        <div className={`p-4 ${card}`}>
+          <div className="text-[13px] text-neutral-400">Drafts disponibles</div>
+          <div className="mt-2 space-y-1 text-[13px]">
+            {PRODUCT_OPTIONS.map((product) => {
+              const count = availableDraftsByProduct.get(product.value) || 0
+              const low = count < LOW_DRAFT_STOCK
               return (
-                <article key={job.id} className="border border-neutral-800 bg-neutral-950">
-                  <button
-                    type="button"
-                    title="Open full resolution"
-                    onClick={() => setLightbox({
-                      src: job.sourcePreviewUrl,
-                      alt: `Design ${job.productCode}`,
-                      caption: `${job.productCode} · ${productLabel(job.productType)}`,
-                    })}
-                    className="block w-full cursor-zoom-in"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`${job.sourcePreviewUrl}?w=900`}
-                      alt={`Design ${job.productCode}`}
-                      loading="lazy"
-                      className="aspect-square w-full bg-neutral-900 object-contain"
-                    />
-                  </button>
-                  <div className="space-y-3 p-4">
-                    <div className="flex items-center justify-between gap-3 text-xs">
-                      <span className="font-semibold text-neutral-200">{job.productCode}</span>
-                      <span className="text-neutral-500">{productLabel(job.productType)}</span>
-                    </div>
-                    {brief?.collection ? (
-                      <div className="text-xs text-[#f1cc61]">Collection: {brief.collection}</div>
-                    ) : null}
-                    {brief?.primaryKeyword ? (
-                      <div className="text-xs text-neutral-300">
-                        <span className="font-semibold">{brief.primaryKeyword.keyword}</span>
-                        {brief.primaryKeyword.etsyMonthlySearches != null
-                          ? ` · ${brief.primaryKeyword.etsyMonthlySearches.toLocaleString("en-US")} searches/mo`
-                          : ""}
-                        {brief.primaryKeyword.competingListings != null
-                          ? ` · ${brief.primaryKeyword.competingListings.toLocaleString("en-US")} listings`
-                          : ""}
-                        {brief.secondaryKeywords?.length ? (
-                          <div className="mt-1 text-neutral-500">
-                            {brief.secondaryKeywords.map((item) => item.keyword).join(", ")}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {brief?.rationale ? <p className="text-xs leading-5 text-neutral-400">{brief.rationale}</p> : null}
-                    <details className="text-xs text-neutral-500">
-                      <summary className="cursor-pointer">Prompt</summary>
-                      <p className="mt-2 whitespace-pre-wrap leading-5">{job.sourcePrompt}</p>
-                    </details>
-                    <input
-                      type="text"
-                      value={reviewNotes[job.id] || ""}
-                      onChange={(event) => setReviewNotes((current) => ({ ...current, [job.id]: event.target.value }))}
-                      placeholder="Note (optional, helps Claude learn)"
-                      maxLength={1000}
-                      className="h-10 w-full border border-neutral-800 bg-neutral-900 px-3 text-sm text-neutral-200 outline-none focus:border-[#eeba2b]/50"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void reviewDesign(job.id, "approve")}
-                        className="inline-flex h-10 flex-1 items-center justify-center gap-2 bg-[#eeba2b] text-sm font-semibold text-neutral-950 transition hover:bg-[#f1cc61] disabled:opacity-50"
-                      >
-                        {busy ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void reviewDesign(job.id, "reject")}
-                        className="inline-flex h-10 flex-1 items-center justify-center gap-2 border border-red-500/30 bg-red-500/10 text-sm font-semibold text-red-200 transition hover:bg-red-500/15 disabled:opacity-50"
-                      >
-                        <Trash2 size={15} />
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                </article>
+                <div key={product.value} className={`flex justify-between gap-2 ${low ? "text-orange-300" : "text-neutral-200"}`}>
+                  <span className="truncate">{product.label}</span>
+                  <span className="shrink-0">{count}{low ? " · reponer" : ""}</span>
+                </div>
               )
             })}
           </div>
-        </section>
+        </div>
+        <button
+          type="button"
+          onClick={() => setTab("issues")}
+          className={`p-4 text-left ${card} ${issues.length ? "border-orange-400/30" : ""}`}
+        >
+          <div className="text-[13px] text-neutral-400">Incidencias</div>
+          <div className={`mt-2 text-2xl font-semibold ${issues.length ? "text-orange-300" : "text-neutral-100"}`}>{issues.length}</div>
+          <div className="mt-1 truncate text-[13px] text-neutral-400">
+            {issues.length ? issues.slice(0, 2).map((job) => job.productCode).join(" · ") : "Todo en orden"}
+          </div>
+        </button>
+      </section>
+
+      {pendingApproval.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => setApprovalFlowOpen(true)}
+          className="flex h-14 w-full items-center justify-between rounded-xl bg-[#eeba2b] px-4 text-[15px] font-semibold text-neutral-950 md:hidden"
+        >
+          Aprobar {pendingApproval.length} {pendingApproval.length === 1 ? "diseño" : "diseños"}
+          <span aria-hidden="true">›</span>
+        </button>
       ) : null}
 
-      <section className="grid gap-8 border-b border-neutral-800 pb-8 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+      <nav aria-label="Etapas" className="-mx-4 flex gap-1 overflow-x-auto border-b border-white/[0.07] px-4 sm:mx-0 sm:px-0">
+        {STAGE_TABS.map(({ id, label }) => {
+          const active = currentTab === id
+          const count = tabCounts[id]
+          const showCount = id !== "history" && id !== "published" && count > 0
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => {
+                setTab(id)
+                setSelecting(false)
+                setSelectedIds([])
+              }}
+              aria-current={active ? "page" : undefined}
+              className={`flex h-11 shrink-0 items-center gap-2 border-b-2 px-3 text-sm transition ${
+                active ? "border-[#eeba2b] font-medium text-neutral-100" : "border-transparent text-neutral-400 hover:text-neutral-200"
+              }`}
+            >
+              {label}
+              {showCount ? (
+                <span className={`rounded-full px-2 text-xs leading-5 ${
+                  id === "approve" ? "bg-[#eeba2b] font-semibold text-neutral-950"
+                    : id === "issues" ? "bg-orange-400/15 text-orange-300"
+                    : "bg-white/10 text-neutral-300"
+                }`}>
+                  {count}
+                </span>
+              ) : null}
+            </button>
+          )
+        })}
+      </nav>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><Loader2 size={20} className="animate-spin text-neutral-500" aria-label="Cargando" /></div>
+      ) : currentTab === "approve" ? (
+        pendingApproval.length ? (
+          <section aria-label="Diseños por aprobar" className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-neutral-400">
+                Enviados por Claude. Los aprobados entran en la cola; al rechazar, el motivo queda como aprendizaje.
+              </p>
+              <div className="flex gap-2">
+                {selecting ? (
+                  <>
+                    <button type="button" onClick={() => { setSelecting(false); setSelectedIds([]) }} className={buttonSecondary}>Cancelar</button>
+                    <button type="button" onClick={() => setSelectedIds(selectedIds.length === pendingApproval.length ? [] : pendingApproval.map((job) => job.id))} className={buttonSecondary}>
+                      {selectedIds.length === pendingApproval.length ? "Ninguno" : "Todos"}
+                    </button>
+                    <button type="button" disabled={!selectedIds.length || bulkApproving} onClick={() => void approveSelected()} className={buttonPrimary}>
+                      {bulkApproving ? <Loader2 size={15} className="animate-spin" /> : null}
+                      Aprobar {selectedIds.length || ""}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => setSelecting(true)} className={buttonSecondary}>Seleccionar varios</button>
+                    <button type="button" onClick={() => setApprovalFlowOpen(true)} className={`${buttonPrimary} hidden md:inline-flex`}>Revisar uno a uno</button>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {pendingApproval.map((job) => (
+                <ApprovalCard
+                  key={job.id}
+                  job={job}
+                  busy={reviewingJobId === job.id || bulkApproving}
+                  selecting={selecting}
+                  selected={selectedIds.includes(job.id)}
+                  onToggleSelect={() => setSelectedIds((ids) => ids.includes(job.id) ? ids.filter((id) => id !== job.id) : [...ids, job.id])}
+                  onReview={(item, decision, note) => reviewDesign(item, decision, note)}
+                  onZoom={zoom}
+                />
+              ))}
+            </div>
+          </section>
+        ) : (
+          <EmptyState
+            title="Nada por aprobar"
+            detail="Los diseños del día llegan hacia las 13:31."
+            action={<button type="button" onClick={() => setTab("production")} className={buttonSecondary}>Ver producción</button>}
+          />
+        )
+      ) : tabJobs.length ? (
+        <section aria-label={STAGE_TABS.find((item) => item.id === currentTab)?.label} className="grid gap-3 lg:grid-cols-2">
+          {tabJobs.map((job) => (
+            <JobCard
+              key={job.id}
+              job={job}
+              actions={{
+                busy: managingJobId === job.id || retryingJobId === job.id,
+                onZoom: zoom,
+                onRetry: (item) => void retryJob(item.id),
+                onRestart: (item) => void manageJob(item.id, { action: "restart" }),
+                onDiscard: (item) => void manageJob(item.id, { action: "discard" }),
+                onPriority: (item) => void manageJob(item.id, { action: "priority", priority: item.priority > 0 ? 0 : 10 }),
+                onCancel: (item) => void manageJob(item.id, { action: "cancel" }),
+              }}
+            />
+          ))}
+        </section>
+      ) : (
+        <EmptyState
+          title={{
+            production: "Nada en producción",
+            review: "Ningún draft esperando tu revisión",
+            published: "Todavía no hay listings publicados",
+            issues: "Sin incidencias",
+            history: "Sin diseños cancelados",
+            approve: "",
+          }[currentTab]}
+          detail={currentTab === "production" && pendingApproval.length ? `Tienes ${pendingApproval.length} por aprobar.` : undefined}
+          action={currentTab === "production" && pendingApproval.length
+            ? <button type="button" onClick={() => setTab("approve")} className={buttonSecondary}>Ir a aprobar</button>
+            : undefined}
+        />
+      )}
+
+      <section id="automation-settings" className="border-t border-white/[0.07] pt-6">
+        <button
+          type="button"
+          onClick={() => setSettingsOpen((value) => !value)}
+          aria-expanded={settingsOpen}
+          className="flex w-full items-center justify-between gap-3 text-left"
+        >
+          <span>
+            <span className="block text-base font-semibold text-neutral-100">Ajustes de Automation</span>
+            <span className="mt-0.5 block text-sm text-neutral-400">Alta manual de diseños, inventario y plantillas de drafts, lecciones de SEO y PDF de entrega</span>
+          </span>
+          <span className="text-sm text-[#eeba2b]">{settingsOpen ? "Ocultar" : "Mostrar"}</span>
+        </button>
+        {settingsOpen ? (
+          <div className="mt-6 space-y-8">
+      <section className="grid gap-8 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
         <div>
           <div className="flex items-center gap-3">
             <Upload size={18} className="text-[#f1cc61]" />
-            <h2 className="text-lg font-semibold">Add a design</h2>
+            <h2 className="text-lg font-semibold">Añadir un diseño a mano</h2>
           </div>
           <div className="mt-5 grid gap-5 sm:grid-cols-[220px_minmax(0,1fr)]">
-            <label className="group flex aspect-square cursor-pointer items-center justify-center overflow-hidden border border-dashed border-neutral-700 bg-neutral-950 transition hover:border-[#eeba2b]/45">
+            <label className="group flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-white/15 bg-[#0b0b0c] transition hover:border-[#eeba2b]/45">
               {selectedSourcePreview ? (
                 // Browser rendering is required for authenticated/blob image URLs.
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={selectedSourcePreview} alt="Selected source design" className="h-full w-full object-contain" />
+                <img src={selectedSourcePreview} alt="Diseño elegido" className="h-full w-full object-contain" />
               ) : (
                 <div className="px-5 text-center">
                   <FileImage size={30} className="mx-auto text-neutral-500 group-hover:text-[#f1cc61]" />
-                  <div className="mt-3 text-sm font-medium text-neutral-300">Select final design</div>
-                  <div className="mt-1 text-xs text-neutral-500">PNG, JPG or WebP</div>
+                  <div className="mt-3 text-sm font-medium text-neutral-300">Elegir el diseño final</div>
+                  <div className="mt-1 text-xs text-neutral-500">PNG, JPG o WebP</div>
                 </div>
               )}
               <input
@@ -728,14 +784,14 @@ export function AutomationWorkspace() {
 
             <div className="space-y-4">
               <label className="block">
-                <span className="mb-2 block text-xs font-semibold uppercase text-neutral-500">Product</span>
+                <span className="mb-2 block text-xs font-semibold uppercase text-neutral-500">Producto</span>
                 <select
                   value={productType}
                   onChange={(event) => {
                     setProductType(event.target.value as ProductType)
                     setSourceFile(null)
                   }}
-                  className="h-11 w-full border border-neutral-800 bg-neutral-950 px-3 text-sm text-neutral-100 outline-none focus:border-[#eeba2b]/45"
+                  className="h-11 w-full rounded-lg border border-white/10 bg-[#0b0b0c] px-3 text-sm text-neutral-100 outline-none focus:border-[#eeba2b]/45"
                 >
                   {PRODUCT_OPTIONS.map((product) => (
                     <option key={product.value} value={product.value}>{product.label}</option>
@@ -743,13 +799,13 @@ export function AutomationWorkspace() {
                 </select>
               </label>
               <label className="block">
-                <span className="mb-2 block text-xs font-semibold uppercase text-neutral-500">Creation prompt</span>
+                <span className="mb-2 block text-xs font-semibold uppercase text-neutral-500">Prompt de creación</span>
                 <textarea
                   value={sourcePrompt}
                   onChange={(event) => setSourcePrompt(event.target.value)}
                   rows={7}
-                  placeholder="Paste the exact prompt that created this design..."
-                  className="w-full resize-y border border-neutral-800 bg-neutral-950 px-3 py-3 text-sm leading-6 text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-[#eeba2b]/45"
+                  placeholder="Pega el prompt exacto que creó el diseño…"
+                  className="w-full resize-y rounded-lg border border-white/10 bg-[#0b0b0c] px-3 py-3 text-sm leading-6 text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-[#eeba2b]/45"
                 />
               </label>
               <button
@@ -759,7 +815,7 @@ export function AutomationWorkspace() {
                 className="inline-flex h-11 w-full items-center justify-center gap-2 bg-[#eeba2b] px-5 text-sm font-semibold text-neutral-950 transition hover:bg-[#f1cc61] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {submitting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                {submitting ? "Securing source..." : "Add to production queue"}
+                {submitting ? "Guardando…" : "Añadir a la cola"}
               </button>
             </div>
           </div>
@@ -768,16 +824,16 @@ export function AutomationWorkspace() {
         <div className="border-l-0 border-neutral-800 xl:border-l xl:pl-8">
           <div className="flex items-center gap-3">
             <Database size={18} className="text-[#f1cc61]" />
-            <h2 className="text-lg font-semibold">Etsy draft inventory</h2>
+            <h2 className="text-lg font-semibold">Inventario de drafts de Etsy</h2>
           </div>
           <p className="mt-2 text-sm leading-6 text-neutral-400">
-            Add the duplicated draft IDs for one product. An ID can belong to only one product pool.
+            Añade los IDs de los drafts duplicados de un producto. Cada ID pertenece a un solo producto.
           </p>
           <div className="mt-5 space-y-4">
             <select
               value={draftProductType}
               onChange={(event) => setDraftProductType(event.target.value as ProductType)}
-              className="h-11 w-full border border-neutral-800 bg-neutral-950 px-3 text-sm text-neutral-100 outline-none focus:border-[#eeba2b]/45"
+              className="h-11 w-full rounded-lg border border-white/10 bg-[#0b0b0c] px-3 text-sm text-neutral-100 outline-none focus:border-[#eeba2b]/45"
             >
               {PRODUCT_OPTIONS.map((product) => (
                 <option key={product.value} value={product.value}>{product.label}</option>
@@ -787,8 +843,8 @@ export function AutomationWorkspace() {
               value={draftIds}
               onChange={(event) => setDraftIds(event.target.value)}
               rows={5}
-              placeholder="One Etsy draft ID per line, or separate them with commas..."
-              className="w-full resize-y border border-neutral-800 bg-neutral-950 px-3 py-3 text-sm leading-6 text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-[#eeba2b]/45"
+              placeholder="Un ID por línea, o separados por comas…"
+              className="w-full resize-y rounded-lg border border-white/10 bg-[#0b0b0c] px-3 py-3 text-sm leading-6 text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-[#eeba2b]/45"
             />
             <button
               type="button"
@@ -797,11 +853,11 @@ export function AutomationWorkspace() {
               className="inline-flex h-11 w-full items-center justify-center gap-2 border border-[#eeba2b]/35 bg-[#eeba2b]/10 px-5 text-sm font-semibold text-[#f1cc61] transition hover:bg-[#eeba2b]/15 disabled:opacity-40"
             >
               {draftSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Database size={16} />}
-              Add draft IDs
+              Añadir IDs
             </button>
           </div>
 
-          <div className="mt-4 border border-neutral-800 bg-neutral-950/60 p-3">
+          <div className="mt-4 rounded-lg border border-white/10 bg-[#0b0b0c]/60 p-3">
             <button
               type="button"
               onClick={() => void loadEtsyDrafts()}
@@ -832,7 +888,7 @@ export function AutomationWorkspace() {
                         <select
                           value={groupProducts[group.title] || ""}
                           onChange={(event) => setGroupProducts((current) => ({ ...current, [group.title]: event.target.value as ProductType }))}
-                          className="h-10 min-w-0 flex-1 border border-neutral-800 bg-neutral-950 px-2 text-sm text-neutral-100 sm:w-44"
+                          className="h-10 min-w-0 flex-1 rounded-lg border border-white/10 bg-[#0b0b0c] px-2 text-sm text-neutral-100 sm:w-44"
                         >
                           <option value="">Producto…</option>
                           {PRODUCT_OPTIONS.map((product) => (
@@ -886,7 +942,7 @@ export function AutomationWorkspace() {
                       value={value}
                       onChange={(event) => setTemplateInputs((current) => ({ ...current, [product.value]: event.target.value.replace(/\D/g, "") }))}
                       placeholder="ID del draft plantilla"
-                      className="h-9 min-w-0 flex-1 border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-[#eeba2b]/45"
+                      className="h-9 min-w-0 flex-1 rounded-lg border border-white/10 bg-[#0b0b0c] px-2 text-xs text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-[#eeba2b]/45"
                     />
                     <button
                       type="button"
@@ -925,147 +981,28 @@ export function AutomationWorkspace() {
         </div>
       </section>
 
-      <SeoLessonsPanel />
-
-      <section>
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold">Production queue</h2>
-            <p className="mt-1 text-sm text-neutral-500">
-              {queuedCount} approved waiting for sync · {localQueueCount} in Automaty&apos;s queue
-              {activeJob ? ` · producing ${activeJob.productCode}` : ""}
-            </p>
-          </div>
-          {loading ? <Loader2 size={18} className="animate-spin text-neutral-500" /> : null}
-        </div>
-
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          {jobs.length ? jobs.map((job) => {
-            const source = job.files.find((file) => file.slotKey === "source:primary")
-            const needsAttention = job.status === "NEEDS_ATTENTION" || job.status === "RETRY_WAIT"
-            return (
-              <article key={job.id} className="grid min-h-[180px] grid-cols-[140px_minmax(0,1fr)] overflow-hidden border border-neutral-800 bg-neutral-950">
-                <div className="flex h-full min-h-[180px] items-center justify-center border-r border-neutral-800 bg-neutral-900">
-                  {source && source.status !== "DELETED" ? (
-                    <button
-                      type="button"
-                      title="Open full resolution"
-                      onClick={() => setLightbox({
-                        src: job.sourcePreviewUrl,
-                        alt: job.productCode,
-                        caption: `${job.productCode} · ${productLabel(job.productType)}`,
-                      })}
-                      className="h-full w-full cursor-zoom-in"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={`${job.sourcePreviewUrl}?w=480`} alt={job.productCode} loading="lazy" className="h-full w-full object-contain" />
-                    </button>
-                  ) : (
-                    <CheckCircle2 size={28} className="text-emerald-400" />
-                  )}
-                </div>
-                <div className="flex min-w-0 flex-col p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-neutral-100">{job.productCode}</div>
-                      <div className="mt-1 text-xs text-neutral-500">{productLabel(job.productType)}</div>
-                    </div>
-                    {needsAttention ? (
-                      <AlertCircle size={18} className="shrink-0 text-red-300" />
-                    ) : isFinished(job.status) ? (
-                      <CheckCircle2 size={18} className="shrink-0 text-emerald-300" />
-                    ) : (
-                      <Clock3 size={18} className="shrink-0 text-[#f1cc61]" />
-                    )}
-                  </div>
-                  <div className={`mt-4 text-sm font-medium ${needsAttention ? "text-red-200" : "text-neutral-200"}`}>
-                    {STATUS_LABELS[job.status] || job.status}
-                  </div>
-                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-neutral-500">{job.sourcePrompt}</p>
-                  {needsAttention && job.lastError ? (
-                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-red-300/80">{job.lastError}</p>
-                  ) : null}
-                  {needsAttention ? (
-                    <button
-                      type="button"
-                      onClick={() => void retryJob(job.id)}
-                      disabled={retryingJobId === job.id}
-                      className="mt-3 inline-flex h-9 w-fit items-center gap-2 border border-red-400/25 bg-red-400/10 px-3 text-xs font-semibold text-red-100 transition hover:bg-red-400/15 disabled:opacity-50"
-                    >
-                      {retryingJobId === job.id
-                        ? <Loader2 size={14} className="animate-spin" />
-                        : <RotateCcw size={14} />}
-                      Retry from last safe step
-                    </button>
-                  ) : null}
-                  {needsAttention && !job.etsyUrl ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {parseBrief(job)?.imageUrl ? (
-                        <button
-                          type="button"
-                          disabled={managingJobId === job.id}
-                          onClick={() => void manageJob(job.id, { action: "restart" })}
-                          className="inline-flex h-9 items-center border border-neutral-700 px-3 text-xs font-semibold text-neutral-200 transition hover:border-[#eeba2b]/40 disabled:opacity-50"
-                        >
-                          Start again (new code)
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        disabled={managingJobId === job.id}
-                        onClick={() => void manageJob(job.id, { action: "discard" })}
-                        className="inline-flex h-9 items-center border border-red-500/30 px-3 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 disabled:opacity-50"
-                      >
-                        Discard and delete files
-                      </button>
-                    </div>
-                  ) : null}
-                  {job.status === "QUEUED_LOCAL" || job.status === "LOCAL_CLAIMED" ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={managingJobId === job.id}
-                        onClick={() => void manageJob(job.id, { action: "priority", priority: job.priority > 0 ? 0 : 10 })}
-                        className="inline-flex h-9 items-center border border-neutral-700 px-3 text-xs font-semibold text-neutral-200 transition hover:border-[#eeba2b]/40 disabled:opacity-50"
-                      >
-                        {job.priority > 0 ? "Remove priority" : "Prioritize"}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={managingJobId === job.id}
-                        onClick={() => void manageJob(job.id, { action: "cancel" })}
-                        className="inline-flex h-9 items-center border border-red-500/30 px-3 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 disabled:opacity-50"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : null}
-                  <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 pt-4 text-[11px] text-neutral-600">
-                    <span>{formatDate(job.createdAt)}</span>
-                    <span>{formatBytes(source?.byteSize || null)}</span>
-                  </div>
-                </div>
-              </article>
-            )
-          }) : (
-            <div className="col-span-full border border-dashed border-neutral-800 py-14 text-center text-sm text-neutral-500">
-              No designs have entered the production queue yet.
+            <SeoLessonsPanel />
+            <div className={`flex flex-wrap items-center justify-between gap-3 p-4 ${card}`}>
+              <div>
+                <div className="text-sm font-semibold text-neutral-100">PDF de entrega</div>
+                <div className="mt-0.5 text-sm text-neutral-400">Regenera el PDF de los listings de Automation con enlaces firmados y lo sustituye en Etsy.</div>
+              </div>
+              <button type="button" onClick={() => void regenerateDeliveryPdfs()} disabled={regeneratingPdfs} className={buttonSecondary}>
+                {regeneratingPdfs ? <Loader2 size={15} className="animate-spin" /> : null}
+                {regeneratingPdfs ? "Regenerando…" : "Regenerar PDFs"}
+              </button>
             </div>
-          )}
-        </div>
-      </section>
-
       {drafts.some((draft) => draft.status === "AVAILABLE") ? (
-        <section className="border-t border-neutral-800 pt-7">
-          <h2 className="text-base font-semibold">Available draft IDs</h2>
+        <section>
+          <h2 className="text-base font-semibold">IDs de drafts disponibles</h2>
           <div className="mt-4 flex flex-wrap gap-2">
             {drafts.filter((draft) => draft.status === "AVAILABLE").map((draft) => (
-              <div key={draft.draftId} className="inline-flex h-9 items-center gap-2 border border-neutral-800 bg-neutral-950 pl-3 text-xs text-neutral-300">
+              <div key={draft.draftId} className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-[#0b0b0c] pl-3 text-xs text-neutral-300">
                 <span>{draft.draftId}</span>
                 <span className="text-neutral-600">{productLabel(draft.productType)}</span>
                 <button
                   type="button"
-                  title={`Remove draft ${draft.draftId}`}
+                  aria-label={`Quitar draft ${draft.draftId}`}
                   onClick={() => void removeDraft(draft.draftId)}
                   className="flex h-full w-9 items-center justify-center border-l border-neutral-800 text-neutral-500 transition hover:bg-red-500/10 hover:text-red-300"
                 >
@@ -1076,6 +1013,23 @@ export function AutomationWorkspace() {
           </div>
         </section>
       ) : null}
+          </div>
+        ) : null}
+      </section>
+
+      {approvalFlowOpen ? (
+        <ApprovalFlow
+          jobs={pendingApproval}
+          onReview={(job, decision, note) => reviewDesign(job, decision, note, true)}
+          onZoom={zoom}
+          onClose={() => {
+            setApprovalFlowOpen(false)
+            void loadDashboard(true)
+          }}
+        />
+      ) : null}
+      {confirmDialog}
+      <Toast message={message} tone={messageTone} onClose={clearMessage} />
       {lightbox ? (
         <ImageLightbox src={lightbox.src} alt={lightbox.alt} caption={lightbox.caption} onClose={() => setLightbox(null)} />
       ) : null}

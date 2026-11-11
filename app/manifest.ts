@@ -7,12 +7,12 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Autolisty",
     short_name: "Autolisty",
     description: "LBCreaStudio production: approvals, queue and listings.",
-    start_url: "/",
+    start_url: "/",  // abre la última sección usada
     scope: "/",
     display: "standalone",
     orientation: "portrait",
-    background_color: "#0a0a0a",
-    theme_color: "#0a0a0a",
+    background_color: "#0b0b0c",
+    theme_color: "#0b0b0c",
     icons: [
       { src: "/app-icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/app-icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },

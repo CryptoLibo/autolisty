@@ -61,12 +61,12 @@ export function PushNotificationsButton() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subscription: subscription.toJSON() }),
       })
-      if (!response.ok) throw new Error((await response.json()).error || "Could not enable notifications.")
+      if (!response.ok) throw new Error((await response.json()).error || "No se pudieron activar los avisos.")
       await fetch("/api/notifications/test", { method: "POST" })
       setState("on")
       setNote("Enabled. A test notification is on its way.")
     } catch (error) {
-      setNote(error instanceof Error ? error.message : "Could not enable notifications.")
+      setNote(error instanceof Error ? error.message : "No se pudieron activar los avisos.")
     } finally {
       setBusy(false)
     }
@@ -94,11 +94,11 @@ export function PushNotificationsButton() {
 
   const label: Record<State, string> = {
     loading: "Notifications",
-    unsupported: "Notifications not supported here",
-    "needs-install": "Open the installed app to enable notifications",
-    off: "Enable notifications",
-    on: "Notifications on",
-    denied: "Notifications blocked in settings",
+    unsupported: "Avisos no disponibles aquí",
+    "needs-install": "Abre la app instalada para activar avisos",
+    off: "Activar avisos",
+    on: "Avisos activados",
+    denied: "Avisos bloqueados en ajustes",
   }
 
   const actionable = state === "off" || state === "on"
@@ -108,8 +108,8 @@ export function PushNotificationsButton() {
         type="button"
         disabled={!actionable || busy}
         onClick={() => void (state === "on" ? disable() : enable())}
-        title={state === "on" ? "Turn off notifications on this device" : undefined}
-        className={`inline-flex h-11 items-center gap-2 border px-4 text-sm font-semibold transition disabled:opacity-60 ${
+        title={state === "on" ? "Desactivar avisos en este dispositivo" : undefined}
+        className={`inline-flex h-10 items-center gap-2 rounded-lg border px-4 text-sm font-semibold transition disabled:opacity-60 ${
           state === "on"
             ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/15"
             : "border-neutral-800 bg-neutral-950 text-neutral-300 hover:border-[#eeba2b]/35 hover:text-[#f1cc61]"

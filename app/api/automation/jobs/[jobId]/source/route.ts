@@ -29,11 +29,14 @@ export async function GET(
 
   const { jobId } = await context.params
   const repository = new AutomationRepository()
-  const source = repository
-    .listJobFiles(jobId)
-    .find((file) => file.slotKey === "source:primary")
+  const files = repository.listJobFiles(jobId)
+  const original = files.find((file) => file.slotKey === "source:primary")
+  // Cuando Automaty termina, el original se borra: la miniatura pasa a ser el primer mockup.
+  const source = original?.r2Key && original.status !== "DELETED"
+    ? original
+    : files.find((file) => file.slotKey === "listing:1" && file.r2Key && file.status !== "DELETED")
 
-  if (!source?.r2Key || source.status === "DELETED") {
+  if (!source?.r2Key) {
     return NextResponse.json({ error: "Source design is not available." }, { status: 404 })
   }
 

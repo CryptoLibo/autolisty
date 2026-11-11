@@ -7,6 +7,16 @@ import { discardJob, restartClaudeDesignJob } from "@/lib/automation/claudeDesig
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
+// Historial de eventos de un diseño (se carga al abrirlo, no en cada refresco).
+export async function GET(_request: Request, context: { params: Promise<{ jobId: string }> }) {
+  const unauthorized = await requireOwnerApi()
+  if (unauthorized) return unauthorized
+  const { jobId } = await context.params
+  const repository = new AutomationRepository()
+  if (!repository.getJob(jobId)) return NextResponse.json({ error: "Design not found." }, { status: 404 })
+  return NextResponse.json({ events: repository.listJobEvents(jobId).slice(-60) })
+}
+
 // Acciones del propietario sobre un diseño que aún no empezó en Automaty.
 // Body: { action: "cancel", reason?: string } | { action: "priority", priority: number }
 //     | { action: "discard" }  (incidencia: cancelar y borrar todo de R2)

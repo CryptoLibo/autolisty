@@ -3,10 +3,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AutomationWorkspace } from "@/app/_components/AutomationWorkspace";
 import { DashboardWorkspace } from "@/app/_components/DashboardWorkspace";
-import { AutolistyHeader } from "@/app/_components/AutolistyHeader";
+import { AppNav } from "@/app/_components/AppNav";
+import { SECTION_PATHS, sectionFromPath, sectionFromQuery, type AppSection } from "@/lib/sections";
 import { SiteFooter } from "@/app/_components/SiteFooter";
-import { signOutOfAutolisty } from "@/app/actions/auth";
-import { AddPasskeyButton } from "@/app/_components/AddPasskeyButton";
 import { generateListingId } from "@/lib/utils/generateListingId";
 import {
   DeliveryField,
@@ -40,14 +39,9 @@ import {
   Upload,
   X,
   FileText,
-  Layers3,
-  LayoutDashboard,
-  Menu,
-  LogOut,
   Save,
   Trash2,
   Wand2,
-  Workflow,
 } from "lucide-react";
 
 type MediaItem = {
@@ -186,7 +180,6 @@ type EtsyAttributeInspectionResponse = {
   error?: string;
 };
 
-type AppSection = "prompt" | "references" | "image" | "single" | "batch" | "automation";
 
 type PromptLabResult = {
   summary: string;
@@ -291,16 +284,13 @@ const ICON_REV = "20260404";
 
 function readStoredActiveSection(): AppSection {
   if (typeof window === "undefined") return "prompt";
-  // Los avisos push abren /?section=automation: la sección del enlace manda.
-  const value =
-    new URLSearchParams(window.location.search).get("section") ||
-    window.localStorage.getItem(STORAGE_KEYS.activeSection);
-  if (value === "batch") return "batch";
-  if (value === "single") return "single";
-  if (value === "image") return "image";
-  if (value === "references") return "references";
-  if (value === "automation") return "automation";
-  return "prompt";
+  // La ruta manda (/automation…); después ?section= de avisos antiguos; si no, la última sección usada.
+  return (
+    sectionFromPath(window.location.pathname) ||
+    sectionFromQuery(new URLSearchParams(window.location.search).get("section")) ||
+    sectionFromQuery(window.localStorage.getItem(STORAGE_KEYS.activeSection)) ||
+    "prompt"
+  );
 }
 
 function readStoredProductType(
@@ -932,63 +922,12 @@ function OutputBlock({
   );
 }
 
-function SidebarNavItem({
-  title,
-  subtitle,
-  active,
-  onClick,
-  icon,
-}: {
-  title: string;
-  subtitle: string;
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "w-full rounded-2xl border px-4 py-4 text-left transition-all",
-        active
-          ? "border-[#eeba2b]/30 bg-[#eeba2b]/10 shadow-[0_12px_30px_rgba(238,186,43,0.08)]"
-          : "border-neutral-800 bg-neutral-950/70 hover:border-[#eeba2b]/20 hover:bg-neutral-900/80"
-      )}
-    >
-      <div className="flex items-start gap-3">
-        <div
-          className={cn(
-            "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border",
-            active
-              ? "border-[#eeba2b]/25 bg-[#eeba2b]/15 text-[#f1cc61]"
-              : "border-neutral-800 bg-neutral-900 text-neutral-300"
-          )}
-        >
-          {icon}
-        </div>
-        <div className="min-w-0 space-y-1">
-          <div
-            className={cn(
-              "text-sm font-semibold",
-              active ? "text-neutral-100" : "text-neutral-200"
-            )}
-          >
-            {title}
-          </div>
-          <div className="text-xs leading-relaxed text-neutral-500">{subtitle}</div>
-        </div>
-      </div>
-    </button>
-  );
-}
 
-export default function Page() {
+export default function Workspace({ initialSection = null }: { initialSection?: AppSection | null }) {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const scaleInputRef = useRef<HTMLInputElement | null>(null);
   const promptLabInputRef = useRef<HTMLInputElement | null>(null);
-  const [activeSection, setActiveSection] = useState<AppSection>(readStoredActiveSection);
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<AppSection>(() => initialSection ?? readStoredActiveSection());
   const [promptLabReferenceFiles, setPromptLabReferenceFiles] = useState<File[]>([]);
   const [promptLabReferencePreviews, setPromptLabReferencePreviews] = useState<string[]>([]);
   const [promptLabLoading, setPromptLabLoading] = useState(false);
@@ -1294,7 +1233,22 @@ export default function Page() {
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEYS.activeSection, activeSection);
+    // Cada sección tiene su ruta real: el botón atrás funciona y la app instalada abre donde la dejaste.
+    const path = SECTION_PATHS[activeSection];
+    if (window.location.pathname === path) return;
+    const fromRootOrLegacy = window.location.pathname === "/" || window.location.search.includes("section=");
+    if (fromRootOrLegacy) window.history.replaceState(window.history.state, "", path);
+    else window.history.pushState(window.history.state, "", path);
   }, [activeSection]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const section = sectionFromPath(window.location.pathname);
+      if (section) setActiveSection(section);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEYS.promptLabProductType, promptLabProductType);
@@ -4704,145 +4658,17 @@ export default function Page() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0b0f14] text-neutral-100">
-      <button
-        type="button"
-        onClick={() => setWorkspaceOpen(true)}
-        className="fixed left-5 top-5 z-40 inline-flex items-center gap-3 rounded-2xl border border-[#eeba2b]/20 bg-neutral-950/85 px-4 py-3 text-left shadow-[0_18px_40px_rgba(0,0,0,0.35)] backdrop-blur transition hover:border-[#eeba2b]/35 hover:bg-neutral-900/90"
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[#eeba2b]/20 bg-[#eeba2b]/10 text-[#f1cc61]">
-          <Menu size={18} />
-        </div>
-        <div className="hidden sm:block">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#f1cc61]">
-              Workspace
-            </div>
-            <div className="text-sm font-medium text-neutral-100">
-              {activeSection === "prompt"
-                ? "Dashboard"
-                : activeSection === "references"
-                  ? "Prompt Lab"
-                : activeSection === "image"
-                  ? "Image Lab"
-                : activeSection === "single"
-                  ? "Listing"
-                  : activeSection === "automation"
-                    ? "Automation"
-                  : "Scale"}
-            </div>
+    <main className="min-h-screen bg-[#0b0b0c] pb-24 text-neutral-100 md:pb-0">
+      <AppNav active={activeSection} onNavigate={setActiveSection} />
+
+      <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 md:py-8 lg:px-8">
+        {activeSection === "single" && listingId ? (
+          <div className="mb-6 flex justify-center">
+            <span className="inline-flex items-center gap-2 rounded-full border border-[#eeba2b]/20 bg-[#eeba2b]/10 px-3 py-1 text-xs font-medium text-[#f1cc61]">
+              Listing ID: {listingId}
+            </span>
           </div>
-        </button>
-
-      {workspaceOpen ? (
-        <div className="fixed inset-0 z-50">
-          <button
-            type="button"
-            aria-label="Close workspace panel"
-            className="absolute inset-0 bg-black/55 backdrop-blur-[2px]"
-            onClick={() => setWorkspaceOpen(false)}
-          />
-
-          <div className="absolute inset-y-0 left-0 w-full max-w-[340px] border-r border-[#eeba2b]/15 bg-[#0b0f14]/96 p-5 shadow-[0_28px_80px_rgba(0,0,0,0.55)] backdrop-blur">
-            <div className="flex h-full flex-col">
-              <div className="mb-5 flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#f1cc61]">
-                    Workspace
-                  </div>
-                  <div className="mt-1 text-sm leading-relaxed text-neutral-400">
-                    Move through the app without shrinking the production workspace.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setWorkspaceOpen(false)}
-                  className="rounded-2xl border border-neutral-800 bg-neutral-950 p-2 text-neutral-300 transition hover:bg-neutral-900"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-                <div className="space-y-3 overflow-y-auto pr-1">
-                  <SidebarNavItem
-                    title="Dashboard"
-                    subtitle="Business overview and operational health."
-                    active={activeSection === "prompt"}
-                    onClick={() => {
-                      setActiveSection("prompt");
-                      setWorkspaceOpen(false);
-                    }}
-                    icon={<LayoutDashboard size={18} />}
-                  />
-                  <SidebarNavItem
-                    title="Prompt Lab"
-                    subtitle="Analyze visual references and build prompts."
-                    active={activeSection === "references"}
-                    onClick={() => {
-                      setActiveSection("references");
-                      setWorkspaceOpen(false);
-                    }}
-                    icon={<Sparkles size={18} />}
-                  />
-                  <SidebarNavItem
-                    title="Image Lab"
-                    subtitle="Generate, edit, approve, and preserve final design prompts."
-                    active={activeSection === "image"}
-                    onClick={() => {
-                      setActiveSection("image");
-                      setWorkspaceOpen(false);
-                    }}
-                    icon={<Wand2 size={18} />}
-                  />
-                  <SidebarNavItem
-                    title="Listing"
-                    subtitle="The current high-touch workflow for one listing at a time."
-                    active={activeSection === "single"}
-                  onClick={() => {
-                    setActiveSection("single");
-                    setWorkspaceOpen(false);
-                  }}
-                  icon={<LayoutDashboard size={18} />}
-                />
-                <SidebarNavItem
-                  title="Scale"
-                  subtitle="Upcoming production view for running many listings in parallel."
-                  active={activeSection === "batch"}
-                  onClick={() => {
-                    setActiveSection("batch");
-                    setWorkspaceOpen(false);
-                  }}
-                  icon={<Layers3 size={18} />}
-                />
-                <SidebarNavItem
-                  title="Automation"
-                  subtitle="Feed and control the unattended production queue."
-                  active={activeSection === "automation"}
-                  onClick={() => {
-                    setActiveSection("automation");
-                    setWorkspaceOpen(false);
-                  }}
-                  icon={<Workflow size={18} />}
-                />
-              </div>
-              <div className="mt-auto space-y-2 border-t border-neutral-800 pt-4">
-              <AddPasskeyButton />
-              <form action={signOutOfAutolisty}>
-                <button
-                  type="submit"
-                  className="flex w-full items-center gap-3 border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-300 transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-200"
-                >
-                  <LogOut size={17} />
-                  Sign out
-                </button>
-              </form>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="mx-auto max-w-7xl px-5 py-5 sm:px-6 lg:px-8">
-        <AutolistyHeader listingId={activeSection === "single" ? listingId : null} />
+        ) : null}
 
         <div>
           {activeSection === "prompt" ? <DashboardWorkspace onOpenAutomation={() => setActiveSection("automation")} /> : activeSection === "references" ? (

@@ -226,7 +226,7 @@ async function stepAssignDraft(ctx: StepContext) {
       await ctx.deps.notify?.({
         title: `Sin drafts de ${label}`,
         body: `${ctx.job.productCode} espera un draft. Importa drafts en Automation y seguirá solo.`,
-        url: "/?section=automation",
+        url: "/automation",
         tag: `drafts-${ctx.job.productType}`,
       }).catch(() => {})
     }
@@ -240,7 +240,7 @@ async function stepAssignDraft(ctx: StepContext) {
     await ctx.deps.notify?.({
       title: `Quedan ${remaining} drafts de ${label}`,
       body: "Importa más drafts en Automation para que la producción no se detenga.",
-      url: "/?section=automation",
+      url: "/automation",
       tag: `drafts-${ctx.job.productType}`,
     }).catch(() => {})
   }
@@ -529,7 +529,7 @@ export function notificationFor(job: AutomationJob): { title: string; body: stri
     return {
       title: "Draft listo para revisar en Etsy",
       body: `${job.productCode}${title ? ` · ${title}` : ""}`,
-      url: job.etsyDraftId ? EDIT_DRAFT_URL(job.etsyDraftId) : "/?section=automation",
+      url: job.etsyDraftId ? EDIT_DRAFT_URL(job.etsyDraftId) : "/automation",
       tag: `draft-${job.productCode}`,
     }
   }
@@ -539,7 +539,7 @@ export function notificationFor(job: AutomationJob): { title: string; body: stri
     return {
       title: "Listing completado",
       body: `${job.productCode}: publicado en Etsy y pines en Pinterest${board ? ` ("${board}")` : ""}.`,
-      url: job.etsyUrl || "/?section=automation",
+      url: job.etsyUrl || "/automation",
       tag: `done-${job.productCode}`,
     }
   }
@@ -547,7 +547,7 @@ export function notificationFor(job: AutomationJob): { title: string; body: stri
     return {
       title: "Un listing necesita atención",
       body: `${job.productCode}: ${(job.lastError || "revisa Automation").slice(0, 200)}`,
-      url: "/?section=automation",
+      url: "/automation",
       tag: `attention-${job.productCode}`,
     }
   }
