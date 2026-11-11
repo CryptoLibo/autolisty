@@ -4,7 +4,7 @@ import crypto from "node:crypto"
 import { getAutomationDatabase } from "./db/database"
 import { AutomationRepository } from "./repository"
 import { runPostProductionTick, type PostProductionDeps } from "./postProduction"
-import { alertNewPendingDesigns } from "./ownerAlerts"
+import { alertNewPendingDesigns, alertStalledLocalJobs } from "./ownerAlerts"
 import { getFreshToken } from "../integrations/tokenSession"
 import { getPrimaryShop, getShopListing } from "../etsy/listings"
 import { syncDraftFile, syncDraftImages, syncDraftText, syncDraftVideo } from "../etsy/draftSync"
@@ -107,6 +107,7 @@ async function tick() {
         console.log(`[post-production] ${result.productCode} → ${result.status}`)
       }
       await alertNewPendingDesigns(getAutomationDatabase(), (input) => notifyOwner(input))
+      await alertStalledLocalJobs(getAutomationDatabase(), (input) => notifyOwner(input))
     } finally {
       releaseLock()
     }

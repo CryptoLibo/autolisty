@@ -68,7 +68,7 @@ export function listClaudeDesigns(options: { status?: string | null; limit?: num
 }
 
 // Descarga la imagen de Kittl, la guarda en R2 y deja el job en PENDING_APPROVAL.
-export async function submitClaudeDesign(body: unknown) {
+export async function submitClaudeDesign(body: unknown, options: { replacesJobId?: string } = {}) {
   const submission = parseDesignSubmission(body)
   const source = await downloadDesign(submission.imageUrl)
   const contentType = assertSourceAcceptedForProduct(submission.productType, sniffImageMimeType(source))
@@ -76,6 +76,10 @@ export async function submitClaudeDesign(body: unknown) {
   const sha256 = crypto.createHash("sha256").update(source).digest("hex")
 
   const repository = new AutomationRepository()
+  // Misma imagen ya enviada (p. ej. un reintento tras un corte): se devuelve la existente.
+  const existing = repository.findActiveJobBySourceHash(sha256, options.replacesJobId ?? null)
+  if (existing) return { ...toClaudeDesignView(existing), duplicate: true as const }
+
   const job = repository.createJob({
     productType: submission.productType,
     sourcePrompt: submission.prompt,
@@ -172,9 +176,11 @@ export async function restartClaudeDesignJob(jobId: string) {
     collection: brief.collection ?? undefined,
     cropAnchor: brief.cropAnchor ?? undefined,
     rationale: brief.rationale ?? undefined,
+    tagCandidates: brief.tagCandidates ?? undefined,
+    competitorListings: brief.competitorListings ?? undefined,
     kittl: brief.kittl ?? undefined,
     researchSource: brief.researchSource ?? undefined,
-  })
+  }, { replacesJobId: job.id })
   await discardJob(jobId, `Restarted as ${restarted.productCode}.`)
   const approved = repository.reviewJob(restarted.id, "approve", `Restart of ${job.productCode}.`)
   return { previous: job.productCode, job: approved }

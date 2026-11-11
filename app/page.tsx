@@ -291,7 +291,10 @@ const ICON_REV = "20260404";
 
 function readStoredActiveSection(): AppSection {
   if (typeof window === "undefined") return "prompt";
-  const value = window.localStorage.getItem(STORAGE_KEYS.activeSection);
+  // Los avisos push abren /?section=automation: la sección del enlace manda.
+  const value =
+    new URLSearchParams(window.location.search).get("section") ||
+    window.localStorage.getItem(STORAGE_KEYS.activeSection);
   if (value === "batch") return "batch";
   if (value === "single") return "single";
   if (value === "image") return "image";

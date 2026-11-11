@@ -501,7 +501,7 @@ export function notificationFor(job: AutomationJob): { title: string; body: stri
     return {
       title: "Draft listo para revisar en Etsy",
       body: `${job.productCode}${title ? ` · ${title}` : ""}`,
-      url: job.etsyDraftId ? EDIT_DRAFT_URL(job.etsyDraftId) : "/automation",
+      url: job.etsyDraftId ? EDIT_DRAFT_URL(job.etsyDraftId) : "/?section=automation",
       tag: `draft-${job.productCode}`,
     }
   }
@@ -511,7 +511,7 @@ export function notificationFor(job: AutomationJob): { title: string; body: stri
     return {
       title: "Listing completado",
       body: `${job.productCode}: publicado en Etsy y pines en Pinterest${board ? ` ("${board}")` : ""}.`,
-      url: job.etsyUrl || "/automation",
+      url: job.etsyUrl || "/?section=automation",
       tag: `done-${job.productCode}`,
     }
   }
@@ -519,7 +519,7 @@ export function notificationFor(job: AutomationJob): { title: string; body: stri
     return {
       title: "Un listing necesita atención",
       body: `${job.productCode}: ${(job.lastError || "revisa Automation").slice(0, 200)}`,
-      url: "/automation",
+      url: "/?section=automation",
       tag: `attention-${job.productCode}`,
     }
   }

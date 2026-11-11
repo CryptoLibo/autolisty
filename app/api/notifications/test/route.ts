@@ -7,6 +7,6 @@ export const runtime = "nodejs"
 export async function POST() {
   const unauthorized = await requireOwnerApi()
   if (unauthorized) return unauthorized
-  await notifyOwner({ title: "Autolisty", body: "Las notificaciones funcionan en este dispositivo.", url: "/automation", tag: "test" })
+  await notifyOwner({ title: "Autolisty", body: "Las notificaciones funcionan en este dispositivo.", url: "/?section=automation", tag: "test" })
   return NextResponse.json({ ok: true })
 }

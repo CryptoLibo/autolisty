@@ -62,6 +62,9 @@ async function readConfiguration(configPath) {
   config.shutdownWhenNoWorkMinutes = config.shutdownWhenNoWorkMinutes === undefined
     ? config.shutdownWhenIdleMinutes * 2
     : Math.max(0, Number(config.shutdownWhenNoWorkMinutes) || 0)
+  // Tiempo máximo de Autobuildy por listing: si Photoshop se cuelga, se corta y
+  // el listing queda en "necesita atención" en lugar de bloquear Automaty.
+  config.jobTimeoutMinutes = Math.max(10, Number(config.jobTimeoutMinutes) || 90)
   config.token = (await fsp.readFile(path.resolve(config.tokenFile), "utf8")).trim()
   if (config.token.length < 32) throw new Error("The machine token is missing or invalid.")
   return config
@@ -190,6 +193,14 @@ async function runProcess(executablePath, args, log) {
       stdio: ["ignore", "pipe", "pipe"],
     })
     let stderrTail = ""
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      void log("Autobuildy timed out; killing it and Photoshop.", { minutes: config.jobTimeoutMinutes })
+      // Mata el árbol de procesos de Autobuildy y Photoshop (puede estar colgado fuera del árbol).
+      spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true }).on("error", () => {})
+      spawn("taskkill.exe", ["/IM", "Photoshop.exe", "/F"], { windowsHide: true }).on("error", () => {})
+    }, config.jobTimeoutMinutes * 60_000)
     child.stdout.on("data", (chunk) => void log("Autobuildy", { output: String(chunk).trim().slice(0, 1000) }))
     child.stderr.on("data", (chunk) => {
       stderrTail = (stderrTail + String(chunk)).slice(-4000)
@@ -197,6 +208,10 @@ async function runProcess(executablePath, args, log) {
     })
     child.on("error", reject)
     child.on("close", (code) => {
+      clearTimeout(timer)
+      if (timedOut) {
+        return reject(new Error(`Autobuildy superó el tiempo máximo (${config.jobTimeoutMinutes} min) y se detuvo; revisa Photoshop en Automaty.`))
+      }
       if (code === 0) return resolve()
       // La primera línea del error de Autobuildy (sin la pila) llega a Autolisty.
       const reason = stderrTail.split(/\r?\n/).map((line) => line.trim())

@@ -7,6 +7,7 @@ import { getPrimaryShop, getShopListing, listListingImages, setListingImageAltTe
 import { deleteListingProperty, getListingProperties, updateListingProperty } from "../etsy/attributes"
 import { getEditableAttributes } from "../etsy/attributeOptions"
 import { AutomationRepository } from "./repository"
+import { notifyOwner } from "../notifications/webPush"
 
 type EtsyImage = { listing_image_id?: number; rank?: number; alt_text?: string | null }
 
@@ -173,5 +174,14 @@ export async function editListingDraft(input: ListingEditInput) {
     reason: edit.reason,
     changes,
   })
+  // Transparencia: cada edición de Claude llega al móvil.
+  if (Object.keys(changes).length) {
+    await notifyOwner({
+      title: `Claude editó ${productCode}`,
+      body: `Cambios: ${Object.keys(changes).map((key) => key.replace("attribute:", "")).join(", ")}.`,
+      url: job.etsyUrl || "/?section=automation",
+      tag: `claude-edit-${productCode}`,
+    }).catch(() => {})
+  }
   return { productCode, changed: Object.keys(changes), changes }
 }

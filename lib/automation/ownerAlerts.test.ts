@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { openAutomationDatabase } from "./db/database"
 import { AutomationRepository } from "./repository"
-import { alertAgentLifecycle, alertNewPendingDesigns, parseAgentLifecycle } from "./ownerAlerts"
+import { alertAgentLifecycle, alertNewPendingDesigns, alertStalledLocalJobs, parseAgentLifecycle } from "./ownerAlerts"
 
 function setup() {
   const database = openAutomationDatabase(":memory:")
@@ -85,5 +85,27 @@ describe("alertAgentLifecycle", () => {
     expect(parseAgentLifecycle({ name: "Automaty" })).toBeNull()
     expect(parseAgentLifecycle({ event: "shutdown", summary: { produced: "4", needsAttention: -2, reason: "x" } }))
       .toEqual({ event: "shutdown", summary: { produced: 4, needsAttention: 0, reason: undefined } })
+  })
+})
+
+describe("alertStalledLocalJobs", () => {
+  it("avisa una vez si Automaty deja de latir con un listing a medias", async () => {
+    const { database, repository, notify } = setup()
+    database.prepare("INSERT INTO automation_agents (id, name, status, last_seen_at, created_at, updated_at) VALUES ('agent-1', 'Automaty', 'ONLINE', ?, ?, ?)")
+      .run("2026-11-11T09:10:00.000Z", "2026-11-11T09:00:00.000Z", "2026-11-11T09:10:00.000Z")
+    const job = repository.createJob({ productType: "frame_tv_art", sourcePrompt: "Snowy village" })
+    database.prepare("UPDATE automation_jobs SET status = 'LOCAL_BUILDING', local_agent_id = 'agent-1', updated_at = ? WHERE id = ?")
+      .run("2026-11-11T09:05:00.000Z", job.id)
+
+    // Agente aún vivo: nada.
+    expect(await alertStalledLocalJobs(database, notify, new Date("2026-11-11T09:15:00.000Z"))).toEqual([])
+
+    const stalled = await alertStalledLocalJobs(database, notify, new Date("2026-11-11T09:40:00.000Z"))
+    expect(stalled).toEqual([job.productCode])
+    expect(notify).toHaveBeenCalledTimes(1)
+
+    // No repite el aviso.
+    expect(await alertStalledLocalJobs(database, notify, new Date("2026-11-11T10:40:00.000Z"))).toEqual([])
+    expect(notify).toHaveBeenCalledTimes(1)
   })
 })

@@ -62,7 +62,7 @@ export async function alertNewPendingDesigns(database: Database.Database, notify
     body: total > batch.count
       ? `Hay ${total} pendientes en total. Apruébalos hoy para que Automaty los produzca mañana.`
       : "Apruébalos hoy para que Automaty los produzca mañana.",
-    url: "/automation",
+    url: "/?section=automation",
     tag: "designs-pending",
   }
   await notify(notification).catch(() => {})
@@ -119,7 +119,7 @@ export async function alertAgentLifecycle(
       body: queued
         ? `${plural(queued, "diseño", "diseños")} en cola para producir.`
         : "No hay diseños en cola; se apagará en 30 minutos.",
-      url: "/automation",
+      url: "/?section=automation",
       tag: "automaty-power",
     }
   } else {
@@ -132,11 +132,49 @@ export async function alertAgentLifecycle(
     notification = {
       title: `${input.agentName} se apaga`,
       body: parts.join(" "),
-      url: "/automation",
+      url: "/?section=automation",
       tag: "automaty-power",
     }
   }
 
   await notify(notification).catch(() => {})
   return notification
+}
+
+/** Sin latido de Automaty durante este tiempo con un listing a medias = posible caída. */
+export const STALLED_LOCAL_JOB_MS = 15 * 60_000
+
+/**
+ * Vigilante: listings en producción local cuyo agente lleva STALLED_LOCAL_JOB_MS sin
+ * latido (PC apagado, sin red o agente caído). Avisa una sola vez por listing; el
+ * estado no cambia, para que el agente pueda retomarlo al volver.
+ */
+export async function alertStalledLocalJobs(database: Database.Database, notify: OwnerNotify, now = new Date()) {
+  const cutoff = new Date(now.getTime() - STALLED_LOCAL_JOB_MS).toISOString()
+  const stalled = database.prepare(`
+    SELECT j.id, j.product_code AS productCode, a.last_seen_at AS lastSeenAt
+    FROM automation_jobs j
+    LEFT JOIN automation_agents a ON a.id = j.local_agent_id
+    WHERE j.status IN (${LOCAL_QUEUE_STATUSES.filter((status) => status !== "QUEUED_LOCAL").map(() => "?").join(", ")})
+      AND j.updated_at < ?
+      AND (a.last_seen_at IS NULL OR a.last_seen_at < ?)
+      AND NOT EXISTS (
+        SELECT 1 FROM automation_job_events e
+        WHERE e.job_id = j.id AND e.event_type = 'STALLED_ALERT' AND e.created_at > j.updated_at
+      )
+  `).all(...LOCAL_QUEUE_STATUSES.filter((status) => status !== "QUEUED_LOCAL"), cutoff, cutoff) as Array<{ id: string; productCode: string; lastSeenAt: string | null }>
+
+  for (const job of stalled) {
+    database.prepare(`
+      INSERT INTO automation_job_events (job_id, event_type, message, created_at)
+      VALUES (?, 'STALLED_ALERT', ?, ?)
+    `).run(job.id, "Automaty dejó de responder con este listing a medias.", now.toISOString())
+    await notify({
+      title: `${job.productCode} parado en Automaty`,
+      body: "Automaty dejó de responder a mitad de la producción. Si no vuelve solo, reinícialo desde Automation.",
+      url: "/?section=automation",
+      tag: `stalled-${job.productCode}`,
+    }).catch(() => {})
+  }
+  return stalled.map((job) => job.productCode)
 }

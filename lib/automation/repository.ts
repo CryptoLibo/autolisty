@@ -258,6 +258,18 @@ export class AutomationRepository {
     return row ? mapJob(row) : null
   }
 
+  /** Trabajo activo (no cancelado) que ya tiene una fuente con este hash. */
+  findActiveJobBySourceHash(sha256: string, excludeJobId: string | null = null) {
+    const row = this.database.prepare(`
+      SELECT j.id FROM automation_jobs j
+      JOIN automation_job_files f ON f.job_id = j.id
+      WHERE f.sha256 = ? AND j.status != 'CANCELED' AND (? IS NULL OR j.id != ?)
+      ORDER BY j.created_at DESC
+      LIMIT 1
+    `).get(sha256, excludeJobId, excludeJobId) as { id: string } | undefined
+    return row ? this.getJob(row.id) : null
+  }
+
   getJob(jobId: string) {
     const row = this.database
       .prepare("SELECT * FROM automation_jobs WHERE id = ?")
@@ -834,18 +846,6 @@ export class AutomationRepository {
     })
 
     return transition()
-  }
-
-  /** Autoriza (o retira) a Claude para editar el listing de este trabajo en Etsy. */
-  setClaudeEditPermission(jobId: string, until: string | null) {
-    const job = this.getJob(jobId)
-    if (!job) throw new Error(`Automation job not found: ${jobId}`)
-    if (until && !job.etsyDraftId) throw new Error("This design has no Etsy listing yet.")
-    this.database.prepare("UPDATE automation_jobs SET claude_edit_until = ?, updated_at = ? WHERE id = ?")
-      .run(until, new Date().toISOString(), jobId)
-    this.recordJobEvent(jobId, until ? "CLAUDE_EDIT_ALLOWED" : "CLAUDE_EDIT_REVOKED",
-      until ? `Owner allowed Claude to edit this listing until ${until}.` : "Owner revoked Claude's edit permission.")
-    return this.getJob(jobId)!
   }
 
   getJobByProductCode(productCode: string) {

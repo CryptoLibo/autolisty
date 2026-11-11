@@ -8,5 +8,6 @@
   "pollIntervalSeconds": 30,
   "heartbeatIntervalSeconds": 60,
   "shutdownWhenIdleMinutes": 15,
-  "shutdownWhenNoWorkMinutes": 30
+  "shutdownWhenNoWorkMinutes": 30,
+  "jobTimeoutMinutes": 90
 }

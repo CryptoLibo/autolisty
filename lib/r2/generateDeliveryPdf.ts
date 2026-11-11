@@ -1,4 +1,5 @@
 import { PDFArray, PDFDocument, PDFName, PDFNumber, PDFString } from "pdf-lib"
+import { signedDownloadUrl } from "./downloadSignature"
 import fs from "fs"
 import path from "path"
 import { ProductType } from "@/lib/products"
@@ -129,7 +130,7 @@ export async function generateDeliveryPdf(productType: ProductType, listingId: s
 
   const existingAnnots = page.node.Annots()
   const annotationRefs = delivery.links.map((link) => {
-    const annotation = createLinkAnnotation(pdfDoc, link.rect, link.url(listingId))
+    const annotation = createLinkAnnotation(pdfDoc, link.rect, signedDownloadUrl(link.url(listingId), listingId))
     setAnnotationRect(annotation, link.rect, pdfDoc)
     return pdfDoc.context.register(annotation)
   })

@@ -7,7 +7,9 @@ param(
   # 0 = no apagar. N = apagar Windows N minutos después de terminar la cola.
   [int]$ShutdownWhenIdleMinutes = 15,
   # Sin nada que producir en la sesión: apagar N minutos después de encender (0 = no).
-  [int]$ShutdownWhenNoWorkMinutes = 30
+  [int]$ShutdownWhenNoWorkMinutes = 30,
+  # Tiempo máximo de Autobuildy por listing antes de cortarlo (minutos).
+  [int]$JobTimeoutMinutes = 90
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,6 +51,7 @@ $config = [ordered]@{
   heartbeatIntervalSeconds = 60
   shutdownWhenIdleMinutes = $ShutdownWhenIdleMinutes
   shutdownWhenNoWorkMinutes = $ShutdownWhenNoWorkMinutes
+  jobTimeoutMinutes = $JobTimeoutMinutes
 }
 $config | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8
 

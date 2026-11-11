@@ -121,6 +121,26 @@ export function AutomationWorkspace() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [regeneratingPdfs, setRegeneratingPdfs] = useState(false)
+
+  async function regenerateDeliveryPdfs() {
+    if (!window.confirm("¿Regenerar el PDF de entrega de todos los listings con enlaces firmados y sustituirlo en Etsy?")) return
+    setRegeneratingPdfs(true)
+    try {
+      const response = await fetch("/api/automation/delivery-pdfs", { method: "POST" })
+      const data = await response.json() as { results?: Array<{ productCode: string; ok: boolean; error?: string }>; error?: string }
+      if (!response.ok) throw new Error(data.error || "No se pudieron regenerar los PDF.")
+      const results = data.results || []
+      const failed = results.filter((result) => !result.ok)
+      setMessage(failed.length
+        ? `PDF regenerados: ${results.length - failed.length}. Fallaron: ${failed.map((result) => `${result.productCode} (${result.error})`).join("; ")}`
+        : `PDF regenerados con enlaces firmados: ${results.length}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudieron regenerar los PDF.")
+    } finally {
+      setRegeneratingPdfs(false)
+    }
+  }
   const [messageTone, setMessageTone] = useState<"success" | "error">("success")
 
   const [productType, setProductType] = useState<ProductType>("png_designs")
@@ -421,6 +441,15 @@ export function AutomationWorkspace() {
             </div>
           </div>
           <PushNotificationsButton />
+          <button
+            type="button"
+            title="Regenerar los PDF de entrega con enlaces firmados"
+            onClick={() => void regenerateDeliveryPdfs()}
+            disabled={regeneratingPdfs}
+            className="flex h-11 items-center justify-center border border-neutral-800 bg-neutral-950 px-3 text-xs text-neutral-300 transition hover:border-[#eeba2b]/35 hover:text-[#f1cc61] disabled:opacity-50"
+          >
+            {regeneratingPdfs ? "Regenerando PDFs…" : "Regenerar PDFs"}
+          </button>
           <button
             type="button"
             title="Refresh production status"

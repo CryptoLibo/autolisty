@@ -3,8 +3,8 @@
 // La bóveda del servidor es la fuente de verdad. Etsy rota el refresh token en
 // cada uso (el anterior deja de valer), así que dos copias que se refrescan por
 // separado acabarían rompiéndose: por eso toda la app pasa por aquí.
-// La cookie se mantiene sincronizada por compatibilidad y, si la bóveda aún está
-// vacía, se importa una vez desde ella (sin tener que reconectar).
+// Los tokens ya NO se guardan en cookies del navegador: si queda una cookie antigua
+// se importa una vez a la bóveda (si está vacía) y se borra.
 import { cookies } from "next/headers"
 import { ETSY_AUTH_COOKIE, ETSY_PKCE_COOKIE, type EtsyTokenPayload, refreshEtsyToken } from "../etsy/auth"
 import {
@@ -17,9 +17,9 @@ import { type CredentialProvider, deleteCredential, readCredential, writeCredent
 
 type TokenByProvider = { etsy: EtsyTokenPayload; pinterest: PinterestTokenPayload }
 
-const COOKIE: Record<CredentialProvider, { name: string; pkce: string; maxAge: number }> = {
-  etsy: { name: ETSY_AUTH_COOKIE, pkce: ETSY_PKCE_COOKIE, maxAge: 60 * 60 * 24 * 90 },
-  pinterest: { name: PINTEREST_AUTH_COOKIE, pkce: PINTEREST_PKCE_COOKIE, maxAge: 60 * 60 * 24 * 60 },
+const COOKIE: Record<CredentialProvider, { name: string; pkce: string }> = {
+  etsy: { name: ETSY_AUTH_COOKIE, pkce: ETSY_PKCE_COOKIE },
+  pinterest: { name: PINTEREST_AUTH_COOKIE, pkce: PINTEREST_PKCE_COOKIE },
 }
 
 // Margen para refrescar antes de que caduque.
@@ -41,24 +41,15 @@ function isValidToken(provider: CredentialProvider, value: unknown): boolean {
   return Array.isArray(token.scope)
 }
 
-async function syncCookie(provider: CredentialProvider, token: unknown | null) {
+/** Borra la cookie antigua del token (y la de PKCE al desconectar). */
+async function dropCookie(provider: CredentialProvider, includePkce = false) {
   const jar = await cookieJar()
-  if (!jar) return
+  if (!jar?.get(COOKIE[provider].name) && !includePkce) return
   try {
-    if (token) {
-      jar.set(COOKIE[provider].name, JSON.stringify(token), {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: COOKIE[provider].maxAge,
-      })
-    } else {
-      jar.delete(COOKIE[provider].name)
-      jar.delete(COOKIE[provider].pkce)
-    }
+    jar?.delete(COOKIE[provider].name)
+    if (includePkce) jar?.delete(COOKIE[provider].pkce)
   } catch {
-    // En Server Components no se pueden escribir cookies; la bóveda ya está al día.
+    // En Server Components no se pueden borrar cookies; se hará en la próxima ruta.
   }
 }
 
@@ -74,22 +65,23 @@ export async function loadToken<P extends CredentialProvider>(provider: P): Prom
     const parsed = JSON.parse(raw) as TokenByProvider[P]
     if (!isValidToken(provider, parsed)) return null
     writeCredential(provider, parsed)
+    await dropCookie(provider)
     return parsed
   } catch {
     return null
   }
 }
 
-/** Guarda un token nuevo (conexión o refresco) en la bóveda y en la cookie. */
+/** Guarda un token nuevo (conexión o refresco) en la bóveda. */
 export async function saveToken<P extends CredentialProvider>(provider: P, token: TokenByProvider[P]) {
   writeCredential(provider, token)
-  await syncCookie(provider, token)
+  await dropCookie(provider)
 }
 
 /** Desconecta: borra bóveda y cookies. */
 export async function clearToken(provider: CredentialProvider) {
   deleteCredential(provider)
-  await syncCookie(provider, null)
+  await dropCookie(provider, true)
 }
 
 const inflight = new Map<CredentialProvider, Promise<unknown>>()
@@ -125,6 +117,6 @@ export async function getFreshToken<P extends CredentialProvider>(provider: P): 
     pending.finally(() => inflight.delete(provider)).catch(() => {})
   }
   const next = await pending
-  await syncCookie(provider, next)
+  await dropCookie(provider)
   return next
 }

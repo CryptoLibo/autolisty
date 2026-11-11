@@ -38,7 +38,7 @@ export const MCP_TOOLS = [
     name: "submit_design",
     title: "Submit design for approval",
     description:
-      "Send a Kittl design to Autolisty. Autolisty downloads the image (https *.kittl.com only), checks its real file type against the product contract, stores it and shows it to the owner in Automation as 'waiting for approval'. Nothing reaches production until the owner approves. Include the research context so SEO and future decisions can use it.",
+      "Send a Kittl design to Autolisty. Autolisty downloads the image (https *.kittl.com only), checks its real file type against the product contract, stores it and shows it to the owner in Automation as 'waiting for approval'. Nothing reaches production until the owner approves. Re-sending the same image returns the existing design (duplicate: true) instead of creating a new one. Include the research context so SEO and future decisions can use it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -113,7 +113,7 @@ export const MCP_TOOLS = [
     name: "edit_listing",
     title: "Correct an Etsy listing (owner-authorized only)",
     description:
-      "Change the title, description, tags, photo alt texts and/or attributes (colors, room, home style, subject, holiday…) of one listing on Etsy. Use it ONLY after the owner explicitly approved these specific corrections in the conversation (review with review_listing first, propose, wait for the owner's yes). Only send the fields that change. Every edit is logged with before, after and your reason, to learn from it.",
+      "Change the title, description, tags, photo alt texts and/or attributes (colors, room, home style, subject, holiday…) of one listing on Etsy. Use it ONLY after the owner explicitly approved these specific corrections in the conversation (review with review_listing first, propose, wait for the owner's yes). Only send the fields that change. Every edit is logged with before, after and your reason, to learn from it, and the owner gets a phone notification.",
     inputSchema: {
       type: "object",
       properties: {

@@ -4,6 +4,7 @@
 // cada uno sin repetir los demás.
 import { getSellerTaxonomyProperties, updateListingProperty } from "./attributes"
 import { matchFixedValues } from "./fixedAttributes"
+import { privateKeyFromPublicUrl, readR2Object } from "../r2/readObject"
 import { getShopListing } from "./listings"
 import type { EtsyTokenPayload } from "./auth"
 import {
@@ -46,6 +47,9 @@ export function getFilenameFromUrl(url: string, fallback: string) {
 }
 
 export async function fetchAsset(url: string) {
+  // Entregables y PDF de entrega: por la API de R2 (el dominio público los bloquea).
+  const privateKey = privateKeyFromPublicUrl(url)
+  if (privateKey) return readR2Object(privateKey)
   const response = await fetch(url, { cache: "no-store" })
   if (!response.ok) throw new Error(`Failed to fetch asset from ${url}`)
   const arrayBuffer = await response.arrayBuffer()
