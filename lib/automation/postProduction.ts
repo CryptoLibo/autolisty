@@ -14,6 +14,7 @@
 // Los 3 pines se publican seguidos al detectar la publicación en Etsy, y se
 // guarda cada id al momento: un reintento nunca duplica un pin ya publicado.
 import type { EtsyTokenPayload } from "../etsy/auth"
+import { FIXED_ETSY_ATTRIBUTES } from "../etsy/fixedAttributes"
 import type { PinterestTokenPayload } from "../pinterest/auth"
 import type { GeneratePinterestCopyInput, PinterestCopy } from "../seo/pinterestSeo"
 import type { DraftSyncAttribute, DraftSyncMockup } from "../etsy/draftSync"
@@ -31,7 +32,7 @@ export type PostProductionDeps = {
   getShopId: (token: EtsyTokenPayload) => Promise<number>
   generateSeo: (input: GenerateEtsySeoInput) => Promise<EtsySeoResult>
   buildDeliveryPdf: (productType: ProductType, productCode: string) => Promise<{ url: string }>
-  syncText: (draft: DraftRef, input: { title: string; description: string; tags: string[]; attributes: DraftSyncAttribute[] }) => Promise<void>
+  syncText: (draft: DraftRef, input: { title: string; description: string; tags: string[]; attributes: DraftSyncAttribute[]; fixedAttributes?: Record<string, string[]> }) => Promise<void>
   syncImages: (draft: DraftRef, mockups: DraftSyncMockup[]) => Promise<void>
   syncFile: (draft: DraftRef, input: { url: string; filename: string }) => Promise<void>
   syncVideo: (draft: DraftRef, input: { url: string; name: string }) => Promise<void>
@@ -270,6 +271,7 @@ async function stepEtsyText(ctx: StepContext) {
       values: attribute.values,
       scaleId: attribute.scaleId ?? null,
     })),
+    fixedAttributes: FIXED_ETSY_ATTRIBUTES[ctx.job.productType],
   })
   move(ctx, "ETSY_MEDIA_SYNCING", "Título, descripción, tags y atributos en Etsy.")
 }

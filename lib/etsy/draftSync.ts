@@ -2,7 +2,9 @@
 // (Listing/Scale) y el flujo automático del servidor, que los ejecuta como
 // estados separados (texto → imágenes → archivo → video) para poder reintentar
 // cada uno sin repetir los demás.
-import { updateListingProperty } from "./attributes"
+import { getSellerTaxonomyProperties, updateListingProperty } from "./attributes"
+import { matchFixedValues } from "./fixedAttributes"
+import { getShopListing } from "./listings"
 import type { EtsyTokenPayload } from "./auth"
 import {
   deleteListingFile,
@@ -63,7 +65,7 @@ function isMissingEtsySubresource(error: unknown) {
 
 export async function syncDraftText(
   { token, shopId, listingId }: DraftRef,
-  input: { title: string; description: string; tags: string[]; attributes: DraftSyncAttribute[] }
+  input: { title: string; description: string; tags: string[]; attributes: DraftSyncAttribute[]; fixedAttributes?: Record<string, string[]> }
 ) {
   try {
     await updateShopListingText({
@@ -91,6 +93,39 @@ export async function syncDraftText(
       })
     } catch (error) {
       throw wrapStepError(`Failed while updating Etsy attribute ${attribute.propertyId}`, error)
+    }
+  }
+
+  if (input.fixedAttributes && Object.keys(input.fixedAttributes).length > 0) {
+    await applyFixedAttributes({ token, shopId, listingId }, input.fixedAttributes)
+  }
+}
+
+/** Atributos fijos del producto (p. ej. Aspect ratio), por nombre de propiedad y de opción. */
+export async function applyFixedAttributes({ token, shopId, listingId }: DraftRef, fixed: Record<string, string[]>) {
+  const listing = await getShopListing(token, shopId, listingId) as { taxonomy_id?: number } | null
+  const taxonomyId = Number(listing?.taxonomy_id)
+  if (!taxonomyId) return
+  const properties = await getSellerTaxonomyProperties(token, taxonomyId)
+  for (const [name, wanted] of Object.entries(fixed)) {
+    const property = properties.find((item) =>
+      String(item.display_name || item.name || "").trim().toLowerCase() === name.toLowerCase())
+    if (!property) continue
+    const options = (Array.isArray(property.possible_values) ? property.possible_values : [])
+      .map((value) => ({ valueId: Number(value.value_id), name: String(value.name || "").trim() }))
+    const { matched, missing } = matchFixedValues(wanted, options)
+    if (missing.length) console.warn(`[draft-sync] ${name}: no Etsy option for ${missing.join(", ")}`)
+    if (!matched.length) continue
+    try {
+      await updateListingProperty({
+        token, shopId, listingId,
+        propertyId: Number(property.property_id),
+        valueIds: matched.map((option) => option.valueId),
+        values: matched.map((option) => option.name),
+        scaleId: null,
+      })
+    } catch (error) {
+      throw wrapStepError(`Failed while updating Etsy attribute ${name}`, error)
     }
   }
 }

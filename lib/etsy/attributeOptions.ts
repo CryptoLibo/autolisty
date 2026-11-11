@@ -3,6 +3,7 @@
 import type { EtsyTokenPayload } from "./auth"
 import { getSellerTaxonomyProperties } from "./attributes"
 import { shouldGenerateEtsyAttribute } from "../seo/attributeRules"
+import { FIXED_EDITABLE_ATTRIBUTE_NAMES } from "./fixedAttributes"
 
 export type EditableAttribute = {
   propertyId: number
@@ -24,6 +25,9 @@ export async function getEditableAttributes(token: EtsyTokenPayload, taxonomyId:
         .filter((value) => Number.isInteger(value.valueId) && value.valueId > 0 && value.name),
     }))
     // Igual que el SEO: solo propiedades con opciones (supports_attributes puede no venir).
-    .filter((property) => property.options.length > 0 && shouldGenerateEtsyAttribute(productType, property.name))
+    .filter((property) => property.options.length > 0 && (
+      shouldGenerateEtsyAttribute(productType, property.name) ||
+      FIXED_EDITABLE_ATTRIBUTE_NAMES.has(property.name.toLowerCase())
+    ))
     .map(({ supports: _supports, ...property }) => property) as EditableAttribute[]
 }
