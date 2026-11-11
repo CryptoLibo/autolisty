@@ -5,7 +5,10 @@ import { ArrowUpRight, CircleAlert, DollarSign, RefreshCw, ShoppingBag, Trending
 import type { getSalesSnapshot } from "@/lib/dashboard/etsy-sales"
 import { MetricTile, SectionHeading } from "./DashboardPrimitives"
 
-export type Sales = ReturnType<typeof getSalesSnapshot>
+type Snapshot = ReturnType<typeof getSalesSnapshot>
+export type Sales = Omit<Snapshot, "products"> & {
+  products: Array<Snapshot["products"][number] & { title?: string | null; jobId?: string | null }>
+}
 
 function currency(value: number, code: string) {
   return new Intl.NumberFormat("es-ES", { style: "currency", currency: code }).format(value)
@@ -78,10 +81,17 @@ export function EtsySalesPanel({ sales, syncing, onSync, compact = false }: {
       <h3 className="text-sm font-semibold text-neutral-200">Productos más vendidos</h3>
       {!sales!.productReady ? <p className="mt-2 text-xs text-neutral-400">Etsy no devolvió el detalle de todas las transacciones de este período.</p> :
         sales!.products.length ? <div className="mt-3 divide-y divide-white/8">
-          {sales!.products.map((item, index) => <div key={`${item.listingId}-${item.currency}-${index}`} className="flex flex-wrap items-center justify-between gap-3 py-2 text-xs text-neutral-300">
-            <span>Listing {item.listingId ?? "sin ID"}</span><span>{item.units} unidades</span>
-            <span>{item.lineTotal != null && item.currency ? currency(item.lineTotal, item.currency) : "Importe no disponible"}</span>
-          </div>)}
+          {sales!.products.map((item, index) => <a key={`${item.listingId}-${item.currency}-${index}`}
+            href={item.listingId ? `https://www.etsy.com/listing/${item.listingId}` : undefined} target="_blank" rel="noreferrer"
+            className="flex items-center gap-3 py-2.5 text-[13px] text-neutral-300 hover:bg-white/[0.02]">
+            {item.jobId
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={`/api/automation/jobs/${item.jobId}/source?w=480`} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded-md bg-white/5 object-cover" />
+              : <span aria-hidden="true" className="h-10 w-10 shrink-0 rounded-md bg-white/5" />}
+            <span className="min-w-0 flex-1 truncate text-neutral-200">{item.title || `Listing ${item.listingId ?? "sin ID"}`}</span>
+            <span className="shrink-0 text-neutral-400">{item.units} uds</span>
+            <span className="w-24 shrink-0 text-right">{item.lineTotal != null && item.currency ? currency(item.lineTotal, item.currency) : "—"}</span>
+          </a>)}
         </div> : <p className="mt-2 text-xs text-neutral-400">No hay unidades vendidas en este período.</p>}
       <p className="mt-2 text-xs text-neutral-500">Importes brutos de líneas antes de descuentos; no equivalen al total recibido por listing.</p>
     </div>}

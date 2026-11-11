@@ -10,6 +10,7 @@ import { FinancePanel } from "./dashboard/FinancePanel"
 import { PinterestAnalyticsPanel, pinterestIssueText, type PinterestSnapshot } from "./dashboard/PinterestAnalyticsPanel"
 import { AdvertisingPanel, TrafficPanel, type AdvertisingData, type TrafficData } from "./dashboard/TrafficAdvertisingPanels"
 import { IntelligenceOverview, type Intelligence } from "./dashboard/IntelligenceOverview"
+import { DashboardHome } from "./dashboard/DashboardHome"
 import { LoadingPanel, MetricTile, SectionHeading, SourceBadge } from "./dashboard/DashboardPrimitives"
 
 type Section = "overview" | "sales" | "costs" | "traffic" | "advertising" | "pinterest" | "operations"
@@ -227,25 +228,19 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
   const currentSales = sales?.period === period ? sales : null
   const currentPinterest = pinterest?.period === period ? pinterest : null
 
-  return <div className="space-y-7 pb-12 text-neutral-100">
-    <header className="flex flex-col gap-5 border-b border-white/10 pb-6 lg:flex-row lg:items-end lg:justify-between">
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase text-[#eeba2b]">AUTOLISTY / CENTRO DE CONTROL</p>
-        <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Dashboard</h1>
-        <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-400">Datos verificados del negocio y estado de la producción en un solo lugar.</p>
-      </div>
-      <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
-        {(section==="overview"?intelligence?.period===period?intelligence.asOf:null:section==="operations"?currentData?.asOf:null) &&
-          <span className="w-full text-xs text-neutral-500 lg:mr-1 lg:w-auto">Actualizado {formatDate((section==="overview"?intelligence?.asOf:currentData?.asOf)!)}</span>}
-        <div className="inline-flex rounded-md border border-white/10 bg-white/[0.03] p-1" role="group" aria-label="Periodo del Dashboard">
+  return <div className="space-y-6 pb-12 text-neutral-100">
+    <header className="flex flex-wrap items-center justify-between gap-3">
+      <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+      <div className="flex items-center gap-2">
+        <div className="inline-flex rounded-lg border border-white/10 bg-[#141416] p-1" role="group" aria-label="Periodo del Dashboard">
           {(["7d", "30d", "90d"] as const).map((item) => <button key={item} type="button" onClick={() => changePeriod(item)}
-            aria-pressed={period === item} title={`Datos temporales de los últimos ${item.slice(0, -1)} días`}
-            className={`min-w-11 rounded px-2.5 py-1.5 text-xs font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#eeba2b] ${period === item
-              ? "bg-[#eeba2b] text-[#16130a]" : "text-neutral-400 hover:bg-white/8 hover:text-white"}`}>{item}</button>)}
+            aria-pressed={period === item}
+            className={`h-8 rounded-md px-3 text-[13px] transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#eeba2b] ${period === item
+              ? "bg-white/10 font-medium text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}>{item.slice(0, -1)} días</button>)}
         </div>
-        <button type="button" onClick={refresh} disabled={section==="operations"&&loading} title="Actualizar sección" aria-label="Actualizar Dashboard"
-          className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] text-neutral-200 transition hover:border-[#eeba2b]/50 hover:text-[#eeba2b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#eeba2b] disabled:opacity-50">
-          <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden="true" />
+        <button type="button" onClick={refresh} disabled={section==="operations"&&loading} title="Actualizar" aria-label="Actualizar Dashboard"
+          className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/12 text-neutral-200 transition hover:border-[#eeba2b]/50 hover:text-[#eeba2b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#eeba2b] disabled:opacity-50">
+          <RefreshCw size={16} className={loading && section==="operations" ? "animate-spin" : ""} aria-hidden="true" />
         </button>
       </div>
     </header>
@@ -253,7 +248,7 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
     <div className="sm:hidden">
       <label htmlFor="dashboard-section" className="mb-2 block text-xs font-medium text-neutral-400">Sección</label>
       <select id="dashboard-section" value={section} onChange={(event) => setSection(event.target.value as Section)}
-        className="w-full rounded-md border border-white/15 bg-[#161d22] px-3 py-2.5 text-sm text-neutral-100 outline-none focus-visible:border-[#eeba2b]">
+        className="w-full rounded-lg border border-white/12 bg-[#141416] px-3 py-2.5 text-sm text-neutral-100 outline-none focus-visible:border-[#eeba2b]">
         {sections.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
       </select>
     </div>
@@ -273,8 +268,11 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
     {advertisingError && section === "advertising" && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{advertisingError}</div>}
     {trafficError && section === "traffic" && <div role="alert" className="rounded-md border border-rose-400/25 bg-rose-400/8 p-3 text-sm text-rose-200">{trafficError}</div>}
 
-    {section === "overview" && <IntelligenceOverview data={intelligence?.period===period?intelligence:null}
-      error={intelligenceError} onNavigate={setSection} onRetry={refresh} />}
+    {section === "overview" && <div className="space-y-8">
+      <DashboardHome period={period} reloadId={reloadId} />
+      <IntelligenceOverview data={intelligence?.period===period?intelligence:null}
+        error={intelligenceError} onNavigate={setSection} onRetry={refresh} compact />
+    </div>}
 
     {section === "operations" && <div className="space-y-6">
       <SectionHeading eyebrow="AUTOMATION" title="Operaciones" description="Trabajos creados en el periodo seleccionado, clasificados por su estado actual."
@@ -289,9 +287,6 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
     {section === "pinterest" && <PinterestAnalyticsPanel data={currentPinterest} syncing={syncingPinterest} onSync={syncPinterest} />}
     {section === "traffic" && <TrafficPanel data={traffic?.period===period?traffic:null} onSave={saveTraffic} saving={savingTraffic} />}
     {section === "advertising" && <AdvertisingPanel data={advertising?.period===period?advertising:null} />}
-    <footer className="border-t border-white/8 pt-4 text-xs text-neutral-500">
-      Los conteos de Automation corresponden a trabajos creados en el periodo y muestran su estado actual. No son datos de ventas.
-    </footer>
   </div>
 }
 

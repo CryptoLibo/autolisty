@@ -24,8 +24,8 @@ function DecisionRow({item,onNavigate}:{item:Decision;onNavigate:(section:Destin
     </div>}
   </div>
 }
-export function IntelligenceOverview({data,error,onNavigate,onRetry}:{data:Intelligence|null;error:string|null;
-  onNavigate:(section:Destination)=>void;onRetry:()=>void}) {
+export function IntelligenceOverview({data,error,onNavigate,onRetry,compact=false}:{data:Intelligence|null;error:string|null;
+  onNavigate:(section:Destination)=>void;onRetry:()=>void;compact?:boolean}) {
   const [showCoverage,setShowCoverage]=useState(false)
   if (error&&!data) return <div role="alert" className="border-l-2 border-rose-400 py-5 pl-4 text-sm text-rose-200">{error}<button type="button" onClick={onRetry} className="ml-3 text-[#eeba2b] underline">Reintentar</button></div>
   if (!data) return <div className="space-y-4" aria-label="Cargando inteligencia comercial"><div className="h-20 animate-pulse bg-white/5"/><div className="h-40 animate-pulse bg-white/5"/></div>
@@ -34,6 +34,7 @@ export function IntelligenceOverview({data,error,onNavigate,onRetry}:{data:Intel
   const complete=Object.values(data.coverage).filter(value=>value==="available").length
   const change=data.change
   return <div className="space-y-8">
+    {!compact&&<>
     <section className="border-b border-white/10 pb-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div><p className="text-[11px] font-semibold uppercase text-[#eeba2b]">LECTURA EJECUTIVA · {data.period}</p>
@@ -61,10 +62,12 @@ export function IntelligenceOverview({data,error,onNavigate,onRetry}:{data:Intel
         {showCoverage&&<p className="mt-3 text-xs leading-5 text-neutral-500">Finanzas y Shop Stats se consideran parciales incluso con registros: pueden faltar movimientos o fuentes. Una sincronización antigua no sustenta nuevas conclusiones. Errores aislados: {data.errors.length?data.errors.join(", "):"ninguno"}.</p>}
       </section>
     </div>
+    </>}
     <section id="business-priorities" className="border-t border-white/10 pt-5"><SectionHeading eyebrow="PRIMERO LO IMPORTANTE" title="Decisiones pendientes" description="Reglas transparentes. Nada se ejecuta automáticamente."/>
       {alerts.length?<div className="mt-3 border-y border-white/10">{alerts.slice(0,6).map(item=><DecisionRow key={item.id} item={item} onNavigate={onNavigate}/>)}</div>
-        :<p className="mt-4 flex items-center gap-2 text-sm text-neutral-400"><CircleAlert size={15}/>Sin alertas verificables para este período. La ausencia de datos no equivale a buen rendimiento.</p>}
+        :<p className="mt-4 flex items-center gap-2 text-sm text-neutral-400"><CircleAlert size={15}/>Sin alertas para este periodo.</p>}
     </section>
+    {!compact&&<>
     <section className="border-t border-white/10 pt-5"><SectionHeading eyebrow="PRODUCTOS" title="Actividad por listing" description="Ventas verificadas; los clics de Pinterest no se atribuyen a pedidos."/>
       {data.products.length?<div className="mt-3 grid gap-x-6 sm:grid-cols-2">{data.products.map(product=><button key={`${product.listingId}-${product.currency}`} type="button" onClick={()=>onNavigate("sales")}
         className="flex min-w-0 items-center justify-between gap-3 border-b border-white/10 py-3 text-left hover:bg-white/[0.03]"><span className="min-w-0"><span className="block truncate text-sm font-medium text-neutral-200">{product.title||`Listing ${product.listingId}`}</span><span className="text-xs text-neutral-500">#{product.listingId}{product.state?` · ${product.state}`:""}</span></span><span className="shrink-0 text-right"><span className="block text-sm text-[#eeba2b]">{product.units} uds.</span><span className="text-xs text-neutral-500">antes {product.priorUnits}</span>{product.lineTotal!==null&&product.currency&&<span className="block text-xs text-neutral-400">{new Intl.NumberFormat("es-ES",{style:"currency",currency:product.currency}).format(product.lineTotal)}</span>}</span></button>)}</div>
@@ -72,6 +75,7 @@ export function IntelligenceOverview({data,error,onNavigate,onRetry}:{data:Intel
       {data.quietProducts.length>0&&<div className="mt-4 border-t border-white/8 pt-3"><p className="text-xs font-medium text-neutral-400">Activos sin ventas verificadas en este período</p>
         <p className="mt-1 text-xs leading-5 text-neutral-500">{data.quietProducts.map(item=>item.title||`#${item.listingId}`).join(" · ")}. Esto no determina la calidad ni el potencial del producto.</p></div>}
     </section>
+    </>}
     <section className="border-t border-white/10 pt-5"><SectionHeading eyebrow="OPORTUNIDADES" title="Señales para explorar"/>
       {opportunities.length?<div className="mt-3 border-y border-white/10">{opportunities.slice(0,4).map(item=><DecisionRow key={item.id} item={item} onNavigate={onNavigate}/>)}</div>
         :<p className="mt-4 flex items-center gap-2 text-sm text-neutral-400"><Compass size={15}/>Aún no hay señales suficientes para recomendar una acción por producto.</p>}
