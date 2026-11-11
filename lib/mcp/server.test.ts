@@ -33,7 +33,7 @@ describe("Autolisty MCP server", () => {
     const response = (await handleMcpMessage({ jsonrpc: "2.0", id: 3, method: "tools/list" }, tools())) as {
       result: { tools: Array<{ name: string }> }
     }
-    expect(response.result.tools.map((tool) => tool.name)).toEqual(["submit_design", "list_designs", "review_listing", "edit_listing"])
+    expect(response.result.tools.map((tool) => tool.name)).toEqual(["submit_design", "list_designs", "review_listing", "edit_listing", "propose_lesson", "list_lessons", "get_status"])
     expect(MCP_TOOLS[0].inputSchema.required).toEqual(["productType", "prompt", "imageUrl"])
   })
 
