@@ -18,9 +18,10 @@ export async function GET(request: Request) {
     const db = getAutomationDatabase()
     const snapshot = getSalesSnapshot(db, period, Boolean(token), authorized)
     // Cada producto con su título y, si lo creó Automation, su miniatura.
-    const title = db.prepare("SELECT title FROM dashboard_etsy_listings WHERE listing_id = ? LIMIT 1")
-    const job = db.prepare("SELECT id FROM automation_jobs WHERE etsy_draft_id = ? ORDER BY created_at DESC LIMIT 1")
-    const products = snapshot.products.map((item) => item.listingId == null ? { ...item, title: null, jobId: null } : {
+    const listed = snapshot.products || []
+    const title = listed.length ? db.prepare("SELECT title FROM dashboard_etsy_listings WHERE listing_id = ? LIMIT 1") : null
+    const job = listed.length ? db.prepare("SELECT id FROM automation_jobs WHERE etsy_draft_id = ? ORDER BY created_at DESC LIMIT 1") : null
+    const products = listed.map((item) => item.listingId == null || !title || !job ? { ...item, title: null, jobId: null } : {
       ...item,
       title: (title.get(item.listingId) as { title: string } | undefined)?.title ?? null,
       jobId: (job.get(String(item.listingId)) as { id: string } | undefined)?.id ?? null,
