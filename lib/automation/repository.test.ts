@@ -170,11 +170,13 @@ describe("automation repository", () => {
     expect(repository.addDrafts("png_designs", ["1001", "1002", "1001"])).toEqual({
       added: 2,
       duplicates: 0,
+      templatesSkipped: 0,
       totalSubmitted: 2,
     })
     expect(repository.addDrafts("vertical_wall_art", ["1002", "1003"])).toEqual({
       added: 1,
       duplicates: 1,
+      templatesSkipped: 0,
       totalSubmitted: 2,
     })
 
