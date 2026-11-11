@@ -15,6 +15,9 @@ export type McpToolHandlers = {
   listDesigns: (input: { status?: string | null; limit?: number }) => Promise<unknown> | unknown
   reviewListing: (input: { productCode?: unknown }) => Promise<unknown>
   editListing: (input: Record<string, unknown>) => Promise<unknown>
+  proposeLesson?: (input: Record<string, unknown>) => Promise<unknown> | unknown
+  listLessons?: () => Promise<unknown> | unknown
+  getStatus?: () => Promise<unknown> | unknown
 }
 
 export class McpToolInputError extends Error {}
@@ -146,6 +149,38 @@ export const MCP_TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
+  {
+    name: "propose_lesson",
+    title: "Propose an SEO lesson",
+    description:
+      "Propose a short rule for Autolisty's SEO generator, learned from a pattern you saw while reviewing listings (e.g. the same wrong attribute or a bad tag habit repeated). It is stored as PROPOSED and the owner gets a notification; it only reaches the SEO prompt after the owner activates it in Automation. Write it as an instruction in English, specific and testable. Do not propose one-off fixes for a single listing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        lesson: { type: "string", minLength: 10, maxLength: 400, description: "The rule, e.g. \"Never set Occasion to Housewarming just because the item is home decor.\"" },
+        reason: { type: "string", description: "The evidence: which listings showed the problem." },
+        productType: { type: "string", enum: PRODUCT_VALUES, description: "Only for this product; omit for all products." },
+        sourceProductCode: { type: "string", description: "Listing where you saw it, e.g. LBCreaStudio-Q7ZZ9C." },
+      },
+      required: ["lesson", "reason"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "list_lessons",
+    title: "List SEO lessons",
+    description: "List the SEO lessons with their status (PROPOSED, ACTIVE, DISABLED, REJECTED), to avoid proposing duplicates and to know what the SEO already follows.",
+    inputSchema: { type: "object", properties: {} },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "get_status",
+    title: "Production status summary",
+    description:
+      "One-call summary of the production system: designs per status, designs waiting for approval, incidents with their error, Etsy drafts available per product, Automaty's last contact, Etsy API calls today and active lessons. Use it at the start of a daily run or before deciding how many designs to create.",
+    inputSchema: { type: "object", properties: {} },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
 ] as const
 
 function result(id: JsonRpcId, value: unknown) {
@@ -185,7 +220,7 @@ export async function handleMcpMessage(message: unknown, tools: McpToolHandlers)
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
         instructions:
-          "Autolisty is LBCreaStudio's Etsy production system. Use submit_design for each design the owner should review; use list_designs to read approvals, rejections and their notes; use review_listing to check an Etsy draft before it is published.",
+          "Autolisty is LBCreaStudio's Etsy production system. Use submit_design for each design the owner should review; use list_designs to read approvals, rejections and their notes; use review_listing to check an Etsy draft before it is published; use edit_listing only with the owner's approval; use propose_lesson for patterns the SEO should learn; use get_status for a quick overview.",
       })
     }
     case "ping":
@@ -206,6 +241,15 @@ export async function handleMcpMessage(message: unknown, tools: McpToolHandlers)
         }
         if (call.name === "edit_listing") {
           return result(id, toolResult({ edit: await tools.editListing(args) }))
+        }
+        if (call.name === "propose_lesson" && tools.proposeLesson) {
+          return result(id, toolResult({ lesson: await tools.proposeLesson(args) }))
+        }
+        if (call.name === "list_lessons" && tools.listLessons) {
+          return result(id, toolResult({ lessons: await tools.listLessons() }))
+        }
+        if (call.name === "get_status" && tools.getStatus) {
+          return result(id, toolResult({ status: await tools.getStatus() }))
         }
         if (call.name === "review_listing") {
           return result(id, toolResult({ listing: await tools.reviewListing({ productCode: args.productCode }) }))

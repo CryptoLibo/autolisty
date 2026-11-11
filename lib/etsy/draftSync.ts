@@ -4,7 +4,8 @@
 // cada uno sin repetir los demás.
 import { getSellerTaxonomyProperties, updateListingProperty } from "./attributes"
 import { matchFixedValues } from "./fixedAttributes"
-import { privateKeyFromPublicUrl, readR2Object } from "../r2/readObject"
+import { readR2Object } from "../r2/readObject"
+import { currentPublicUrl, privateKeyFromPublicUrl } from "../r2/privateKey"
 import { getShopListing } from "./listings"
 import type { EtsyTokenPayload } from "./auth"
 import {
@@ -46,7 +47,8 @@ export function getFilenameFromUrl(url: string, fallback: string) {
   }
 }
 
-export async function fetchAsset(url: string) {
+export async function fetchAsset(rawUrl: string) {
+  const url = currentPublicUrl(rawUrl)
   // Entregables y PDF de entrega: por la API de R2 (el dominio público los bloquea).
   const privateKey = privateKeyFromPublicUrl(url)
   if (privateKey) return readR2Object(privateKey)

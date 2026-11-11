@@ -912,6 +912,24 @@ const MIGRATIONS = [
       ALTER TABLE automation_jobs ADD COLUMN claude_edit_until TEXT;
     `,
   },
+  {
+    // Lecciones del SEO: reglas cortas que Claude propone tras revisar listings y
+    // que solo llegan al prompt cuando el propietario las activa.
+    version: 25,
+    sql: `
+      CREATE TABLE IF NOT EXISTS seo_lessons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_type TEXT,
+        lesson TEXT NOT NULL,
+        reason TEXT,
+        source_product_code TEXT,
+        status TEXT NOT NULL DEFAULT 'PROPOSED' CHECK (status IN ('PROPOSED', 'ACTIVE', 'DISABLED', 'REJECTED')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_seo_lessons_status ON seo_lessons(status, product_type);
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

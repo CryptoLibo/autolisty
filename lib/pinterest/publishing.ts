@@ -1,5 +1,6 @@
 // Publicación de pines y búsqueda de tableros, sin depender de una petición del navegador.
 import type { PinterestTokenPayload } from "./auth"
+import { currentPublicUrl } from "../r2/privateKey"
 import { pinterestFetch } from "./client"
 
 export function normalizeBoardName(value: string) {
@@ -45,7 +46,7 @@ export async function publishPinterestPin(
       description: input.description,
       link: input.link || undefined,
       alt_text: input.altText || undefined,
-      media_source: { source_type: "image_url", url: input.imageUrl },
+      media_source: { source_type: "image_url", url: currentPublicUrl(input.imageUrl) },
     }),
   })
   if (!response.ok) {

@@ -4,6 +4,9 @@ import { listClaudeDesigns, submitClaudeDesign } from "@/lib/automation/claudeDe
 import { handleMcpMessage } from "@/lib/mcp/server"
 import { reviewListingDraft } from "@/lib/automation/draftReview"
 import { editListingDraft } from "@/lib/automation/draftEdit"
+import { SeoLessonStore } from "@/lib/automation/seoLessons"
+import { getProductionStatus } from "@/lib/automation/statusSummary"
+import { notifyOwner } from "@/lib/notifications/webPush"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -35,6 +38,25 @@ export async function POST(request: Request) {
     listDesigns: listClaudeDesigns,
     reviewListing: reviewListingDraft,
     editListing: editListingDraft,
+    proposeLesson: async (input) => {
+      const lesson = new SeoLessonStore().propose({
+        lesson: String(input.lesson || ""),
+        reason: typeof input.reason === "string" ? input.reason : null,
+        productType: typeof input.productType === "string" ? input.productType : null,
+        sourceProductCode: typeof input.sourceProductCode === "string" ? input.sourceProductCode : null,
+      })
+      if (lesson.status === "PROPOSED") {
+        await notifyOwner({
+          title: "Nueva lección propuesta para el SEO",
+          body: lesson.lesson.slice(0, 140),
+          url: "/?section=automation",
+          tag: `lesson-${lesson.id}`,
+        }).catch(() => {})
+      }
+      return lesson
+    },
+    listLessons: () => new SeoLessonStore().list(),
+    getStatus: () => getProductionStatus(),
   })
   if (method === "tools/list" && response && "result" in response) {
     const tools = (response.result as { tools?: Array<{ name: string }> }).tools || []

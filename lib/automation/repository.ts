@@ -460,6 +460,15 @@ export class AutomationRepository {
     }
   }
 
+  /** IDs de Etsy que Autolisty ya conoce (pool en cualquier estado o asignados a un trabajo). */
+  knownEtsyListingIds() {
+    const rows = this.database.prepare(`
+      SELECT draft_id AS id FROM etsy_draft_pool
+      UNION SELECT etsy_draft_id AS id FROM automation_jobs WHERE etsy_draft_id IS NOT NULL
+    `).all() as Array<{ id: string }>
+    return new Set(rows.map((row) => String(row.id)))
+  }
+
   listDrafts(limit = 200) {
     const safeLimit = Math.max(1, Math.min(1000, Math.trunc(limit)))
     const rows = this.database.prepare(`
@@ -470,6 +479,21 @@ export class AutomationRepository {
       LIMIT ?
     `).all(safeLimit) as EtsyDraftPoolRow[]
     return rows.map(mapDraft)
+  }
+
+  /** Drafts AVAILABLE de un producto. */
+  countAvailableDrafts(productType: string) {
+    return (this.database.prepare(
+      "SELECT COUNT(*) AS count FROM etsy_draft_pool WHERE product_type = ? AND status = 'AVAILABLE'"
+    ).get(productType) as { count: number }).count
+  }
+
+  /** ¿El último evento del trabajo es de este tipo? (para avisar una sola vez por espera) */
+  lastEventIs(jobId: string, eventType: string) {
+    const row = this.database.prepare(
+      "SELECT event_type FROM automation_job_events WHERE job_id = ? ORDER BY id DESC LIMIT 1"
+    ).get(jobId) as { event_type: string } | undefined
+    return row?.event_type === eventType
   }
 
   getDraftPoolSummary() {

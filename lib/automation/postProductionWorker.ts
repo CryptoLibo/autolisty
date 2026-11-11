@@ -5,6 +5,8 @@ import { getAutomationDatabase } from "./db/database"
 import { AutomationRepository } from "./repository"
 import { runPostProductionTick, type PostProductionDeps } from "./postProduction"
 import { alertNewPendingDesigns, alertStalledLocalJobs } from "./ownerAlerts"
+import { SeoLessonStore } from "./seoLessons"
+import { runDailyBackupIfDue } from "./backup"
 import { getFreshToken } from "../integrations/tokenSession"
 import { getPrimaryShop, getShopListing } from "../etsy/listings"
 import { syncDraftFile, syncDraftImages, syncDraftText, syncDraftVideo } from "../etsy/draftSync"
@@ -56,6 +58,7 @@ export function createPostProductionDeps(): PostProductionDeps {
   const publicBase = String(process.env.R2_PUBLIC_URL || "").replace(/\/+$/, "")
   return {
     repository: new AutomationRepository(),
+    getLessons: (productType) => new SeoLessonStore().activeFor(productType),
     getEtsyToken: () => getFreshToken("etsy"),
     getShopId: async (token) => {
       if (!shopIdCache) shopIdCache = Number((await getPrimaryShop(token)).shop_id)
@@ -108,6 +111,8 @@ async function tick() {
       }
       await alertNewPendingDesigns(getAutomationDatabase(), (input) => notifyOwner(input))
       await alertStalledLocalJobs(getAutomationDatabase(), (input) => notifyOwner(input))
+      await runDailyBackupIfDue(getAutomationDatabase()).catch((error) =>
+        console.error("[backup] failed:", error instanceof Error ? error.message : error))
     } finally {
       releaseLock()
     }

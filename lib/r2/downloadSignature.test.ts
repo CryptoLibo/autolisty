@@ -30,5 +30,8 @@ describe("privateKeyFromPublicUrl", () => {
     expect(privateKeyFromPublicUrl("https://cdn.x.com/delivery-pdf/LBCreaStudio-A.pdf", "https://cdn.x.com")).toBe("delivery-pdf/LBCreaStudio-A.pdf")
     expect(privateKeyFromPublicUrl("https://cdn.x.com/mockups/LBCreaStudio-A/mockup-1.jpg", "https://cdn.x.com")).toBeNull()
     expect(privateKeyFromPublicUrl("https://other.com/delivery-pdf/a.pdf", "https://cdn.x.com")).toBeNull()
+    // URL guardada con el dominio antiguo (r2.dev) tras pasar a dominio propio.
+    expect(privateKeyFromPublicUrl("https://pub-1.r2.dev/delivery-pdf/LBCreaStudio-A.pdf", "https://files.x.com", "https://pub-1.r2.dev"))
+      .toBe("delivery-pdf/LBCreaStudio-A.pdf")
   })
 })

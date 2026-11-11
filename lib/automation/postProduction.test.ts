@@ -116,14 +116,21 @@ describe("post-production worker", () => {
     })
   })
 
-  it("se detiene con un aviso claro si no quedan drafts", async () => {
+  it("sin drafts espera (no es incidencia), avisa una vez y sigue al añadir drafts", async () => {
     database = openAutomationDatabase(":memory:")
     const repository = new AutomationRepository(database)
     const job = frameTvJob(repository)
-    const result = await advanceJob(job, fakeDeps(repository))
-    expect(result.status).toBe("NEEDS_ATTENTION")
-    expect(result.resumeStatus).toBe("LOCAL_COMPLETE")
-    expect(result.lastError).toMatch(/No quedan drafts/)
+    const notify = vi.fn(async () => {})
+    const first = await advanceJob(job, fakeDeps(repository, { notify }))
+    expect(first.status).toBe("LOCAL_COMPLETE")
+    expect(first.lastError ?? null).toBeNull()
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringMatching(/Sin drafts/) }))
+
+    // Siguiente vuelta del worker: sigue esperando, sin repetir el aviso.
+    const second = await advanceJob(first, fakeDeps(repository, { notify }))
+    expect(second.status).toBe("LOCAL_COMPLETE")
+    expect(notify).toHaveBeenCalledTimes(1)
     // Un fallo del servidor no pausa la producción de Automaty.
     expect(repository.getPipelineMode()).toBe("RUNNING")
   })

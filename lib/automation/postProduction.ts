@@ -41,6 +41,8 @@ export type PostProductionDeps = {
   getListingsBatch?: (token: EtsyTokenPayload, listingIds: string[]) => Promise<Map<string, { state?: string; url?: string }>>
   notify?: (input: { title: string; body: string; url?: string | null; tag?: string | null }) => Promise<void>
   publicUrl: (r2Key: string) => string
+  /** Lecciones activas del SEO para un producto (opcional). */
+  getLessons?: (productType: string) => string[]
   getPinterestToken: () => Promise<PinterestTokenPayload | null>
   generatePinCopy: (input: GeneratePinterestCopyInput) => Promise<{ pins: PinterestCopy[] }>
   findBoard: (token: PinterestTokenPayload, name: string) => Promise<{ id: string; name: string } | null>
@@ -83,6 +85,8 @@ const SERVER_STATUSES = new Set<AutomationJobStatus>(POST_PRODUCTION_STATUSES)
 // esperan se consultan juntos en UNA llamada (getListingsByListingIds).
 const ETSY_REVIEW_POLL_MS = 5 * 60_000
 const MAX_AUTOMATIC_RETRIES = 3
+/** Al quedar exactamente estos drafts de un producto se avisa (una vez por bajada). */
+export const LOW_DRAFT_STOCK = 5
 const RETRY_DELAY_MS = 10 * 60_000
 
 export class PostProductionError extends Error {
@@ -211,12 +215,35 @@ function move(ctx: StepContext, to: AutomationJobStatus, message?: string) {
 async function stepAssignDraft(ctx: StepContext) {
   // Antes de gastar un draft, comprobar que el listing tiene todas sus fotos.
   listingImagesInEtsyOrder(ctx.job, ctx.files, ctx.deps.publicUrl)
-  const draftId = ctx.deps.repository.assignDraftToJob(ctx.job.id)
+  const repository = ctx.deps.repository
+  const label = getProductionProductContract(ctx.job.productType).label
+  const draftId = repository.assignDraftToJob(ctx.job.id)
   if (!draftId) {
-    const label = getProductionProductContract(ctx.job.productType).label
-    throw new PostProductionError(`No quedan drafts de Etsy disponibles para ${label}. Añade drafts en Automation y reintenta.`)
+    // Sin drafts: el listing ESPERA (no es una incidencia) y sigue solo en cuanto
+    // añadas drafts. Se avisa una vez por espera.
+    if (!repository.lastEventIs(ctx.job.id, "WAITING_DRAFT")) {
+      repository.recordJobEvent(ctx.job.id, "WAITING_DRAFT", `Esperando drafts de Etsy para ${label}.`)
+      await ctx.deps.notify?.({
+        title: `Sin drafts de ${label}`,
+        body: `${ctx.job.productCode} espera un draft. Importa drafts en Automation y seguirá solo.`,
+        url: "/?section=automation",
+        tag: `drafts-${ctx.job.productType}`,
+      }).catch(() => {})
+    }
+    return
   }
   move(ctx, "DRAFT_ASSIGNED", `Draft de Etsy ${draftId} asignado.`)
+
+  // Aviso de existencias: quedan pocos drafts de este producto (una vez al bajar del umbral).
+  const remaining = repository.countAvailableDrafts(ctx.job.productType)
+  if (remaining === LOW_DRAFT_STOCK) {
+    await ctx.deps.notify?.({
+      title: `Quedan ${remaining} drafts de ${label}`,
+      body: "Importa más drafts en Automation para que la producción no se detenga.",
+      url: "/?section=automation",
+      tag: `drafts-${ctx.job.productType}`,
+    }).catch(() => {})
+  }
 }
 
 async function stepSeo(ctx: StepContext) {
@@ -234,6 +261,7 @@ async function stepSeo(ctx: StepContext) {
     midjourneyPrompt: ctx.job.sourcePrompt,
     listingId: ctx.job.productCode,
     keywordResearch: keywordResearchFromBrief(ctx.job.briefJson),
+    shopLessons: ctx.deps.getLessons?.(ctx.job.productType) ?? [],
   })
   ctx.deps.repository.updatePostProductionFields(ctx.job.id, { seoJson: JSON.stringify(seo) })
   move(ctx, "SEO_READY", `SEO generado: ${seo.title}`)

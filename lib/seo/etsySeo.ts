@@ -1682,6 +1682,8 @@ export type GenerateEtsySeoInput = {
   listingId: string | null
   /** Investigación de keywords hecha por Claude (Alura) para este diseño. */
   keywordResearch?: string | null
+  /** Lecciones aprendidas en las revisiones y activadas por el propietario. */
+  shopLessons?: string[]
 }
 
 export type EtsySeoResult = {
@@ -1862,6 +1864,9 @@ ${midjourneyPrompt}
 
 seller_keyword_research:
 ${body.keywordResearch || "none"}
+
+shop_lessons (rules the shop owner approved after reviewing earlier listings; follow every one of them, and when one conflicts with the general guidance above, the lesson wins):
+${body.shopLessons?.length ? body.shopLessons.map((lesson) => `- ${lesson}`).join("\n") : "none"}
 
 IMPORTANT IMAGE MAPPING RULES:
 - Use the exact mockup id provided.

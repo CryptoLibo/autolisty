@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import SeoLessonsPanel from "./SeoLessonsPanel"
 import {
   AlertCircle,
   CheckCircle2,
@@ -150,6 +151,9 @@ export function AutomationWorkspace() {
 
   const [draftProductType, setDraftProductType] = useState<ProductType>("png_designs")
   const [draftIds, setDraftIds] = useState("")
+  const [etsyDraftGroups, setEtsyDraftGroups] = useState<Array<{ title: string; imageUrl: string | null; listingIds: string[] }> | null>(null)
+  const [etsyDraftLoading, setEtsyDraftLoading] = useState(false)
+  const [groupProducts, setGroupProducts] = useState<Record<string, ProductType>>({})
   const [draftSubmitting, setDraftSubmitting] = useState(false)
   const [pipelineUpdating, setPipelineUpdating] = useState(false)
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null)
@@ -274,6 +278,46 @@ export function AutomationWorkspace() {
       setMessage(error instanceof Error ? error.message : "Unable to update production mode.")
     } finally {
       setPipelineUpdating(false)
+    }
+  }
+
+  async function loadEtsyDrafts() {
+    setEtsyDraftLoading(true)
+    setMessage(null)
+    try {
+      const response = await fetch("/api/automation/drafts/etsy", { cache: "no-store" })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "No se pudieron leer los drafts de Etsy.")
+      setEtsyDraftGroups(data.groups || [])
+    } catch (error) {
+      setMessageTone("error")
+      setMessage(error instanceof Error ? error.message : "No se pudieron leer los drafts de Etsy.")
+    } finally {
+      setEtsyDraftLoading(false)
+    }
+  }
+
+  async function importDraftGroup(group: { title: string; listingIds: string[] }) {
+    const productType = groupProducts[group.title]
+    if (!productType) return
+    setDraftSubmitting(true)
+    try {
+      const response = await fetch("/api/automation/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productType, draftIds: group.listingIds }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "No se pudieron añadir los drafts.")
+      setEtsyDraftGroups((groups) => (groups || []).filter((item) => item.title !== group.title))
+      setMessageTone("success")
+      setMessage(`${data.added} drafts añadidos a ${PRODUCT_OPTIONS.find((product) => product.value === productType)?.label}.`)
+      await loadDashboard(true)
+    } catch (error) {
+      setMessageTone("error")
+      setMessage(error instanceof Error ? error.message : "No se pudieron añadir los drafts.")
+    } finally {
+      setDraftSubmitting(false)
     }
   }
 
@@ -695,6 +739,60 @@ export function AutomationWorkspace() {
             </button>
           </div>
 
+          <div className="mt-4 border border-neutral-800 bg-neutral-950/60 p-3">
+            <button
+              type="button"
+              onClick={() => void loadEtsyDrafts()}
+              disabled={etsyDraftLoading}
+              className="inline-flex h-10 w-full items-center justify-center gap-2 border border-neutral-700 px-4 text-sm text-neutral-200 transition hover:border-[#eeba2b]/40 hover:text-[#f1cc61] disabled:opacity-40"
+            >
+              {etsyDraftLoading ? <Loader2 size={15} className="animate-spin" /> : <Database size={15} />}
+              Importar drafts desde Etsy
+            </button>
+            {etsyDraftGroups ? (
+              etsyDraftGroups.length === 0 ? (
+                <p className="mt-3 text-sm text-neutral-500">No hay drafts nuevos en Etsy.</p>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  {etsyDraftGroups.map((group) => (
+                    <div key={group.title} className="flex flex-col gap-2 border-t border-neutral-800 pt-3 sm:flex-row sm:items-center">
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        {group.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={group.imageUrl} alt="" className="h-10 w-10 shrink-0 object-cover" />
+                        ) : null}
+                        <div className="min-w-0">
+                          <p className="truncate text-sm text-neutral-200">{group.title}</p>
+                          <p className="text-xs text-neutral-500">{group.listingIds.length} drafts</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <select
+                          value={groupProducts[group.title] || ""}
+                          onChange={(event) => setGroupProducts((current) => ({ ...current, [group.title]: event.target.value as ProductType }))}
+                          className="h-10 min-w-0 flex-1 border border-neutral-800 bg-neutral-950 px-2 text-sm text-neutral-100 sm:w-44"
+                        >
+                          <option value="">Producto…</option>
+                          {PRODUCT_OPTIONS.map((product) => (
+                            <option key={product.value} value={product.value}>{product.label}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => void importDraftGroup(group)}
+                          disabled={draftSubmitting || !groupProducts[group.title]}
+                          className="h-10 shrink-0 bg-[#eeba2b] px-4 text-sm font-semibold text-neutral-950 disabled:opacity-40"
+                        >
+                          Añadir
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : null}
+          </div>
+
           <div className="mt-6 divide-y divide-neutral-800 border-y border-neutral-800">
             {PRODUCT_OPTIONS.map((product) => (
               <div key={product.value} className="flex items-center justify-between gap-4 py-3 text-sm">
@@ -707,6 +805,8 @@ export function AutomationWorkspace() {
           </div>
         </div>
       </section>
+
+      <SeoLessonsPanel />
 
       <section>
         <div className="flex flex-wrap items-end justify-between gap-4">
