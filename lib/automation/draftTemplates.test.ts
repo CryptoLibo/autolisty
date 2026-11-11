@@ -28,3 +28,16 @@ describe("draft templates", () => {
     expect(() => repository.setDraftTemplate("frame_tv_art", "200")).toThrow(/already used/)
   })
 })
+
+describe("ignored drafts", () => {
+  it("un draft ignorado (plantilla de otro producto) no se importa, no entra en el pool y no se asigna", () => {
+    const repository = new AutomationRepository(openAutomationDatabase(":memory:"))
+    repository.addDrafts("frame_tv_art", ["300", "301"])
+    expect(repository.setIgnoredDrafts(["300", "900"], true)).toEqual(["300", "900"])
+    expect(repository.getDraftTemplates()).toEqual({})
+    expect(repository.countAvailableDrafts("frame_tv_art")).toBe(1)
+    expect(repository.knownEtsyListingIds().has("900")).toBe(true)
+    expect(repository.addDrafts("frame_tv_art", ["900"])).toMatchObject({ added: 0, templatesSkipped: 1 })
+    expect(repository.setIgnoredDrafts(["900"], false)).toEqual(["300"])
+  })
+})

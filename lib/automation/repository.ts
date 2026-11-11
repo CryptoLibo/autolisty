@@ -208,6 +208,9 @@ function mapAgent(row: AutomationAgentRow): AutomationAgent {
   }
 }
 
+/** Prefijo (tras draft_template.) de los drafts ignorados que no pertenecen a ningún producto. */
+const IGNORED_DRAFT_PREFIX = "ignored."
+
 export class AutomationRepository {
   constructor(private readonly database: Database.Database = getAutomationDatabase()) {}
 
@@ -439,7 +442,52 @@ export class AutomationRepository {
     const rows = this.database.prepare(
       "SELECT setting_key, setting_value FROM automation_settings WHERE setting_key LIKE 'draft_template.%'"
     ).all() as Array<{ setting_key: string; setting_value: string }>
-    return Object.fromEntries(rows.map((row) => [row.setting_key.slice("draft_template.".length), row.setting_value]))
+    return Object.fromEntries(
+      rows
+        .map((row) => [row.setting_key.slice("draft_template.".length), row.setting_value] as const)
+        .filter(([key]) => !key.startsWith(IGNORED_DRAFT_PREFIX))
+    )
+  }
+
+  /** Drafts que no son de ningún producto actual (p. ej. la plantilla antigua de phone cases): se ignoran siempre. */
+  getIgnoredDrafts(): string[] {
+    const rows = this.database.prepare(
+      "SELECT setting_value FROM automation_settings WHERE setting_key LIKE ?"
+    ).all(`draft_template.${IGNORED_DRAFT_PREFIX}%`) as Array<{ setting_value: string }>
+    return rows.map((row) => row.setting_value).sort()
+  }
+
+  /** Todos los drafts que Autolisty nunca debe importar, poner en el pool ni asignar. */
+  templateDraftIds(): Set<string> {
+    const rows = this.database.prepare(
+      "SELECT setting_value FROM automation_settings WHERE setting_key LIKE 'draft_template.%'"
+    ).all() as Array<{ setting_value: string }>
+    return new Set(rows.map((row) => row.setting_value))
+  }
+
+  /** Marca (ignore=true) o desmarca drafts como ignorados para siempre. */
+  setIgnoredDrafts(draftIds: string[], ignore: boolean) {
+    const now = new Date().toISOString()
+    const save = this.database.transaction(() => {
+      for (const draftId of draftIds) {
+        const key = `draft_template.${IGNORED_DRAFT_PREFIX}${draftId}`
+        if (!ignore) {
+          this.database.prepare("DELETE FROM automation_settings WHERE setting_key = ?").run(key)
+          continue
+        }
+        const assigned = this.database.prepare(
+          "SELECT 1 FROM etsy_draft_pool WHERE draft_id = ? AND status != 'AVAILABLE' UNION SELECT 1 FROM automation_jobs WHERE etsy_draft_id = ?"
+        ).get(draftId, draftId)
+        if (assigned) throw new Error(`Draft ${draftId} is already used by a listing; it cannot be ignored.`)
+        this.database.prepare(`
+          INSERT INTO automation_settings (setting_key, setting_value, updated_at) VALUES (?, ?, ?)
+          ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, updated_at = excluded.updated_at
+        `).run(key, draftId, now)
+        this.database.prepare("DELETE FROM etsy_draft_pool WHERE draft_id = ? AND status = 'AVAILABLE'").run(draftId)
+      }
+    })
+    save()
+    return this.getIgnoredDrafts()
   }
 
   /** Guarda (o borra, con null) la plantilla de un producto y la saca del pool si estaba disponible. */
@@ -467,7 +515,7 @@ export class AutomationRepository {
 
   addDrafts(productType: EtsyDraftPoolItem["productType"], draftIds: string[]) {
     // Las plantillas nunca entran en el pool.
-    const templates = new Set(Object.values(this.getDraftTemplates()))
+    const templates = this.templateDraftIds()
     const uniqueDraftIds = [...new Set(draftIds.map((value) => value.trim()))].filter((id) => !templates.has(id))
     const now = new Date().toISOString()
     const insert = this.database.prepare(`
@@ -501,7 +549,7 @@ export class AutomationRepository {
       UNION SELECT etsy_draft_id AS id FROM automation_jobs WHERE etsy_draft_id IS NOT NULL
     `).all() as Array<{ id: string }>
     // Las plantillas cuentan como conocidas: no aparecen al importar.
-    return new Set([...rows.map((row) => String(row.id)), ...Object.values(this.getDraftTemplates())])
+    return new Set([...rows.map((row) => String(row.id)), ...this.templateDraftIds()])
   }
 
   listDrafts(limit = 200) {
@@ -935,7 +983,7 @@ export class AutomationRepository {
       const job = this.getJob(jobId)
       if (!job) throw new Error(`Automation job not found: ${jobId}`)
       if (job.etsyDraftId) return job.etsyDraftId
-      const templates = Object.values(this.getDraftTemplates())
+      const templates = [...this.templateDraftIds()]
       const draft = this.database.prepare(`
         SELECT draft_id FROM etsy_draft_pool
         WHERE product_type = ? AND status = 'AVAILABLE'

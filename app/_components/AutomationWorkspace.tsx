@@ -157,6 +157,7 @@ export function AutomationWorkspace() {
   const [draftTemplates, setDraftTemplates] = useState<Record<string, string>>({})
   const [templateInputs, setTemplateInputs] = useState<Record<string, string>>({})
   const [templateSaving, setTemplateSaving] = useState<string | null>(null)
+  const [ignoredDrafts, setIgnoredDrafts] = useState<string[]>([])
 
   useEffect(() => {
     fetch("/api/automation/drafts/templates", { cache: "no-store" })
@@ -164,9 +165,35 @@ export function AutomationWorkspace() {
       .then((data) => {
         setDraftTemplates(data.templates || {})
         setTemplateInputs(data.templates || {})
+        setIgnoredDrafts(data.ignored || [])
       })
       .catch(() => {})
   }, [])
+
+  async function setDraftsIgnored(draftIds: string[], ignore: boolean, groupTitle?: string) {
+    setTemplateSaving(groupTitle || draftIds.join(","))
+    try {
+      const response = await fetch("/api/automation/drafts/templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draftIds, ignore }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "No se pudo actualizar.")
+      setIgnoredDrafts(data.ignored || [])
+      if (ignore && groupTitle) {
+        setEtsyDraftGroups((current) => current?.filter((group) => group.title !== groupTitle) ?? null)
+      }
+      setMessageTone("success")
+      setMessage(ignore ? "Plantilla registrada: no volverá a salir al importar." : "El draft ya no se ignora.")
+      await loadDashboard(true)
+    } catch (error) {
+      setMessageTone("error")
+      setMessage(error instanceof Error ? error.message : "No se pudo actualizar.")
+    } finally {
+      setTemplateSaving(null)
+    }
+  }
 
   async function saveDraftTemplate(productType: ProductType) {
     setTemplateSaving(productType)
@@ -820,6 +847,15 @@ export function AutomationWorkspace() {
                         >
                           Añadir
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => void setDraftsIgnored(group.listingIds, true, group.title)}
+                          disabled={templateSaving === group.title}
+                          title="Es una plantilla u otro producto: no volverá a salir al importar"
+                          className="h-10 shrink-0 border border-neutral-700 px-3 text-sm text-neutral-300 transition hover:border-[#eeba2b]/40 hover:text-[#f1cc61] disabled:opacity-40"
+                        >
+                          Es plantilla
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -864,6 +900,27 @@ export function AutomationWorkspace() {
                 </div>
               )
             })}
+            {ignoredDrafts.length > 0 ? (
+              <div className="py-3 text-sm">
+                <span className="text-neutral-300">Otras plantillas</span>
+                <p className="mt-1 text-xs text-neutral-500">Nunca se importan ni se asignan (p. ej. phone cases).</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {ignoredDrafts.map((draftId) => (
+                    <span key={draftId} className="inline-flex h-8 items-center gap-2 border border-neutral-800 px-2 text-xs text-neutral-300">
+                      {draftId}
+                      <button
+                        type="button"
+                        onClick={() => void setDraftsIgnored([draftId], false)}
+                        disabled={templateSaving === draftId}
+                        className="text-neutral-500 hover:text-[#f1cc61] disabled:opacity-40"
+                      >
+                        Quitar
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </section>
