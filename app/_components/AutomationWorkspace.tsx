@@ -529,9 +529,9 @@ export function AutomationWorkspace() {
             title="Actualizar"
             onClick={() => void loadDashboard()}
             disabled={refreshing}
-            className={`${buttonSecondary} w-10 px-0`}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/12 text-neutral-200 transition hover:border-[#eeba2b]/40 hover:text-[#f1cc61] disabled:opacity-40"
           >
-            <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} aria-hidden="true" />
+            <RefreshCw size={18} className={`shrink-0 ${refreshing ? "animate-spin" : ""}`} aria-hidden="true" />
           </button>
           {pipelineMode === "PAUSED" ? (
             <button type="button" onClick={() => void updatePipeline("resume")} disabled={pipelineUpdating} className={buttonPrimary}>
@@ -873,24 +873,45 @@ export function AutomationWorkspace() {
               ) : (
                 <div className="mt-3 space-y-3">
                   {etsyDraftGroups.map((group) => (
-                    <div key={group.title} className="flex flex-col gap-2 border-t border-neutral-800 pt-3 sm:flex-row sm:items-center">
-                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <div key={group.title} className="space-y-3 border-t border-white/[0.07] pt-4">
+                      <div className="flex items-start gap-3">
                         {group.imageUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={group.imageUrl} alt="" className="h-10 w-10 shrink-0 object-cover" />
-                        ) : null}
-                        <div className="min-w-0">
-                          <p className="truncate text-sm text-neutral-200">{group.title}</p>
-                          <p className="text-xs text-neutral-500">{group.listingIds.length} drafts</p>
+                          <button
+                            type="button"
+                            onClick={() => setLightbox({ src: group.imageUrl!, alt: group.title, caption: group.title })}
+                            aria-label="Ampliar imagen del draft"
+                            className="h-20 w-20 shrink-0 cursor-zoom-in overflow-hidden rounded-lg bg-white/[0.04]"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={group.imageUrl} alt="" className="h-full w-full object-cover" />
+                          </button>
+                        ) : (
+                          <span aria-hidden="true" className="h-20 w-20 shrink-0 rounded-lg bg-white/[0.04]" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="break-words text-sm leading-5 text-neutral-100">{group.title}</p>
+                          <p className="mt-1 text-xs text-neutral-400">
+                            {group.listingIds.length} {group.listingIds.length === 1 ? "draft" : "drafts"} ·{" "}
+                            <a
+                              href={`https://www.etsy.com/your/shops/me/listing-editor/edit/${group.listingIds[0]}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[#eeba2b] hover:text-[#f7d875]"
+                            >
+                              Abrir en Etsy
+                            </a>
+                          </p>
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
+                        <label className="sr-only" htmlFor={`group-product-${group.listingIds[0]}`}>Producto</label>
                         <select
+                          id={`group-product-${group.listingIds[0]}`}
                           value={groupProducts[group.title] || ""}
                           onChange={(event) => setGroupProducts((current) => ({ ...current, [group.title]: event.target.value as ProductType }))}
-                          className="h-10 min-w-0 flex-1 rounded-lg border border-white/10 bg-[#0b0b0c] px-2 text-sm text-neutral-100 sm:w-44"
+                          className="h-10 min-w-[160px] flex-1 rounded-lg border border-white/10 bg-[#0b0b0c] px-2 text-sm text-neutral-100"
                         >
-                          <option value="">Producto…</option>
+                          <option value="">Elegir producto…</option>
                           {PRODUCT_OPTIONS.map((product) => (
                             <option key={product.value} value={product.value}>{product.label}</option>
                           ))}
@@ -899,7 +920,7 @@ export function AutomationWorkspace() {
                           type="button"
                           onClick={() => void importDraftGroup(group)}
                           disabled={draftSubmitting || !groupProducts[group.title]}
-                          className="h-10 shrink-0 bg-[#eeba2b] px-4 text-sm font-semibold text-neutral-950 disabled:opacity-40"
+                          className={buttonPrimary}
                         >
                           Añadir
                         </button>
@@ -908,7 +929,7 @@ export function AutomationWorkspace() {
                           onClick={() => void setDraftsIgnored(group.listingIds, true, group.title)}
                           disabled={templateSaving === group.title}
                           title="Es una plantilla u otro producto: no volverá a salir al importar"
-                          className="h-10 shrink-0 border border-neutral-700 px-3 text-sm text-neutral-300 transition hover:border-[#eeba2b]/40 hover:text-[#f1cc61] disabled:opacity-40"
+                          className={buttonSecondary}
                         >
                           Es plantilla
                         </button>
