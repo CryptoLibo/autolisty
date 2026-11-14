@@ -41,3 +41,19 @@ describe("ignored drafts", () => {
     expect(repository.setIgnoredDrafts(["900"], false)).toEqual(["300"])
   })
 })
+
+describe("draft validation", () => {
+  it("un draft inválido no se asigna y se puede asignar uno concreto con su categoría", () => {
+    const database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    repository.addDrafts("frame_tv_art", ["500", "501"])
+    const job = repository.createJob({ productType: "frame_tv_art", sourcePrompt: "x" })
+    expect(repository.peekAvailableDraft("frame_tv_art")).toBe("500")
+    repository.markDraftInvalid("500")
+    expect(repository.peekAvailableDraft("frame_tv_art")).toBe("501")
+    expect(repository.assignDraftToJob(job.id, { draftId: "501", taxonomyId: 2078 })).toBe("501")
+    const row = database.prepare("SELECT status, taxonomy_id FROM etsy_draft_pool WHERE draft_id = '501'").get() as { status: string; taxonomy_id: number }
+    expect(row).toEqual({ status: "ASSIGNED", taxonomy_id: 2078 })
+    expect(repository.peekAvailableDraft("frame_tv_art")).toBeNull()
+  })
+})

@@ -1,7 +1,6 @@
 import {
   PINTEREST_API_BASE_URL,
   PinterestTokenPayload,
-  refreshPinterestToken,
 } from "./auth"
 
 export async function pinterestFetch(
@@ -19,15 +18,6 @@ export async function pinterestFetch(
   })
 }
 
-export async function ensureFreshPinterestToken(token: PinterestTokenPayload) {
-  const expiresSoon = token.expires_at - Date.now() < 60_000
-
-  if (!expiresSoon || !token.refresh_token) {
-    return token
-  }
-
-  return await refreshPinterestToken(token.refresh_token)
-}
 
 export async function getPinterestUser(token: PinterestTokenPayload) {
   const response = await pinterestFetch("/user_account", token)

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer9";
+import { rateLimited } from "@/lib/http/rateLimit";
 
 export const runtime = "nodejs";
 
@@ -26,9 +27,16 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#39;");
 }
 
+const LIMITS = { name: 120, email: 200, subject: 200, message: 5000 };
+
 export async function POST(req: Request) {
+  const limited = rateLimited(req, "contact", 5, 60 * 60 * 1000);
+  if (limited) return limited;
   try {
     const body = await req.json();
+
+    // Campo trampa: invisible para personas; si viene relleno, es un bot. Se responde «ok» sin enviar.
+    if (String(body?.website || "").trim()) return NextResponse.json({ ok: true });
 
     const name = String(body?.name || "").trim();
     const email = String(body?.email || "").trim();
@@ -40,6 +48,15 @@ export async function POST(req: Request) {
         { error: "All contact form fields are required." },
         { status: 400 }
       );
+    }
+
+    if (
+      name.length > LIMITS.name ||
+      email.length > LIMITS.email ||
+      subject.length > LIMITS.subject ||
+      message.length > LIMITS.message
+    ) {
+      return NextResponse.json({ error: "One of the fields is too long." }, { status: 400 });
     }
 
     if (!isValidEmail(email)) {

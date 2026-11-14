@@ -55,3 +55,17 @@ export async function publishPinterestPin(
   const data = await response.json() as { id: string; board_id?: string }
   return { pinId: String(data.id), boardId: String(data.board_id || input.boardId) }
 }
+
+/** Un pin del tablero con ese título y enlace, si existe (para no publicar dos veces). */
+export async function findExistingPinterestPin(
+  token: PinterestTokenPayload,
+  input: { boardId: string; title: string; link: string }
+) {
+  const normalize = (value: string) => value.replace(/[?#].*$/, "").replace(/\/+$/, "").toLowerCase()
+  const response = await pinterestFetch(`/boards/${encodeURIComponent(input.boardId)}/pins?page_size=50`, token)
+  if (!response.ok) return null
+  const data = await response.json() as { items?: Array<{ id: string; title?: string; link?: string }> }
+  const match = (data.items || []).find((pin) =>
+    (pin.title || "").trim() === input.title.trim() && normalize(pin.link || "") === normalize(input.link))
+  return match ? String(match.id) : null
+}

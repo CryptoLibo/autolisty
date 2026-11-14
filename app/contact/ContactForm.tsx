@@ -9,6 +9,7 @@ type ContactState = {
   email: string;
   subject: string;
   message: string;
+  website: string;
 };
 
 const initialState: ContactState = {
@@ -16,6 +17,7 @@ const initialState: ContactState = {
   email: "",
   subject: "",
   message: "",
+  website: "",
 };
 
 export function ContactForm() {
@@ -61,6 +63,19 @@ export function ContactForm() {
   return (
     <div className="rounded-3xl border border-neutral-800 bg-neutral-950/70 p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
       <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Campo trampa para bots: oculto a personas y lectores de pantalla. */}
+        <div aria-hidden="true" style={{ position: "absolute", left: "-10000px", width: 1, height: 1, overflow: "hidden" }}>
+          <label>
+            Website
+            <input
+              type="text"
+              tabIndex={-1}
+              autoComplete="off"
+              value={form.website}
+              onChange={(event) => updateField("website", event.target.value)}
+            />
+          </label>
+        </div>
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <label className="space-y-2">
             <span className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">

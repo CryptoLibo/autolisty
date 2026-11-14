@@ -14,7 +14,7 @@ import { generateEtsySeo } from "../seo/etsySeo"
 import { generateDeliveryPdf } from "../r2/generateDeliveryPdf"
 import { uploadDeliveryPdf } from "../r2/uploadDeliveryPdf"
 import { generatePinterestCopy } from "../seo/pinterestSeo"
-import { findBoardByName, publishPinterestPin } from "../pinterest/publishing"
+import { findBoardByName, findExistingPinterestPin, publishPinterestPin } from "../pinterest/publishing"
 import { recordPublishedPin } from "../dashboard/pinterest-analytics"
 import { etsyFetch } from "../etsy/client"
 import { notifyOwner } from "../notifications/webPush"
@@ -74,6 +74,13 @@ export function createPostProductionDeps(): PostProductionDeps {
     syncFile: syncDraftFile,
     syncVideo: syncDraftVideo,
     getListing: (token, shopId, listingId) => getShopListing(token, shopId, listingId),
+    getDraftState: async (token, listingId) => {
+      const response = await etsyFetch(`/application/listings/${encodeURIComponent(listingId)}`, token)
+      if (response.status === 404) return null
+      if (!response.ok) throw new Error(`Etsy listing check failed (HTTP ${response.status}).`)
+      const data = await response.json() as { state?: string; taxonomy_id?: number | null }
+      return { state: String(data.state || ""), taxonomyId: data.taxonomy_id ?? null }
+    },
     getListingsBatch: async (token, listingIds) => {
       const states = new Map<string, { state?: string; url?: string }>()
       for (let index = 0; index < listingIds.length; index += 100) {
@@ -93,6 +100,7 @@ export function createPostProductionDeps(): PostProductionDeps {
     generatePinCopy: generatePinterestCopy,
     findBoard: findBoardByName,
     publishPin: publishPinterestPin,
+    findExistingPin: findExistingPinterestPin,
     recordPin: (input) => recordPublishedPin(getAutomationDatabase(), input),
   }
 }

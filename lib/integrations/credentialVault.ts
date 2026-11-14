@@ -13,12 +13,24 @@ export type CredentialProvider = "etsy" | "pinterest"
 
 const VERSION_PREFIX = "v1"
 
+function deriveKey(secret: string) {
+  return Buffer.from(crypto.hkdfSync("sha256", secret, "autolisty", "integration-credentials-v1", 32))
+}
+
+// Clave propia (CREDENTIALS_ENCRYPTION_KEY), separada de la que firma sesiones (AUTH_SECRET).
+// Lo cifrado antes con AUTH_SECRET se sigue leyendo y se vuelve a cifrar con la clave nueva.
 function getKey() {
   const secret = process.env.CREDENTIALS_ENCRYPTION_KEY || process.env.AUTH_SECRET || ""
   if (secret.length < 32) {
     throw new Error("AUTH_SECRET (or CREDENTIALS_ENCRYPTION_KEY) must be at least 32 characters.")
   }
-  return Buffer.from(crypto.hkdfSync("sha256", secret, "autolisty", "integration-credentials-v1", 32))
+  return deriveKey(secret)
+}
+
+function legacyKey() {
+  const legacy = process.env.AUTH_SECRET || ""
+  if (!process.env.CREDENTIALS_ENCRYPTION_KEY || legacy.length < 32 || legacy === process.env.CREDENTIALS_ENCRYPTION_KEY) return null
+  return deriveKey(legacy)
 }
 
 export function encryptCredential(provider: CredentialProvider | "vapid", payload: unknown) {
@@ -29,14 +41,29 @@ export function encryptCredential(provider: CredentialProvider | "vapid", payloa
   return [VERSION_PREFIX, iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), encrypted.toString("base64url")].join(".")
 }
 
-export function decryptCredential<T>(provider: CredentialProvider | "vapid", value: string): T {
-  const [version, iv, tag, data] = value.split(".")
-  if (version !== VERSION_PREFIX || !iv || !tag || !data) throw new Error("Unsupported credential format.")
-  const decipher = crypto.createDecipheriv("aes-256-gcm", getKey(), Buffer.from(iv, "base64url"))
+function decryptWith<T>(key: Buffer, provider: string, iv: string, tag: string, data: string): T {
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64url"))
   decipher.setAAD(Buffer.from(provider))
   decipher.setAuthTag(Buffer.from(tag, "base64url"))
   const plain = Buffer.concat([decipher.update(Buffer.from(data, "base64url")), decipher.final()])
   return JSON.parse(plain.toString("utf8")) as T
+}
+
+/** Descifra; `legacy` indica que se cifró con AUTH_SECRET y conviene volver a cifrarlo. */
+export function decryptCredentialDetailed<T>(provider: CredentialProvider | "vapid", value: string): { value: T; legacy: boolean } {
+  const [version, iv, tag, data] = value.split(".")
+  if (version !== VERSION_PREFIX || !iv || !tag || !data) throw new Error("Unsupported credential format.")
+  try {
+    return { value: decryptWith<T>(getKey(), provider, iv, tag, data), legacy: false }
+  } catch (error) {
+    const legacy = legacyKey()
+    if (!legacy) throw error
+    return { value: decryptWith<T>(legacy, provider, iv, tag, data), legacy: true }
+  }
+}
+
+export function decryptCredential<T>(provider: CredentialProvider | "vapid", value: string): T {
+  return decryptCredentialDetailed<T>(provider, value).value
 }
 
 export function readCredential<T>(provider: CredentialProvider, database: Database.Database = getAutomationDatabase()): T | null {
@@ -45,7 +72,9 @@ export function readCredential<T>(provider: CredentialProvider, database: Databa
     .get(provider) as { ciphertext: string } | undefined
   if (!row) return null
   try {
-    return decryptCredential<T>(provider, row.ciphertext)
+    const { value, legacy } = decryptCredentialDetailed<T>(provider, row.ciphertext)
+    if (legacy) writeCredential(provider, value, database)
+    return value
   } catch {
     // Clave cambiada o dato dañado: se trata como "no conectado".
     return null

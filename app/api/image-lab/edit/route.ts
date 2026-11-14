@@ -1,3 +1,4 @@
+import { fetchAllowed, isR2PublicUrl } from "@/lib/http/safeFetch"
 import OpenAI, { toFile } from "openai"
 import { requireOwnerApi } from "@/lib/auth/owner"
 import { normalizeProductType } from "@/lib/products"
@@ -40,7 +41,7 @@ function parseImageDataUrl(value: unknown) {
 }
 
 async function fetchImageFromUrl(url: string) {
-  const response = await fetch(url)
+  const response = await fetchAllowed(url, isR2PublicUrl)
   if (!response.ok) throw new Error("Failed to load source image for editing.")
   const contentType = response.headers.get("content-type") || "image/png"
   const ext = contentType.includes("webp") ? "webp" : contentType.includes("jpeg") ? "jpg" : "png"

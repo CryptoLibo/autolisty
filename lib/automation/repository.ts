@@ -931,7 +931,8 @@ export class AutomationRepository {
         resumeStatus,
         options.error ?? (leavingFailure ? null : current.lastError),
         options.nextAttemptAt ?? null,
-        enteringFailure ? current.retryCount + 1 : current.retryCount,
+        // Los reintentos automáticos cuentan por paso: al superar un paso vuelven a cero.
+        enteringFailure ? current.retryCount + 1 : leavingFailure ? current.retryCount : 0,
         now,
         completedAt,
         jobId
@@ -977,8 +978,26 @@ export class AutomationRepository {
     return rows.map(mapJob)
   }
 
-  /** Asigna el draft disponible más antiguo de su producto. null si no queda ninguno. */
-  assignDraftToJob(jobId: string) {
+  /** El draft disponible más antiguo de un producto, sin asignarlo. */
+  peekAvailableDraft(productType: string) {
+    const row = this.database.prepare(`
+      SELECT draft_id FROM etsy_draft_pool
+      WHERE product_type = ? AND status = 'AVAILABLE'
+        AND draft_id NOT IN (SELECT value FROM json_each(?))
+      ORDER BY created_at ASC
+      LIMIT 1
+    `).get(productType, JSON.stringify([...this.templateDraftIds()])) as { draft_id: string } | undefined
+    return row?.draft_id ?? null
+  }
+
+  /** Un draft que ya no sirve (borrado o publicado a mano en Etsy). */
+  markDraftInvalid(draftId: string) {
+    this.database.prepare("UPDATE etsy_draft_pool SET status = 'INVALID', updated_at = ? WHERE draft_id = ? AND status = 'AVAILABLE'")
+      .run(new Date().toISOString(), draftId)
+  }
+
+  /** Asigna el draft disponible más antiguo de su producto (o el indicado). null si no queda ninguno. */
+  assignDraftToJob(jobId: string, preferred?: { draftId: string; taxonomyId?: number | null }) {
     const assign = this.database.transaction(() => {
       const job = this.getJob(jobId)
       if (!job) throw new Error(`Automation job not found: ${jobId}`)
@@ -988,16 +1007,18 @@ export class AutomationRepository {
         SELECT draft_id FROM etsy_draft_pool
         WHERE product_type = ? AND status = 'AVAILABLE'
           AND draft_id NOT IN (SELECT value FROM json_each(?))
+          AND (? IS NULL OR draft_id = ?)
         ORDER BY created_at ASC
         LIMIT 1
-      `).get(job.productType, JSON.stringify(templates)) as { draft_id: string } | undefined
+      `).get(job.productType, JSON.stringify(templates), preferred?.draftId ?? null, preferred?.draftId ?? null) as { draft_id: string } | undefined
       if (!draft) return null
       const now = new Date().toISOString()
       this.database.prepare(`
         UPDATE etsy_draft_pool
-        SET status = 'ASSIGNED', assigned_job_id = ?, assigned_at = ?, updated_at = ?
+        SET status = 'ASSIGNED', assigned_job_id = ?, assigned_at = ?, updated_at = ?,
+            taxonomy_id = COALESCE(?, taxonomy_id)
         WHERE draft_id = ? AND status = 'AVAILABLE'
-      `).run(jobId, now, now, draft.draft_id)
+      `).run(jobId, now, now, preferred?.taxonomyId ?? null, draft.draft_id)
       this.database.prepare("UPDATE automation_jobs SET etsy_draft_id = ?, updated_at = ? WHERE id = ?")
         .run(draft.draft_id, now, jobId)
       return draft.draft_id

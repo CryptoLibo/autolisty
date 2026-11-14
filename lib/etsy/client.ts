@@ -1,4 +1,4 @@
-import { ETSY_API_BASE_URL, EtsyTokenPayload, getEtsyApiKeyHeader, refreshEtsyToken } from "./auth"
+import { ETSY_API_BASE_URL, EtsyTokenPayload, getEtsyApiKeyHeader } from "./auth"
 
 // Control de llamadas a Etsy: ritmo mínimo entre llamadas (Etsy permite ~10/s),
 // tiempo máximo por llamada, reintento con espera ante 429 (y 5xx en lecturas) y
@@ -143,8 +143,3 @@ export async function getSelfShopsDebug(token: EtsyTokenPayload) {
   }
 }
 
-export async function ensureFreshToken(token: EtsyTokenPayload) {
-  const expiresSoon = token.expires_at - Date.now() < 60_000
-  if (!expiresSoon) return token
-  return await refreshEtsyToken(token.refresh_token)
-}

@@ -31,7 +31,10 @@ export function describeClaudeAuthAttempt(request: Request) {
   const token = extractClaudeToken(request)
   return {
     hasAuthorization: authorization !== null,
-    authorizationScheme: authorization ? authorization.trim().split(/\s+/)[0].slice(0, 12) : null,
+    // Solo el esquema si es uno conocido: un token enviado sin «Bearer» no debe llegar al registro.
+    authorizationScheme: authorization
+      ? (/^(bearer|basic|token)$/i.test(authorization.trim().split(/\s+/)[0]) ? authorization.trim().split(/\s+/)[0] : "other")
+      : null,
     tokenLength: token.length,
     serverHashConfigured: Boolean((process.env.CLAUDE_API_TOKEN_SHA256 || "").trim()),
     userAgent: (request.headers.get("user-agent") || "").slice(0, 80),

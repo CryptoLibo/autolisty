@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { rateLimited } from "@/lib/http/rateLimit"
 import { getPasskeyConfig, PasskeyStore } from "@/lib/auth/passkeys"
 import { createSessionToken, SESSION_COOKIE, sessionCookieOptions } from "@/lib/auth/session"
 import { verifyRegistration, WebAuthnError } from "@/lib/auth/webauthn"
@@ -7,6 +8,8 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(request: Request) {
+  const limited = rateLimited(request, "register-verify", 10, 600000)
+  if (limited) return limited
   const body = (await request.json().catch(() => null)) as {
     challengeId?: unknown
     name?: unknown

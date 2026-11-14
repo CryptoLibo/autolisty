@@ -1,5 +1,6 @@
 import { uploadPinterestImage } from "@/lib/r2/uploadPinterestImage"
 import { requireOwnerApi } from "@/lib/auth/owner"
+import { validateUploadTarget } from "@/lib/http/safeFetch"
 
 export async function POST(req: Request) {
   const unauthorized = await requireOwnerApi()
@@ -11,9 +12,11 @@ export async function POST(req: Request) {
   const listingId = String(formData.get("listingId"))
   const filename = String(formData.get("filename"))
 
-  if (!file) {
+  if (!file || typeof file === "string") {
     return new Response("Missing file", { status: 400 })
   }
+  const invalid = validateUploadTarget(listingId, filename)
+  if (invalid) return new Response(invalid, { status: 400 })
 
   const buffer = Buffer.from(await file.arrayBuffer())
 

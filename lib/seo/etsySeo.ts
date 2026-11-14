@@ -1,5 +1,6 @@
 // SEO de Etsy (título, descripción, tags, atributos y alt text). Lo usan la ruta
 // manual /api/generate y el flujo automático del servidor.
+import { fetchAllowed, isEtsyImageUrl, isR2PublicUrl } from "../http/safeFetch"
 import OpenAI from "openai"
 import { keepSuffixWithinLimit } from "./titleLimit"
 import { fillRoomOptions, subjectTargetCount } from "./attributeFill"
@@ -215,7 +216,7 @@ async function fetchRemoteImageAsDataUrl(url: string, label: string) {
     const timeout = setTimeout(() => controller.abort(), REMOTE_IMAGE_TIMEOUT_MS)
 
     try {
-      const response = await fetch(targetUrl, {
+      const response = await fetchAllowed(targetUrl, (candidate) => isR2PublicUrl(candidate) || isEtsyImageUrl(candidate), {
         cache: "no-store",
         signal: controller.signal,
       })

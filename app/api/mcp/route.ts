@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { rateLimited } from "@/lib/http/rateLimit"
 import { authenticateClaudeApi, describeClaudeAuthAttempt } from "@/lib/auth/claudeApi"
 import { listClaudeDesigns, submitClaudeDesign } from "@/lib/automation/claudeDesigns"
 import { handleMcpMessage } from "@/lib/mcp/server"
@@ -24,7 +25,10 @@ function unauthorized(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!authenticateClaudeApi(request)) return unauthorized(request)
+  // Los intentos fallidos cuentan aparte y con un tope mucho menor.
+  if (!authenticateClaudeApi(request)) return rateLimited(request, "mcp-denied", 10, 600_000) ?? unauthorized(request)
+  const limited = rateLimited(request, "mcp", 240, 60_000)
+  if (limited) return limited
 
   const message = await request.json().catch(() => undefined)
   const method = message && typeof message === "object" && "method" in message ? String(message.method) : "?"

@@ -70,5 +70,6 @@ export default async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)"],
+  // Solo se saltan los archivos estáticos por su extensión; cualquier otra ruta con un punto pasa por aquí.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpe?g|gif|webp|svg|ico|css|js|map|txt|xml|webmanifest|woff2?)$).*)"],
 }

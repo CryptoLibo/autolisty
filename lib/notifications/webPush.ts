@@ -10,7 +10,7 @@
 import crypto from "node:crypto"
 import type Database from "better-sqlite3"
 import { getAutomationDatabase } from "../automation/db/database"
-import { decryptCredential, encryptCredential } from "../integrations/credentialVault"
+import { decryptCredentialDetailed, encryptCredential } from "../integrations/credentialVault"
 
 const VAPID_SETTING = "vapid_keys"
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:notifications@autolisty.com"
@@ -27,7 +27,12 @@ export function getVapidKeys(database: Database.Database = getAutomationDatabase
     .get(VAPID_SETTING) as { setting_value: string } | undefined
   if (row) {
     try {
-      return decryptCredential<VapidKeys>("vapid", row.setting_value)
+      const { value, legacy } = decryptCredentialDetailed<VapidKeys>("vapid", row.setting_value)
+      if (legacy) {
+        database.prepare("UPDATE automation_settings SET setting_value = ?, updated_at = ? WHERE setting_key = ?")
+          .run(encryptCredential("vapid", value), new Date().toISOString(), VAPID_SETTING)
+      }
+      return value
     } catch {
       // Clave del servidor cambiada: se generan nuevas y hay que volver a activar el móvil.
     }

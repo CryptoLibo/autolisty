@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { rateLimited } from "@/lib/http/rateLimit"
 import { getPasskeyConfig, isValidSetupCode, PasskeyStore } from "@/lib/auth/passkeys"
 import { getOwnerSession } from "@/lib/auth/ownerSession"
 import { toBase64Url } from "@/lib/auth/webauthn"
@@ -9,6 +10,8 @@ export const dynamic = "force-dynamic"
 // Opciones para registrar un passkey en este dispositivo.
 // Requiere sesión iniciada, o el código de configuración (primer dispositivo / recuperación).
 export async function POST(request: Request) {
+  const limited = rateLimited(request, "register-options", 10, 600000)
+  if (limited) return limited
   const body = (await request.json().catch(() => null)) as { setupCode?: unknown } | null
   const session = await getOwnerSession()
   if (!session && !isValidSetupCode(body?.setupCode)) {

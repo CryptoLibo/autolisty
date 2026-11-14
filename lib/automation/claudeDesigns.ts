@@ -1,3 +1,4 @@
+import { fetchAllowed } from "../http/safeFetch"
 import crypto from "node:crypto"
 import {
   assertPngDesignReady,
@@ -43,10 +44,13 @@ export function toClaudeDesignView(job: AutomationJob) {
 }
 
 async function downloadDesign(url: URL) {
-  const response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(60_000) })
-  if (!isAllowedDesignImageUrl(new URL(response.url))) {
-    throw new DesignSubmissionError("The image URL redirected outside kittl.com.")
-  }
+  const response = await fetchAllowed(url, isAllowedDesignImageUrl, { signal: AbortSignal.timeout(60_000) })
+    .catch((error: unknown) => {
+      if (error instanceof Error && /not allowed/.test(error.message)) {
+        throw new DesignSubmissionError("The image URL redirected outside kittl.com.")
+      }
+      throw error
+    })
   if (!response.ok) throw new DesignSubmissionError(`Could not download the image (HTTP ${response.status}).`)
   const declaredLength = Number(response.headers.get("content-length") || 0)
   if (declaredLength > MAX_DESIGN_SOURCE_BYTES) throw new DesignSubmissionError("The image exceeds 100 MB.")

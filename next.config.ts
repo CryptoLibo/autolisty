@@ -17,9 +17,26 @@ const nextConfig: NextConfig = {
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
           {
+            // Scripts solo del propio sitio (Next necesita los inline de hidratación) y
+            // conexiones del navegador solo a autolisty.com.
             key: "Content-Security-Policy",
-            value: "base-uri 'self'; frame-ancestors 'none'; object-src 'none'",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline'",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: blob: https:",
+              "media-src 'self' blob: https:",
+              "font-src 'self' data:",
+              "connect-src 'self'",
+              "worker-src 'self'",
+              "manifest-src 'self'",
+              "form-action 'self'",
+              "base-uri 'self'",
+              "frame-ancestors 'none'",
+              "object-src 'none'",
+            ].join("; "),
           },
         ],
       },

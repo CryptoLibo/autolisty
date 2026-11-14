@@ -37,6 +37,8 @@ export type PostProductionDeps = {
   syncFile: (draft: DraftRef, input: { url: string; filename: string }) => Promise<void>
   syncVideo: (draft: DraftRef, input: { url: string; name: string }) => Promise<void>
   getListing: (token: EtsyTokenPayload, shopId: number, listingId: string) => Promise<{ state?: string; url?: string } | null>
+  /** Estado actual de un draft en Etsy; null si ya no existe (opcional: valida antes de asignar). */
+  getDraftState?: (token: EtsyTokenPayload, listingId: string) => Promise<{ state: string; taxonomyId: number | null } | null>
   /** Estado de varios listings en una sola llamada a Etsy (opcional). */
   getListingsBatch?: (token: EtsyTokenPayload, listingIds: string[]) => Promise<Map<string, { state?: string; url?: string }>>
   notify?: (input: { title: string; body: string; url?: string | null; tag?: string | null }) => Promise<void>
@@ -48,8 +50,10 @@ export type PostProductionDeps = {
   findBoard: (token: PinterestTokenPayload, name: string) => Promise<{ id: string; name: string } | null>
   publishPin: (
     token: PinterestTokenPayload,
-    input: { boardId: string; title: string; description: string; link: string; imageUrl: string }
+    input: { boardId: string; title: string; description: string; link: string; imageUrl: string; altText?: string }
   ) => Promise<{ pinId: string; boardId: string }>
+  /** Busca en el tablero un pin ya publicado con ese título y enlace (opcional; evita duplicados). */
+  findExistingPin?: (token: PinterestTokenPayload, input: { boardId: string; title: string; link: string }) => Promise<string | null>
   recordPin: (input: { pinId: string; boardId: string; title: string; destinationUrl: string; imageUrl: string }) => void
   now?: () => Date
 }
@@ -57,7 +61,7 @@ export type PostProductionDeps = {
 type PinterestPlan = {
   boardId: string
   boardName: string
-  pins: Array<{ id: string; imageUrl: string; title: string; description: string; pinId: string | null }>
+  pins: Array<{ id: string; imageUrl: string; title: string; description: string; pinId: string | null; publishingAt?: string | null }>
 }
 
 type DraftRef = { token: EtsyTokenPayload; shopId: number; listingId: string }
@@ -212,12 +216,35 @@ function move(ctx: StepContext, to: AutomationJobStatus, message?: string) {
   return ctx.job
 }
 
+/**
+ * Antes de asignar, confirma en Etsy que el draft sigue siendo un draft (no lo borraste ni
+ * publicaste a mano). Los que no cuadran se marcan como inválidos y se prueba el siguiente.
+ */
+async function pickValidDraft(ctx: StepContext) {
+  const repository = ctx.deps.repository
+  if (!ctx.deps.getDraftState) return repository.assignDraftToJob(ctx.job.id)
+  const token = await ctx.deps.getEtsyToken()
+  if (!token) throw new PostProductionError("Etsy no está conectado en Autolisty. Conéctalo y reintenta.")
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const candidate = repository.peekAvailableDraft(ctx.job.productType)
+    if (!candidate) return null
+    const info = await ctx.deps.getDraftState(token, candidate)
+    if (info && info.state === "draft") {
+      return repository.assignDraftToJob(ctx.job.id, { draftId: candidate, taxonomyId: info.taxonomyId })
+    }
+    const reason = info ? `está en estado «${info.state}»` : "ya no existe en Etsy"
+    repository.markDraftInvalid(candidate)
+    repository.recordJobEvent(ctx.job.id, "WARNING", `Draft ${candidate} descartado: ${reason}.`)
+  }
+  return null
+}
+
 async function stepAssignDraft(ctx: StepContext) {
   // Antes de gastar un draft, comprobar que el listing tiene todas sus fotos.
   listingImagesInEtsyOrder(ctx.job, ctx.files, ctx.deps.publicUrl)
   const repository = ctx.deps.repository
   const label = getProductionProductContract(ctx.job.productType).label
-  const draftId = repository.assignDraftToJob(ctx.job.id)
+  const draftId = await pickValidDraft(ctx)
   if (!draftId) {
     // Sin drafts: el listing ESPERA (no es una incidencia) y sigue solo en cuanto
     // añadas drafts. Se avisa una vez por espera.
@@ -424,12 +451,25 @@ async function stepPinterest(ctx: StepContext) {
 
   for (const pin of plan.pins) {
     if (pin.pinId) continue
+    // Si un intento anterior se cortó tras publicar y antes de guardar el id, el pin ya existe.
+    if (pin.publishingAt && ctx.deps.findExistingPin) {
+      const existing = await ctx.deps.findExistingPin(token, { boardId: plan.boardId, title: pin.title, link: etsyUrl })
+      if (existing) {
+        pin.pinId = existing
+        ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan) })!
+        continue
+      }
+    }
+    // Se guarda la intención antes de publicar.
+    pin.publishingAt = (ctx.deps.now?.() ?? new Date()).toISOString()
+    ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan) })!
     const published = await ctx.deps.publishPin(token, {
       boardId: plan.boardId,
       title: pin.title,
       description: pin.description,
       link: etsyUrl,
       imageUrl: pin.imageUrl,
+      altText: pin.title.slice(0, 500),
     })
     pin.pinId = published.pinId
     ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan) })!

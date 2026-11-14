@@ -13,7 +13,7 @@ import {
   Workflow,
   X,
 } from "lucide-react"
-import { signOutOfAutolisty } from "@/app/actions/auth"
+import { signOutEverywhere, signOutOfAutolisty } from "@/app/actions/auth"
 import { AddPasskeyButton } from "@/app/_components/AddPasskeyButton"
 import { SECTION_LABELS, SECTION_PATHS, type AppSection } from "@/lib/sections"
 
@@ -134,6 +134,12 @@ export function AppNav({ active, onNavigate, badges = {} }: Props) {
                     Cerrar sesión
                   </button>
                 </form>
+                <form action={signOutEverywhere}>
+                  <button type="submit" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-neutral-400 transition hover:bg-red-500/10 hover:text-red-200">
+                    <LogOut size={16} aria-hidden="true" />
+                    Cerrar todas las sesiones
+                  </button>
+                </form>
               </div>
             ) : null}
           </div>
@@ -213,6 +219,12 @@ export function AppNav({ active, onNavigate, badges = {} }: Props) {
                 <button type="submit" className="flex h-12 w-full items-center gap-3 rounded-lg px-3 text-[15px] text-neutral-300">
                   <LogOut size={20} aria-hidden="true" />
                   Cerrar sesión
+                </button>
+              </form>
+              <form action={signOutEverywhere}>
+                <button type="submit" className="flex h-12 w-full items-center gap-3 rounded-lg px-3 text-[15px] text-neutral-400">
+                  <LogOut size={20} aria-hidden="true" />
+                  Cerrar todas las sesiones
                 </button>
               </form>
             </div>
