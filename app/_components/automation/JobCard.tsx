@@ -10,6 +10,9 @@ import { buttonDanger, buttonSecondary, card } from "./ui"
 export type QueueJob = AutomationJob & {
   files: AutomationJobFile[]
   sourcePreviewUrl: string
+  /** Lista ligera: el título del SEO y si hay miniatura, ya calculados en el servidor. */
+  seoTitle?: string | null
+  hasThumbnail?: boolean
 }
 
 export type DesignBriefView = {
@@ -29,7 +32,8 @@ export function parseBrief(job: AutomationJob): DesignBriefView | null {
   }
 }
 
-export function seoTitle(job: AutomationJob): string | null {
+export function seoTitle(job: AutomationJob & { seoTitle?: string | null }): string | null {
+  if (job.seoTitle) return job.seoTitle
   if (!job.seoJson) return null
   try {
     return (JSON.parse(job.seoJson) as { title?: string }).title || null
@@ -43,6 +47,7 @@ export function productLabel(productType: ProductType) {
 }
 
 export function hasThumbnail(job: QueueJob) {
+  if (typeof job.hasThumbnail === "boolean") return job.hasThumbnail
   return job.files.some((file) =>
     (file.slotKey === "source:primary" || file.slotKey === "listing:1") && file.r2Key && file.status !== "DELETED"
   )

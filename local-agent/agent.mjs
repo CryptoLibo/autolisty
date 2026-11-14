@@ -4,6 +4,12 @@ import fsp from "node:fs/promises"
 import path from "node:path"
 import { spawn } from "node:child_process"
 
+// Versión del agente: llega en cada latido y se ve en el Dashboard (C3). Súbela al cambiar el agente.
+const AGENT_VERSION = "1.9.0"
+const LOG_MAX_BYTES = 5 * 1024 * 1024
+const UPLOAD_CONCURRENCY = 3
+const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000
+
 const PRODUCT_OUTPUTS = {
   vertical_wall_art: {
     finalFiles: ["2x3.jpg", "3x4.jpg", "4x5.jpg", "11x14.jpg", "5x7ISO.jpg"],
@@ -75,6 +81,9 @@ function createLogger(logPath) {
     const suffix = metadata ? ` ${JSON.stringify(metadata)}` : ""
     const line = `${new Date().toISOString()} ${message}${suffix}`
     process.stdout.write(`${line}\n`)
+    // Rotación (C3): al pasar de 5 MB, agent.log pasa a agent.log.1 (se guarda solo uno anterior).
+    const size = await fsp.stat(logPath).then((stat) => stat.size).catch(() => 0)
+    if (size > LOG_MAX_BYTES) await fsp.rename(logPath, `${logPath}.1`).catch(() => {})
     await fsp.appendFile(logPath, `${line}\r\n`, "utf8").catch(() => {})
   }
 }
@@ -148,7 +157,7 @@ function createApi(config) {
       method: "POST",
       body: JSON.stringify({
         name: config.agentName,
-        capabilities: { autobuildy: true, photoshop: "2026", upscayl: true },
+        capabilities: { autobuildy: true, photoshop: "2026", upscayl: true, version: AGENT_VERSION },
         ...(event ? { event, summary } : {}),
       }),
     }).then((result) => result.body),
@@ -156,7 +165,7 @@ function createApi(config) {
       method: "POST",
       body: JSON.stringify({
         name: config.agentName,
-        capabilities: { autobuildy: true, photoshop: "2026", upscayl: true, localQueue: true },
+        capabilities: { autobuildy: true, photoshop: "2026", upscayl: true, localQueue: true, version: AGENT_VERSION },
         cleanedJobIds,
       }),
     }).then((result) => result.body),
@@ -164,7 +173,7 @@ function createApi(config) {
       method: "POST",
       body: JSON.stringify({
         name: config.agentName,
-        capabilities: { autobuildy: true, photoshop: "2026", upscayl: true },
+        capabilities: { autobuildy: true, photoshop: "2026", upscayl: true, version: AGENT_VERSION },
       }),
     }).then((result) => result.body),
     status: (jobId, status, message, error = "") => request(
@@ -284,7 +293,15 @@ async function uploadFile(api, jobId, file, log) {
   const headers = Object.fromEntries(
     Object.entries(authorization.headers || {}).filter(([name]) => name.toLowerCase() !== "content-length")
   )
-  const response = await fetch(authorization.uploadUrl, { method: "PUT", headers, body })
+  const response = await fetch(authorization.uploadUrl, {
+    method: "PUT",
+    headers,
+    body,
+    signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+  }).catch((error) => {
+    if (error?.name === "TimeoutError") throw new Error(`R2 upload timed out for ${file.relativePath}.`)
+    throw error
+  })
   if (!response.ok) {
     const detail = (await response.text().catch(() => "")).match(/<Code>([^<]+)<\/Code>/)?.[1]
     throw new Error(`R2 upload failed for ${file.relativePath}: HTTP ${response.status}${detail ? ` (${detail})` : ""}.`)
@@ -347,7 +364,15 @@ async function processJob(config, api, claimedJob, statePath, log) {
   if (job.status !== "LOCAL_UPLOADING") {
     await api.status(job.id, "LOCAL_UPLOADING", `${files.length} validated files are ready for R2.`)
   }
-  for (const file of files) await uploadFile(api, job.id, file, log)
+  // 3 subidas a la vez (C3); si una falla, el trabajo falla y se reintenta lo que falte.
+  const pending = [...files]
+  const workers = Array.from({ length: Math.min(UPLOAD_CONCURRENCY, pending.length) }, async () => {
+    while (pending.length) {
+      const file = pending.shift()
+      if (file) await uploadFile(api, job.id, file, log)
+    }
+  })
+  await Promise.all(workers)
   await api.status(job.id, "LOCAL_COMPLETE", "All local outputs were verified in R2.")
 
   await fsp.rm(jobRoot, { recursive: true, force: true })

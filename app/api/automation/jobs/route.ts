@@ -22,16 +22,49 @@ function sourceExtension(contentType: string) {
   return "bin"
 }
 
+function seoTitleOf(seoJson: string | null) {
+  if (!seoJson) return null
+  try {
+    return (JSON.parse(seoJson) as { title?: string }).title || null
+  } catch {
+    return null
+  }
+}
+
+// Fuera de «Por aprobar» basta con la keyword principal y la imagen de Kittl (para «Empezar de nuevo»).
+function compactBrief(briefJson: string | null) {
+  if (!briefJson) return null
+  try {
+    const brief = JSON.parse(briefJson) as { primaryKeyword?: unknown; imageUrl?: unknown; collection?: unknown }
+    return JSON.stringify({ primaryKeyword: brief.primaryKeyword ?? null, imageUrl: brief.imageUrl ?? null, collection: brief.collection ?? null })
+  } catch {
+    return null
+  }
+}
+
 export async function GET() {
   const unauthorized = await requireOwnerApi()
   if (unauthorized) return unauthorized
 
   const repository = new AutomationRepository()
-  const jobs = repository.listJobs(200).map((job) => ({
-    ...job,
-    files: repository.listJobFiles(job.id),
-    sourcePreviewUrl: `/api/automation/jobs/${job.id}/source`,
-  }))
+  // Lista ligera (U7): sin el SEO completo, pines ni lista de archivos; el detalle
+  // (historial) se pide al abrir cada tarjeta.
+  const jobs = repository.listJobs(200).map((job) => {
+    const files = repository.listJobFiles(job.id)
+    const pending = job.status === "PENDING_APPROVAL"
+    return {
+      ...job,
+      seoJson: null,
+      pinterestSeoJson: null,
+      seoTitle: seoTitleOf(job.seoJson),
+      briefJson: pending ? job.briefJson : compactBrief(job.briefJson),
+      sourcePrompt: pending ? job.sourcePrompt : job.sourcePrompt.slice(0, 160),
+      files: [],
+      hasThumbnail: files.some((file) =>
+        (file.slotKey === "source:primary" || file.slotKey === "listing:1") && Boolean(file.r2Key) && file.status !== "DELETED"),
+      sourcePreviewUrl: `/api/automation/jobs/${job.id}/source`,
+    }
+  })
 
   return NextResponse.json({
     jobs,

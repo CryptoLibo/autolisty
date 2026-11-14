@@ -285,7 +285,8 @@ export function DashboardWorkspace({ onOpenAutomation }: { onOpenAutomation: () 
       <CatalogSection catalog={currentCatalog} syncing={syncing} onSync={syncCatalog} /></div>}
     {section === "costs" && <FinancePanel period={period} />}
     {section === "pinterest" && <PinterestAnalyticsPanel data={currentPinterest} syncing={syncingPinterest} onSync={syncPinterest} />}
-    {section === "traffic" && <TrafficPanel data={traffic?.period===period?traffic:null} onSave={saveTraffic} saving={savingTraffic} />}
+    {section === "traffic" && <TrafficPanel data={traffic?.period===period?traffic:null} onSave={saveTraffic} saving={savingTraffic}
+      orders={sales?.period===period && sales.complete ? sales.current?.paid ?? null : null} />}
     {section === "advertising" && <AdvertisingPanel data={advertising?.period===period?advertising:null} />}
   </div>
 }

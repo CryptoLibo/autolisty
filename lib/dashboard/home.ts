@@ -23,13 +23,39 @@ export type DashboardHome = {
   funnel: { submitted: number; approved: number; produced: number; published: number; withSales: number }
   top: Array<{ listingId: number; title: string | null; units: number; revenue: number | null; jobId: string | null }>
   quiet: Array<{ listingId: number; title: string; ageDays: number | null; seasonal: boolean; jobId: string | null }>
+  byProduct: Array<{ productType: string; units: number; revenue: number | null }>
+  costs: {
+    rate: number
+    rows: Array<{
+      listingId: string; productCode: string; title: string | null; jobId: string
+      openaiUsd: number; etsyFeeUsd: number; r2Usd: number; totalUsd: number
+      revenue: number | null; margin: number | null
+    }>
+  }
   lastBackupAt: string | null
   automatyLastSeenAt: string | null
+  agentVersion: string | null
+  credentialsRenewedAt: { etsy: string | null; pinterest: string | null }
   catalogSyncedAt: string | null
   salesSyncedAt: string | null
 }
 
 const SEASONAL = /\b(christmas|xmas|holiday|halloween|thanksgiving|easter|valentine|st\.? patrick|mother'?s day|father'?s day|new year|winter|autumn|fall|spring|summer|fourth of july|4th of july)\b/i
+
+/** Tipo de producto por el título, para listings anteriores a Automation (V2). */
+export function inferProductType(title: string | null) {
+  const text = (title || "").toLowerCase()
+  if (/frame tv|samsung frame|tv art/.test(text)) return "frame_tv_art"
+  if (/nursery|baby|kids room/.test(text)) return "nursery_wall_art"
+  if (/\bpng\b|sublimation|t-?shirt|shirt design/.test(text)) return "png_designs"
+  if (/horizontal|landscape print|panoramic/.test(text)) return "horizontal_wall_art"
+  if (/wall art|print|poster|printable/.test(text)) return "vertical_wall_art"
+  return null
+}
+
+// Costes por listing (V4): tarifa de publicación de Etsy, OpenAI medido y R2 estimado.
+const ETSY_LISTING_FEE_USD = 0.2
+const R2_USD_PER_GB_MONTH = 0.015
 
 export function isSeasonalTitle(title: string) {
   return SEASONAL.test(title)
@@ -141,10 +167,83 @@ export function getDashboardHome(
     jobId: jobIdOf(row.listingId),
   }))
 
+  // Ventas por tipo de producto (V2).
+  const productOf = db.prepare("SELECT product_type FROM automation_jobs WHERE etsy_draft_id = ? ORDER BY created_at DESC LIMIT 1")
+  const byProductMap = new Map<string, { productType: string; units: number; revenue: number | null }>()
+  if (sales.productReady && shop) {
+    const rows = db.prepare(`
+      SELECT t.listing_id AS listingId, t.currency_code AS currency, SUM(t.quantity) AS units,
+        SUM(t.price_amount * t.quantity * 1.0 / t.price_divisor) AS lineTotal
+      FROM dashboard_etsy_transactions t JOIN dashboard_etsy_receipts r ON r.shop_id = t.shop_id AND r.receipt_id = t.receipt_id
+      WHERE t.shop_id = ? AND r.created_timestamp >= ? AND r.created_timestamp < ? AND r.status IN ('paid', 'completed')
+      GROUP BY t.listing_id, t.currency_code
+    `).all(shop.shop_id, w.from, w.end) as Array<{ listingId: number | null; currency: string | null; units: number; lineTotal: number | null }>
+    for (const row of rows) {
+      const fromJob = row.listingId != null ? (productOf.get(String(row.listingId)) as { product_type: string } | undefined)?.product_type : undefined
+      const title = row.listingId != null ? (titleOf.get(row.listingId) as { title: string } | undefined)?.title ?? null : null
+      const key = fromJob ?? inferProductType(title) ?? "other"
+      const entry = byProductMap.get(key) ?? { productType: key, units: 0, revenue: currency ? 0 : null }
+      entry.units += row.units
+      if (entry.revenue != null) entry.revenue = currency && row.currency === currency && row.lineTotal != null ? entry.revenue + row.lineTotal : null
+      byProductMap.set(key, entry)
+    }
+  }
+
+  // Coste y margen de los listings publicados por Automation (últimos 50).
+  const rate = Number(process.env.COST_USD_TO_SHOP_RATE || (currency === "USD" ? 1 : 0.86))
+  const costRows = db.prepare(`
+    SELECT j.id AS jobId, j.product_code AS productCode, j.etsy_draft_id AS listingId, j.created_at AS createdAt,
+      (SELECT COALESCE(SUM(f.byte_size), 0) FROM automation_job_files f WHERE f.job_id = j.id AND f.status != 'DELETED') AS bytes,
+      (SELECT GROUP_CONCAT(e.metadata_json, '\u001f') FROM automation_job_events e WHERE e.job_id = j.id AND e.event_type = 'OPENAI_USAGE') AS usage,
+      (SELECT SUM(t.price_amount * t.quantity * 1.0 / t.price_divisor) FROM dashboard_etsy_transactions t
+        JOIN dashboard_etsy_receipts r ON r.shop_id = t.shop_id AND r.receipt_id = t.receipt_id
+        WHERE CAST(t.listing_id AS TEXT) = j.etsy_draft_id AND r.status IN ('paid', 'completed')
+          AND (? IS NULL OR t.currency_code = ?)) AS revenue
+    FROM automation_jobs j
+    WHERE j.etsy_draft_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM automation_job_events e WHERE e.job_id = j.id AND e.to_status = 'ETSY_ACTIVE')
+    ORDER BY j.created_at DESC LIMIT 50
+  `).all(currency, currency) as Array<{ jobId: string; productCode: string; listingId: string; createdAt: string; bytes: number; usage: string | null; revenue: number | null }>
+  const costs = costRows.map((row) => {
+    let openaiUsd = 0
+    for (const chunk of (row.usage || "").split("\u001f").filter(Boolean)) {
+      try {
+        openaiUsd += Number((JSON.parse(chunk) as { costUsd?: number }).costUsd || 0)
+      } catch {
+        // evento dañado: no suma
+      }
+    }
+    const months = Math.max(1, (now.getTime() - Date.parse(row.createdAt)) / (30 * 86_400_000))
+    const r2Usd = (row.bytes / 1e9) * R2_USD_PER_GB_MONTH * months
+    const totalUsd = openaiUsd + ETSY_LISTING_FEE_USD + r2Usd
+    const revenue = currency ? row.revenue ?? 0 : null
+    return {
+      listingId: row.listingId,
+      productCode: row.productCode,
+      title: (titleOf.get(Number(row.listingId)) as { title: string } | undefined)?.title ?? null,
+      jobId: row.jobId,
+      openaiUsd,
+      etsyFeeUsd: ETSY_LISTING_FEE_USD,
+      r2Usd,
+      totalUsd,
+      revenue,
+      margin: revenue == null ? null : revenue - totalUsd * rate,
+    }
+  })
+
   const setting = (key: string) =>
     (db.prepare("SELECT setting_value FROM automation_settings WHERE setting_key = ?").get(key) as { setting_value: string } | undefined)
       ?.setting_value ?? null
-  const agent = db.prepare("SELECT MAX(last_seen_at) AS lastSeen FROM automation_agents").get() as { lastSeen: string | null } | undefined
+  const agent = db.prepare("SELECT last_seen_at AS lastSeen, capabilities_json AS capabilities FROM automation_agents ORDER BY last_seen_at DESC LIMIT 1")
+    .get() as { lastSeen: string | null; capabilities: string | null } | undefined
+  let agentVersion: string | null = null
+  try {
+    agentVersion = agent?.capabilities ? String((JSON.parse(agent.capabilities) as { version?: unknown }).version ?? "") || null : null
+  } catch {
+    agentVersion = null
+  }
+  const renewedAt = (provider: string) =>
+    (db.prepare("SELECT updated_at FROM integration_credentials WHERE provider = ?").get(provider) as { updated_at: string } | undefined)?.updated_at ?? null
 
   return {
     period,
@@ -176,8 +275,12 @@ export function getDashboardHome(
     },
     top,
     quiet,
+    byProduct: [...byProductMap.values()].sort((a, b) => b.units - a.units),
+    costs: { rate, rows: costs },
     lastBackupAt: setting("backup.last_at"),
     automatyLastSeenAt: agent?.lastSeen ?? null,
+    agentVersion,
+    credentialsRenewedAt: { etsy: renewedAt("etsy"), pinterest: renewedAt("pinterest") },
     catalogSyncedAt: catalog.lastSuccessAt ?? null,
     salesSyncedAt: sales.lastSuccessAt,
   }

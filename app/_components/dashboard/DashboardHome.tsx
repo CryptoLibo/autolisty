@@ -11,6 +11,14 @@ type Home = HomeData & {
 
 const card = "rounded-xl border border-white/[0.08] bg-[#141416]"
 
+const PRODUCT_LABELS: Record<string, string> = {
+  frame_tv_art: "Frame TV Art",
+  vertical_wall_art: "Vertical Wall Art",
+  horizontal_wall_art: "Horizontal Wall Art",
+  nursery_wall_art: "Nursery Wall Art",
+  png_designs: "PNG Designs",
+}
+
 function money(value: number, currency: string, digits = 0) {
   return new Intl.NumberFormat("es-ES", { style: "currency", currency, maximumFractionDigits: digits, minimumFractionDigits: digits }).format(value)
 }
@@ -254,13 +262,89 @@ export function DashboardHome({ period, reloadId }: { period: DashboardPeriod; r
         </section>
       </div>
 
+      <div className="grid gap-5 lg:grid-cols-[minmax(280px,1fr)_minmax(0,1.7fr)]">
+        <section aria-label="Ventas por producto" className={`p-5 ${card}`}>
+          <h2 className="mb-4 text-[15px] font-semibold text-neutral-100">Ventas por producto</h2>
+          {data.byProduct.length ? (
+            <div className="space-y-3.5">
+              {data.byProduct.map((item) => {
+                const max = Math.max(...data.byProduct.map((entry) => entry.units), 1)
+                return (
+                  <div key={item.productType}>
+                    <div className="flex justify-between gap-3 text-[13px]">
+                      <span className="text-neutral-300">{PRODUCT_LABELS[item.productType] || "Otros"}</span>
+                      <span className="text-neutral-100">
+                        <span className="font-semibold">{item.units} uds</span>
+                        {item.revenue != null && currency ? <span className="text-neutral-400"> · {money(item.revenue, currency)}</span> : null}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-2 rounded-full bg-white/[0.06]">
+                      <div className="h-2 rounded-full bg-[#eeba2b]" style={{ width: `${(item.units / max) * 100}%` }} />
+                    </div>
+                  </div>
+                )
+              })}
+              <p className="text-[11px] text-neutral-500">Los listings anteriores a Automation se clasifican por su título.</p>
+            </div>
+          ) : <p className="py-6 text-sm text-neutral-400">Sin ventas con detalle de producto en este periodo.</p>}
+        </section>
+
+        <section aria-label="Coste y margen por listing" className={`p-5 ${card}`}>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-[15px] font-semibold text-neutral-100">Coste y margen por listing</h2>
+            <span
+              className="text-neutral-500"
+              title={`Coste = tarifa de publicación de Etsy (0,20 $) + OpenAI medido + R2 estimado, convertido a ${currency || "la moneda de la tienda"} a ${data.costs.rate}. Ingresos brutos de siempre; no descuenta las comisiones de venta de Etsy.`}
+              aria-label="Cómo se calcula"
+            >
+              <Info size={14} aria-hidden="true" />
+            </span>
+          </div>
+          <p className="mb-2 mt-0.5 text-xs text-neutral-500">Listings publicados por Automation</p>
+          {data.costs.rows.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-left text-[13px]">
+                <thead className="text-xs text-neutral-500">
+                  <tr>
+                    <th scope="col" className="py-2 font-normal">Listing</th>
+                    <th scope="col" className="py-2 text-right font-normal">OpenAI</th>
+                    <th scope="col" className="py-2 text-right font-normal">Coste total</th>
+                    <th scope="col" className="py-2 text-right font-normal">Ingresos</th>
+                    <th scope="col" className="py-2 text-right font-normal">Margen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.costs.rows.slice(0, 12).map((row) => (
+                    <tr key={row.jobId} className="border-t border-white/[0.06]">
+                      <td className="max-w-[220px] py-2 pr-3">
+                        <a href={`https://www.etsy.com/listing/${row.listingId}`} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 text-neutral-200 hover:text-[#f1cc61]">
+                          <Thumb jobId={row.jobId} size="h-8 w-8" />
+                          <span className="truncate">{row.title || row.productCode}</span>
+                        </a>
+                      </td>
+                      <td className="py-2 text-right text-neutral-400">{money(row.openaiUsd, "USD", 3)}</td>
+                      <td className="py-2 text-right text-neutral-300">{money(row.totalUsd, "USD", 2)}</td>
+                      <td className="py-2 text-right text-neutral-200">{row.revenue != null && currency ? money(row.revenue, currency, 2) : "—"}</td>
+                      <td className={`py-2 text-right font-semibold ${row.margin == null ? "text-neutral-500" : row.margin >= 0 ? "text-emerald-300" : "text-orange-300"}`}>
+                        {row.margin != null && currency ? money(row.margin, currency, 2) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <p className="py-6 text-sm text-neutral-400">Todavía no hay listings publicados por Automation.</p>}
+        </section>
+      </div>
+
       <section aria-label="Salud del sistema" className="flex flex-wrap gap-x-5 gap-y-2 border-t border-white/[0.07] pt-4 text-[13px] text-neutral-400">
         <span><span className={data.health.etsyConnected ? "text-emerald-400" : "text-red-400"} aria-hidden="true">● </span>Etsy {data.health.etsyConnected ? "conectado" : "sin conectar"}</span>
         <span><span className={data.health.pinterestConnected ? "text-emerald-400" : "text-red-400"} aria-hidden="true">● </span>Pinterest {data.health.pinterestConnected ? "conectado" : "sin conectar"}</span>
         <span>Llamadas a Etsy hoy: {count(data.health.etsyCallsToday)}</span>
         <span>Pedidos sincronizados {ago(data.salesSyncedAt)}</span>
         <span>Última copia {ago(data.lastBackupAt)}</span>
-        <span>Automaty visto {ago(data.automatyLastSeenAt)}</span>
+        <span>Token de Etsy renovado {ago(data.credentialsRenewedAt.etsy)}</span>
+        <span>Automaty visto {ago(data.automatyLastSeenAt)}{data.agentVersion ? ` · v${data.agentVersion}` : ""}</span>
         {data.health.appVersion ? <span>Versión {data.health.appVersion}</span> : null}
       </section>
     </div>
