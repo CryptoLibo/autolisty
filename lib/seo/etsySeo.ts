@@ -1,6 +1,8 @@
 // SEO de Etsy (título, descripción, tags, atributos y alt text). Lo usan la ruta
 // manual /api/generate y el flujo automático del servidor.
 import { fetchAllowed, isEtsyImageUrl, isR2PublicUrl } from "../http/safeFetch"
+import { readR2Object } from "../r2/readObject"
+import { currentPublicUrl, privateKeyFromPublicUrl } from "../r2/privateKey"
 import OpenAI from "openai"
 import { recordOpenAiUsage } from "./openaiUsage"
 import { keepSuffixWithinLimit } from "./titleLimit"
@@ -227,6 +229,15 @@ async function fetchRemoteImageAsDataUrl(url: string, label: string) {
     const timeout = setTimeout(() => controller.abort(), REMOTE_IMAGE_TIMEOUT_MS)
 
     try {
+      // Entregables y otros prefijos privados de R2: por la API de R2, nunca por el dominio
+      // público (que los bloquea con 403).
+      const privateKey = privateKeyFromPublicUrl(currentPublicUrl(targetUrl))
+      if (privateKey) {
+        const object = await readR2Object(privateKey)
+        const prepared = await prepareImageForModel(object.fileBuffer, object.contentType || "image/jpeg")
+        return toDataUrl(prepared.buffer, prepared.contentType)
+      }
+
       const response = await fetchAllowed(targetUrl, (candidate) => isR2PublicUrl(candidate) || isEtsyImageUrl(candidate), {
         cache: "no-store",
         signal: controller.signal,
