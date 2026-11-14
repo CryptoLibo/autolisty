@@ -138,7 +138,22 @@ export async function applyFixedAttributes({ token, shopId, listingId }: DraftRe
 }
 
 /** Sustituye todas las imágenes del draft por las indicadas (en el orden de rank). */
-export async function syncDraftImages({ token, shopId, listingId }: DraftRef, mockups: DraftSyncMockup[]) {
+export async function syncDraftImages(
+  { token, shopId, listingId }: DraftRef,
+  mockups: DraftSyncMockup[],
+  progress?: { uploadedRanks: number[]; onUploaded: (rank: number) => void }
+) {
+  const alreadyUploaded = new Set(progress?.uploadedRanks || [])
+  // Reintento a medias: las fotos de esta pasada ya están en Etsy; solo faltan las demás.
+  if (alreadyUploaded.size > 0) {
+    for (const mockup of mockups) {
+      if (alreadyUploaded.has(mockup.rank)) continue
+      await uploadOneImage({ token, shopId, listingId }, mockup)
+      progress?.onUploaded(mockup.rank)
+    }
+    return
+  }
+
   let existingImages: EtsyExistingImage[] = []
   try {
     existingImages = await listListingImages(token, shopId, listingId)
@@ -158,21 +173,26 @@ export async function syncDraftImages({ token, shopId, listingId }: DraftRef, mo
   }
 
   for (const mockup of mockups) {
-    try {
-      const asset = await fetchAsset(mockup.url)
-      await uploadListingImage({
-        token,
-        shopId,
-        listingId,
-        fileBuffer: asset.fileBuffer,
-        contentType: asset.contentType,
-        filename: getFilenameFromUrl(mockup.url, `mockup-${mockup.rank}.jpg`),
-        rank: mockup.rank,
-        altText: mockup.altText,
-      })
-    } catch (error) {
-      throw wrapStepError(`Failed while uploading Etsy mockup image at position ${mockup.rank}`, error)
-    }
+    await uploadOneImage({ token, shopId, listingId }, mockup)
+    progress?.onUploaded(mockup.rank)
+  }
+}
+
+async function uploadOneImage({ token, shopId, listingId }: DraftRef, mockup: DraftSyncMockup) {
+  try {
+    const asset = await fetchAsset(mockup.url)
+    await uploadListingImage({
+      token,
+      shopId,
+      listingId,
+      fileBuffer: asset.fileBuffer,
+      contentType: asset.contentType,
+      filename: getFilenameFromUrl(mockup.url, `mockup-${mockup.rank}.jpg`),
+      rank: mockup.rank,
+      altText: mockup.altText,
+    })
+  } catch (error) {
+    throw wrapStepError(`Failed while uploading Etsy mockup image at position ${mockup.rank}`, error)
   }
 }
 

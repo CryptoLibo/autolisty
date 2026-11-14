@@ -151,7 +151,9 @@ describe("post-production worker", () => {
 
     const resumed = await advanceJob(repository.getJob(job.id)!, deps)
     expect(resumed.status).toBe("WAITING_ETSY_REVIEW")
-    expect(deps.generateSeo).toHaveBeenCalledTimes(1)
+    // 2 = la generación y su única regeneración por la comprobación final (el SEO de prueba no
+    // cumple las reglas); el reintento de las fotos no vuelve a generar el SEO.
+    expect(deps.generateSeo).toHaveBeenCalledTimes(2)
   })
 
   it("detecta la publicación y publica los 3 pines en el tablero del producto", async () => {

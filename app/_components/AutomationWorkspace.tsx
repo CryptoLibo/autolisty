@@ -479,6 +479,19 @@ export function AutomationWorkspace() {
     }
   }
 
+  async function checkReviewNow() {
+    try {
+      const response = await fetch("/api/automation/review-check", { method: "POST" })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "No se pudo comprobar.")
+      setMessageTone("success")
+      setMessage(`Comprobando ${data.count} ${data.count === 1 ? "draft" : "drafts"} en Etsy en el próximo minuto.`)
+    } catch (error) {
+      setMessageTone("error")
+      setMessage(error instanceof Error ? error.message : "No se pudo comprobar.")
+    }
+  }
+
   async function approveSelected() {
     const chosen = pendingApproval.filter((job) => selectedIds.includes(job.id))
     if (!chosen.length) return
@@ -706,6 +719,13 @@ export function AutomationWorkspace() {
           />
         )
       ) : tabJobs.length ? (
+        <>
+        {currentTab === "review" ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-neutral-400">Al publicarlos en Etsy, Autolisty lo detecta solo (cada 5 min por la tarde, cada 30 el resto del día).</p>
+            <button type="button" onClick={() => void checkReviewNow()} className={buttonSecondary}>Comprobar ahora</button>
+          </div>
+        ) : null}
         <section aria-label={STAGE_TABS.find((item) => item.id === currentTab)?.label} className="grid gap-3 lg:grid-cols-2">
           {tabJobs.map((job) => (
             <JobCard
@@ -723,6 +743,7 @@ export function AutomationWorkspace() {
             />
           ))}
         </section>
+        </>
       ) : (
         <EmptyState
           title={{

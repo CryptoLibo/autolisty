@@ -1,10 +1,21 @@
 // Textos de los pines de Pinterest. Lo usan la ruta manual y el flujo automático.
 import OpenAI from "openai"
+import { recordOpenAiUsage } from "./openaiUsage"
 
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
+  // Tiempo máximo explícito por llamada (E3) y pocos reintentos del propio SDK.
+  timeout: 180_000,
+  maxRetries: 2,
 })
+
+/** Llamada a OpenAI que anota tokens y coste en el trabajo en curso. */
+async function createResponse(params: OpenAI.Responses.ResponseCreateParamsNonStreaming) {
+  const response = await client.responses.create(params)
+  recordOpenAiUsage(response.usage)
+  return response
+}
 
 function cleanText(value: unknown) {
   return String(value || "").replace(/\s+/g, " ").trim()
@@ -106,8 +117,9 @@ Return JSON in this exact shape:
 }
 `
 
-    const response = await client.responses.create({
+    const response = await createResponse({
       model: "gpt-5.4-mini",
+      text: { format: { type: "json_object" } },
       temperature: 0.4,
       input: [
         {

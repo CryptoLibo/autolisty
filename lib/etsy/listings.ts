@@ -1,3 +1,4 @@
+import { isFormatError } from "./attributes";
 import { EtsyTokenPayload } from "./auth";
 import { etsyFetch, getSelfShops } from "./client";
 
@@ -89,10 +90,10 @@ export async function updateShopListingText({
     description,
   };
 
-  const attempts = [true, false];
+  const first = preferredTagSyntax;
   let lastError = "Failed to update Etsy listing.";
 
-  for (const useArraySyntax of attempts) {
+  for (const useArraySyntax of [first, !first]) {
     const response = await etsyFetch(
       `/application/shops/${shopId}/listings/${listingId}`,
       token,
@@ -106,14 +107,19 @@ export async function updateShopListingText({
     );
 
     if (response.ok) {
+      preferredTagSyntax = useArraySyntax;
       return await response.json();
     }
 
     lastError = await parseEtsyError(response, lastError);
+    // Solo se repite con la otra sintaxis si el fallo es de formato (E2).
+    if (!isFormatError(response.status, lastError)) break;
   }
 
   throw new Error(lastError);
 }
+
+let preferredTagSyntax = true;
 
 export async function listListingImages(
   token: EtsyTokenPayload,

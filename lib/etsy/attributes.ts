@@ -37,12 +37,34 @@ export type EtsyListingProperty = {
   values?: string[];
 };
 
+let preferredArraySyntax = true;
+
+/** Un 400 que habla del formato de los valores: merece probar la otra sintaxis. */
+export function isFormatError(status: number, message: string) {
+  return status === 400 && /value_ids|values|tags|array|expected|format|parameter/i.test(message);
+}
+
 async function parseEtsyError(response: Response, fallback: string) {
   const message = await response.text();
   return message || fallback;
 }
 
+// Las opciones de una categoría casi nunca cambian: se guardan 24 h (E2).
+const TAXONOMY_TTL_MS = 24 * 60 * 60 * 1000;
+const taxonomyCache = new Map<number, { at: number; properties: EtsyTaxonomyProperty[] }>();
+
 export async function getSellerTaxonomyProperties(
+  token: EtsyTokenPayload,
+  taxonomyId: number
+) {
+  const cached = taxonomyCache.get(taxonomyId);
+  if (cached && Date.now() - cached.at < TAXONOMY_TTL_MS) return cached.properties;
+  const properties = await fetchSellerTaxonomyProperties(token, taxonomyId);
+  taxonomyCache.set(taxonomyId, { at: Date.now(), properties });
+  return properties;
+}
+
+async function fetchSellerTaxonomyProperties(
   token: EtsyTokenPayload,
   taxonomyId: number
 ) {
@@ -126,17 +148,20 @@ export async function updateListingProperty({
     );
   }
 
-  const attempts = [true, false];
+  // Primero la sintaxis que funcionó la última vez; la otra solo si Etsy rechaza el formato.
+  const first = preferredArraySyntax;
   let lastError = `Failed to update Etsy property ${propertyId}.`;
 
-  for (const useArraySyntax of attempts) {
+  for (const useArraySyntax of [first, !first]) {
     const response = await send(useArraySyntax);
 
     if (response.ok) {
+      preferredArraySyntax = useArraySyntax;
       return await response.json();
     }
 
     lastError = await parseEtsyError(response, lastError);
+    if (!isFormatError(response.status, lastError)) break;
   }
 
   throw new Error(lastError);

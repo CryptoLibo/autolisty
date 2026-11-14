@@ -978,6 +978,13 @@ export class AutomationRepository {
     return rows.map(mapJob)
   }
 
+  /** «Comprobar ahora»: los drafts que esperan tu revisión se consultan en el próximo minuto. */
+  checkReviewNow() {
+    return this.database.prepare(
+      "UPDATE automation_jobs SET next_attempt_at = ? WHERE status = 'WAITING_ETSY_REVIEW'"
+    ).run(new Date().toISOString()).changes
+  }
+
   /** El draft disponible más antiguo de un producto, sin asignarlo. */
   peekAvailableDraft(productType: string) {
     const row = this.database.prepare(`

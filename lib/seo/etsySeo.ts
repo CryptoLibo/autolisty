@@ -2,6 +2,7 @@
 // manual /api/generate y el flujo automático del servidor.
 import { fetchAllowed, isEtsyImageUrl, isR2PublicUrl } from "../http/safeFetch"
 import OpenAI from "openai"
+import { recordOpenAiUsage } from "./openaiUsage"
 import { keepSuffixWithinLimit } from "./titleLimit"
 import { fillRoomOptions, subjectTargetCount } from "./attributeFill"
 import fs from "fs"
@@ -15,7 +16,17 @@ import { shouldGenerateEtsyAttribute } from "./attributeRules"
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
+  // Tiempo máximo explícito por llamada (E3) y pocos reintentos del propio SDK.
+  timeout: 180_000,
+  maxRetries: 2,
 })
+
+/** Llamada a OpenAI que anota tokens y coste en el trabajo en curso. */
+async function createResponse(params: OpenAI.Responses.ResponseCreateParamsNonStreaming) {
+  const response = await client.responses.create(params)
+  recordOpenAiUsage(response.usage)
+  return response
+}
 
 const REMOTE_IMAGE_TIMEOUT_MS = 30000
 const REMOTE_IMAGE_MAX_RETRIES = 2
@@ -1468,7 +1479,7 @@ async function fillMissingAltTexts({
     if (!image) throw new Error(`Alt text missing for image ${item.position} and its image is not available.`)
     let altText = ""
     for (let attempt = 0; attempt < 2 && !altText; attempt += 1) {
-      const response = await client.responses.create({
+      const response = await createResponse({
         model: "gpt-5.4-mini",
         temperature: 0.2,
         input: [
@@ -1586,8 +1597,9 @@ Return JSON in this exact shape:
 }
 `
 
-  const response = await client.responses.create({
+  const response = await createResponse({
     model: "gpt-5.4-mini",
+    text: { format: { type: "json_object" } },
     temperature: 0.2,
     input: [
       {
@@ -1944,8 +1956,9 @@ Return JSON in this exact shape:
       ]),
     ]
 
-    const response = await client.responses.create({
+    const response = await createResponse({
       model: "gpt-5.4-mini",
+    text: { format: { type: "json_object" } },
       temperature: 0.2,
       input: [
         {

@@ -13,6 +13,9 @@
 // falla, el trabajo vuelve a ese estado y el paso se ejecuta de nuevo entero.
 // Los 3 pines se publican seguidos al detectar la publicación en Etsy, y se
 // guarda cada id al momento: un reintento nunca duplica un pin ya publicado.
+import { reviewPollDelayMs } from "./reviewPolling"
+import { checkSeoResult } from "../seo/seoCheck"
+import { withOpenAiUsage, type OpenAiUsage } from "../seo/openaiUsage"
 import type { EtsyTokenPayload } from "../etsy/auth"
 import { FIXED_ETSY_ATTRIBUTES } from "../etsy/fixedAttributes"
 import type { PinterestTokenPayload } from "../pinterest/auth"
@@ -33,7 +36,11 @@ export type PostProductionDeps = {
   generateSeo: (input: GenerateEtsySeoInput) => Promise<EtsySeoResult>
   buildDeliveryPdf: (productType: ProductType, productCode: string) => Promise<{ url: string }>
   syncText: (draft: DraftRef, input: { title: string; description: string; tags: string[]; attributes: DraftSyncAttribute[]; fixedAttributes?: Record<string, string[]> }) => Promise<void>
-  syncImages: (draft: DraftRef, mockups: DraftSyncMockup[]) => Promise<void>
+  syncImages: (
+    draft: DraftRef,
+    mockups: DraftSyncMockup[],
+    progress?: { uploadedRanks: number[]; onUploaded: (rank: number) => void }
+  ) => Promise<void>
   syncFile: (draft: DraftRef, input: { url: string; filename: string }) => Promise<void>
   syncVideo: (draft: DraftRef, input: { url: string; name: string }) => Promise<void>
   getListing: (token: EtsyTokenPayload, shopId: number, listingId: string) => Promise<{ state?: string; url?: string } | null>
@@ -85,9 +92,8 @@ export const POST_PRODUCTION_STATUSES = [
 
 const SERVER_STATUSES = new Set<AutomationJobStatus>(POST_PRODUCTION_STATUSES)
 
-// Etsy: comprobar cada 5 minutos si ya publicaste los drafts. Todos los que
-// esperan se consultan juntos en UNA llamada (getListingsByListingIds).
-const ETSY_REVIEW_POLL_MS = 5 * 60_000
+// Etsy: comprobar si ya publicaste los drafts (cada 5 min en tus horas de revisión, cada 30
+// el resto; ver reviewPolling). Todos los que esperan se consultan juntos en UNA llamada.
 const MAX_AUTOMATIC_RETRIES = 3
 /** Al quedar exactamente estos drafts de un producto se avisa (una vez por bajada). */
 export const LOW_DRAFT_STOCK = 5
@@ -239,6 +245,12 @@ async function pickValidDraft(ctx: StepContext) {
   return null
 }
 
+/** Tokens y coste de OpenAI del paso, para el coste por listing del Dashboard (V4). */
+function recordUsage(ctx: StepContext, step: "seo" | "pinterest", usage: OpenAiUsage) {
+  if (!usage.calls) return
+  ctx.deps.repository.recordJobEvent(ctx.job.id, "OPENAI_USAGE", JSON.stringify({ step, ...usage }))
+}
+
 async function stepAssignDraft(ctx: StepContext) {
   // Antes de gastar un draft, comprobar que el listing tiene todas sus fotos.
   listingImagesInEtsyOrder(ctx.job, ctx.files, ctx.deps.publicUrl)
@@ -277,7 +289,7 @@ async function stepSeo(ctx: StepContext) {
   if (ctx.job.status === "DRAFT_ASSIGNED") move(ctx, "SEO_GENERATING")
   const images = listingImagesInEtsyOrder(ctx.job, ctx.files, ctx.deps.publicUrl)
   const design = designFileForSeo(ctx.job, ctx.files)
-  const seo = await ctx.deps.generateSeo({
+  const generate = () => withOpenAiUsage(() => ctx.deps.generateSeo({
     productType: ctx.job.productType,
     draftListingId: ctx.job.etsyDraftId!,
     designUrl: ctx.deps.publicUrl(design.r2Key!),
@@ -289,7 +301,27 @@ async function stepSeo(ctx: StepContext) {
     listingId: ctx.job.productCode,
     keywordResearch: keywordResearchFromBrief(ctx.job.briefJson),
     shopLessons: ctx.deps.getLessons?.(ctx.job.productType) ?? [],
-  })
+  }))
+  const first = await generate()
+  let seo = first.result
+  recordUsage(ctx, "seo", first.usage)
+  // Comprobación final (E4): si algo no cumple las reglas, se regenera una vez y se queda
+  // la versión con menos avisos. El resultado queda en el historial del listing.
+  let issues = checkSeoResult(seo, { productCode: ctx.job.productCode })
+  if (issues.length) {
+    const retry = await generate()
+    recordUsage(ctx, "seo", retry.usage)
+    const retryIssues = checkSeoResult(retry.result, { productCode: ctx.job.productCode })
+    if (retryIssues.length < issues.length) {
+      seo = retry.result
+      issues = retryIssues
+    }
+  }
+  ctx.deps.repository.recordJobEvent(
+    ctx.job.id,
+    "SEO_CHECK",
+    issues.length ? `Comprobación final: ${issues.length} aviso(s) — ${issues.join(" ")}` : "Comprobación final: todo correcto."
+  )
   ctx.deps.repository.updatePostProductionFields(ctx.job.id, { seoJson: JSON.stringify(seo) })
   move(ctx, "SEO_READY", `SEO generado: ${seo.title}`)
 }
@@ -331,17 +363,39 @@ async function stepEtsyText(ctx: StepContext) {
   move(ctx, "ETSY_MEDIA_SYNCING", "Título, descripción, tags y atributos en Etsy.")
 }
 
+/**
+ * Fotos ya subidas en la pasada actual por Etsy: las anotadas desde la última vez que el
+ * trabajo ENTRÓ en ETSY_MEDIA_SYNCING desde un paso anterior (no desde un reintento).
+ */
+export function uploadedImageRanks(events: Array<{ eventType: string; fromStatus: string | null; toStatus: string | null; message: string | null }>) {
+  let start = -1
+  events.forEach((event, index) => {
+    if (event.toStatus === "ETSY_MEDIA_SYNCING" && event.fromStatus !== "RETRY_WAIT" && event.fromStatus !== "NEEDS_ATTENTION") start = index
+  })
+  if (start < 0) return []
+  return [...new Set(events.slice(start + 1)
+    .filter((event) => event.eventType === "IMAGE_UPLOADED")
+    .map((event) => Number(event.message))
+    .filter((rank) => Number.isInteger(rank) && rank > 0))]
+}
+
 async function stepEtsyMedia(ctx: StepContext) {
   const seo = parseSeo(ctx.job)
   const altById = new Map((seo.media || []).map((item) => [item.id, item.alt_text]))
   const images = listingImagesInEtsyOrder(ctx.job, ctx.files, ctx.deps.publicUrl)
+  // En un reintento solo se suben las fotos que faltan (E2): cada foto subida queda anotada.
+  const uploadedRanks = uploadedImageRanks(ctx.deps.repository.listJobEvents(ctx.job.id))
   await ctx.deps.syncImages(
     await etsyDraft(ctx),
     images.map((image) => ({
       url: image.url,
       rank: image.position,
       altText: fixedImageAltText(ctx.job.productType, image.slot) ?? altById.get(image.id),
-    }))
+    })),
+    {
+      uploadedRanks,
+      onUploaded: (rank) => ctx.deps.repository.recordJobEvent(ctx.job.id, "IMAGE_UPLOADED", String(rank)),
+    }
   )
   move(ctx, "ETSY_FILE_SYNCING", `${images.length} fotos subidas a Etsy.`)
 }
@@ -381,7 +435,7 @@ function waitForReview(ctx: StepContext, message: string) {
   const now = (ctx.deps.now || (() => new Date()))()
   ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, {
     etsyState: "draft",
-    nextAttemptAt: new Date(now.getTime() + ETSY_REVIEW_POLL_MS).toISOString(),
+    nextAttemptAt: new Date(now.getTime() + reviewPollDelayMs(now)).toISOString(),
   })!
 }
 
@@ -400,7 +454,7 @@ async function stepCheckPublished(ctx: StepContext) {
   const now = (ctx.deps.now || (() => new Date()))()
   ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, {
     etsyState: state || null,
-    nextAttemptAt: new Date(now.getTime() + ETSY_REVIEW_POLL_MS).toISOString(),
+    nextAttemptAt: new Date(now.getTime() + reviewPollDelayMs(now)).toISOString(),
   })!
 }
 
@@ -424,14 +478,15 @@ async function stepPinterest(ctx: StepContext) {
       return { id: `pin-${index}`, url: ctx.deps.publicUrl(file.r2Key) }
     })
     const seo = parseSeo(ctx.job)
-    const copy = await ctx.deps.generatePinCopy({
+    const { result: copy, usage } = await withOpenAiUsage(() => ctx.deps.generatePinCopy({
       productType: ctx.job.productType,
       listingTitle: seo.title,
       listingDescription: seo.description_final,
       listingKeywords: [...briefKeywords(ctx.job.briefJson), ...seo.description_keywords_5],
       destinationLink: etsyUrl,
       pins: images,
-    })
+    }))
+    recordUsage(ctx, "pinterest", usage)
     plan = {
       boardId: board.id,
       boardName: board.name,
