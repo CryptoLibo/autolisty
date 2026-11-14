@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Scripts de Photoshop (ExtendScript), no JavaScript moderno.
+    "scripts/**/*.jsx",
   ]),
 ]);
 
