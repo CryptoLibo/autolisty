@@ -27,7 +27,9 @@ describe("contexto para Claude", () => {
   })
 
   it("avisos al enviar un diseño", () => {
-    expect(submissionWarnings({ primaryKeyword: null, tagCandidates: [{ keyword: "an extremely long tag phrase" }] }).join(" "))
-      .toMatch(/primaryKeyword.*20 characters.*Only 1/s)
+    const warnings = submissionWarnings({ primaryKeyword: null, tagCandidates: [{ keyword: "an extremely long tag phrase" }] }).join(" ")
+    expect(warnings).toMatch(/primaryKeyword/)
+    expect(warnings).toMatch(/20 characters/)
+    expect(warnings).toMatch(/Only 1/)
   })
 })
