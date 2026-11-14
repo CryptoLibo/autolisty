@@ -20,6 +20,9 @@ export type McpToolHandlers = {
   getStatus?: () => Promise<unknown> | unknown
   listFeedback?: (input: { sinceDays?: number; limit?: number }) => Promise<unknown> | unknown
   getSalesByListing?: (input: { period?: "7d" | "30d" | "90d"; limit?: number }) => Promise<unknown> | unknown
+  viewListingImages?: (input: { productCode?: unknown; ranks?: unknown }) => Promise<{ productCode: string; images: Array<{ rank: number; mimeType: string; data: string }> }>
+  saveReviewReport?: (input: Record<string, unknown>) => Promise<unknown> | unknown
+  listReviewReports?: (input: { limit?: number }) => Promise<unknown> | unknown
 }
 
 export class McpToolInputError extends Error {}
@@ -121,7 +124,7 @@ export const MCP_TOOLS = [
     name: "edit_listing",
     title: "Correct an Etsy listing (owner-authorized only)",
     description:
-      "Change the title, description, tags, photo alt texts and/or attributes (colors, room, home style, subject, holiday…) of one listing on Etsy. Use it ONLY after the owner explicitly approved these specific corrections in the conversation (review with review_listing first, propose, wait for the owner's yes). Only send the fields that change. Every edit is logged with before, after and your reason, to learn from it, and the owner gets a phone notification.",
+      "Change the title, description, tags, photo alt texts and/or attributes (colors, room, home style, subject, holiday…) of one listing on Etsy. Two allowed uses: (1) in a conversation, ONLY after the owner explicitly approved these specific corrections (review with review_listing first, propose, wait for the owner's yes); (2) during the owner's daily scheduled draft review, with scheduledReview=true, which the server only allows on drafts waiting for review (never published listings). Only send the fields that change. Every edit is logged with before, after and your reason, and the owner gets a phone notification. Never publish.",
     inputSchema: {
       type: "object",
       properties: {
@@ -149,6 +152,7 @@ export const MCP_TOOLS = [
           },
         },
         reason: { type: "string", description: "What was wrong and why the change is better (logged as feedback)." },
+        scheduledReview: { type: "boolean", description: "true only when running the daily scheduled draft review (drafts only)." },
       },
       required: ["productCode", "reason"],
     },
@@ -190,7 +194,7 @@ export const MCP_TOOLS = [
     name: "list_feedback",
     title: "List owner feedback",
     description:
-      "Compact learning feed: the owner's rejection notes on your designs, the listing corrections you made with edit_listing (fields and reason) and the warnings of Autolisty's final SEO check. Use it before a new batch and before proposing lessons.",
+      "Compact learning feed: the owner's rejection notes on your designs, the listing corrections you made with edit_listing (fields and reason) and the results of the daily scheduled draft review. Use it before a new batch and before proposing lessons.",
     inputSchema: {
       type: "object",
       properties: {
@@ -212,6 +216,56 @@ export const MCP_TOOLS = [
         limit: { type: "integer", minimum: 1, maximum: 200, description: "Listings to return; default 50." },
       },
     },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "view_listing_images",
+    title: "View a listing's photos",
+    description:
+      "Return the photos of one listing as images (Etsy's 570px versions), in rank order, so you can check colors, subject, mockups and alt texts against what is really shown. Optionally only some ranks (e.g. [1,2] for the cover and the Artwork Preview). Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productCode: { type: "string", description: 'e.g. "LBCreaStudio-FT733P".' },
+        ranks: { type: "array", items: { type: "integer", minimum: 1, maximum: 20 }, maxItems: 12 },
+      },
+      required: ["productCode"],
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  {
+    name: "save_review_report",
+    title: "Save the daily draft review report",
+    description:
+      "At the end of the daily scheduled draft review, save the report: a summary, and for each reviewed draft the changes you made and the problems you found, plus the patterns that repeat (what the SEO generator should learn). Every listed draft is marked as reviewed and the owner gets a notification. Call it once per run, also when nothing needed changes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        summary: { type: "string", minLength: 10, maxLength: 4000, description: "In Spanish: what was reviewed, what was corrected, what stays for the owner." },
+        listings: {
+          type: "array",
+          maxItems: 100,
+          items: {
+            type: "object",
+            properties: {
+              productCode: { type: "string" },
+              changes: { type: "array", items: { type: "string" }, description: "Each change: field, before → after, why." },
+              issues: { type: "array", items: { type: "string" }, description: "Problems found (also those you did not change and why)." },
+            },
+            required: ["productCode"],
+          },
+        },
+        patterns: { type: "array", items: { type: "string" }, description: "Repeated SEO problems across listings, phrased as rules to improve the generator." },
+      },
+      required: ["summary", "listings"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: "list_review_reports",
+    title: "List daily draft review reports",
+    description: "The latest daily draft review reports (newest first): summary, per-listing changes and issues, and repeated patterns. Use it to analyze with the owner what the SEO generator must improve.",
+    inputSchema: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 60, description: "Default 7." } } },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
 ] as const
@@ -274,6 +328,25 @@ export async function handleMcpMessage(message: unknown, tools: McpToolHandlers)
           const since = typeof args.since === "string" ? args.since : null
           const detail = args.detail === "full" ? "full" : "summary"
           return result(id, toolResult({ designs: await tools.listDesigns({ status, limit, offset, since, detail }) }))
+        }
+        if (call.name === "view_listing_images" && tools.viewListingImages) {
+          const { productCode, images } = await tools.viewListingImages({ productCode: args.productCode, ranks: args.ranks })
+          return result(id, {
+            content: [
+              { type: "text", text: `${productCode}: ${images.length} photo(s), ranks ${images.map((image) => image.rank).join(", ")}.` },
+              ...images.flatMap((image) => [
+                { type: "text", text: `Rank ${image.rank}:` },
+                { type: "image", data: image.data, mimeType: image.mimeType },
+              ]),
+            ],
+          })
+        }
+        if (call.name === "save_review_report" && tools.saveReviewReport) {
+          return result(id, toolResult({ report: await tools.saveReviewReport(args) }))
+        }
+        if (call.name === "list_review_reports" && tools.listReviewReports) {
+          const limit = args.limit === undefined ? undefined : Number(args.limit)
+          return result(id, toolResult({ reports: await tools.listReviewReports({ limit }) }))
         }
         if (call.name === "list_feedback" && tools.listFeedback) {
           const sinceDays = args.sinceDays === undefined ? undefined : Number(args.sinceDays)

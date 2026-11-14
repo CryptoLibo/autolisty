@@ -8,6 +8,8 @@ import { editListingDraft } from "@/lib/automation/draftEdit"
 import { SeoLessonStore } from "@/lib/automation/seoLessons"
 import { getProductionStatus } from "@/lib/automation/statusSummary"
 import { getSalesByListing, listFeedback } from "@/lib/automation/claudeInsights"
+import { getListingImages } from "@/lib/automation/listingImages"
+import { parseReviewReport, ReviewReportStore } from "@/lib/automation/reviewReports"
 import { notifyOwner } from "@/lib/notifications/webPush"
 
 export const runtime = "nodejs"
@@ -64,6 +66,19 @@ export async function POST(request: Request) {
     getStatus: () => getProductionStatus(),
     listFeedback: (input) => listFeedback(input),
     getSalesByListing: (input) => getSalesByListing(input),
+    viewListingImages: (input) => getListingImages(input),
+    saveReviewReport: async (input) => {
+      const report = new ReviewReportStore().save(parseReviewReport(input))
+      const changed = report.listings.filter((listing) => listing.changes.length).length
+      await notifyOwner({
+        title: "Revisión diaria de drafts lista",
+        body: `${report.listings.length} draft(s) revisados, ${changed} con cambios.${report.patterns.length ? ` ${report.patterns.length} patrón(es) para mejorar el SEO.` : ""}`,
+        url: "/automation",
+        tag: `review-report-${report.id}`,
+      }).catch(() => {})
+      return report
+    },
+    listReviewReports: (input) => new ReviewReportStore().list(input.limit ?? 7),
   })
   if (method === "tools/list" && response && "result" in response) {
     const tools = (response.result as { tools?: Array<{ name: string }> }).tools || []

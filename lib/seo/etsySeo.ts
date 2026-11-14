@@ -676,6 +676,52 @@ function buildPrintableWallArtTitle(
 }
 
 
+
+/** Palabras del título sin el sufijo «| (Digital Download)». */
+export function titlePrefixWordCount(title: string, suffix: string) {
+  return cleanText(title).replace(new RegExp(`${escapeRegex(suffix)}$`, "i"), "")
+    .replace(/\s*\|?\s*\(?\s*digital download\s*\)?\s*$/i, "")
+    .replace(/[|]/g, " ").split(/\s+/).filter(Boolean).length
+}
+
+/**
+ * Si el título pasa del límite de palabras, se pide a la IA que lo acorte quitando frases
+ * completas (nunca cortar a mitad de frase: «Christmas Living», «Forest Cozy»). Si la
+ * respuesta no sirve, queda el recorte mecánico de normalizeTitle como último recurso.
+ */
+async function fitTitleToWordLimit(rawTitle: string, productConfig: ProductConfig) {
+  const title = cleanText(rawTitle)
+  const suffix = getTitleSuffix(productConfig)
+  const maxWords = productConfig?.title_rules?.word_rules?.max_words ?? 15
+  const suffixWords = suffix.replace(/[()|]/g, "").split(/\s+/).filter(Boolean).length
+  const target = maxWords - suffixWords
+  if (!title || titlePrefixWordCount(title, suffix) <= target) return title
+  try {
+    const response = await createResponse({
+      model: "gpt-5.4-mini",
+      temperature: 0.2,
+      input: [
+        {
+          role: "system",
+          content: [{
+            type: "input_text",
+            text: `You shorten Etsy listing titles. Return ONLY the new title.
+Rules: exactly ${target} words before the final "${suffix}" (which must stay exactly as is at the end); remove whole phrases or filler words, never leave a phrase cut in half (no dangling words like "Living", "Cozy", "Decor" at the end of a block); keep the first block (the main search phrase) intact; keep one comma separating the blocks; no word repeated; Title Case.`,
+          }],
+        },
+        { role: "user", content: [{ type: "input_text", text: title }] },
+      ],
+    })
+    const shortened = cleanText(response.output_text || "").replace(/^["']|["']$/g, "")
+    if (shortened && titlePrefixWordCount(shortened, suffix) <= target) {
+      return shortened
+    }
+  } catch (error) {
+    console.warn("[seo] title shortening failed; using mechanical trim:", error instanceof Error ? error.message : error)
+  }
+  return title
+}
+
 function normalizeTitle(
   rawTitle: unknown,
   productConfig: ProductConfig,
@@ -2001,7 +2047,7 @@ Return JSON in this exact shape:
       cleanText(parsed.title) || buildTitleFromComponents(parsed.title_components || {}, productConfig)
 
     const title = normalizeTitle(
-      titleBase,
+      await fitTitleToWordLimit(titleBase, productConfig),
       productConfig,
       titleComponents,
       productConfig?.title_rules?.word_rules?.min_words ?? 13,
@@ -2057,7 +2103,7 @@ Return JSON in this exact shape:
     })
 
     const polishedTitle = normalizeTitle(
-      polished.title,
+      await fitTitleToWordLimit(polished.title, productConfig),
       productConfig,
       titleComponents,
       productConfig?.title_rules?.word_rules?.min_words ?? 13,

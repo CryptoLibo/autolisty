@@ -5,7 +5,7 @@ import type { DashboardPeriod } from "../dashboard/overview"
 
 // Contexto para Claude por MCP: aprendizaje (M3) y ventas reales de la tienda (M4).
 
-/** Rechazos con nota, correcciones de Claude y avisos de la comprobación final, en compacto. */
+/** Rechazos con nota, correcciones de Claude y resultados de la revisión diaria, en compacto. */
 export function listFeedback(
   options: { sinceDays?: number; limit?: number } = {},
   database: Database.Database = getAutomationDatabase()
@@ -40,14 +40,14 @@ export function listFeedback(
     return { productCode: row.productCode, productType: row.productType, fields, reason, at: row.at }
   })
 
-  const seoWarnings = database.prepare(`
+  const scheduledReviews = database.prepare(`
     SELECT j.product_code AS productCode, j.product_type AS productType, e.message, e.created_at AS at
     FROM automation_job_events e JOIN automation_jobs j ON j.id = e.job_id
-    WHERE e.event_type = 'SEO_CHECK' AND e.message NOT LIKE '%todo correcto%' AND e.created_at >= ?
+    WHERE e.event_type = 'SCHEDULED_REVIEW' AND e.created_at >= ?
     ORDER BY e.created_at DESC LIMIT ?
   `).all(since, limit) as Array<{ productCode: string; productType: string; message: string; at: string }>
 
-  return { sinceDays, rejections, edits, seoWarnings }
+  return { sinceDays, rejections, edits, scheduledReviews }
 }
 
 /** Ventas por listing y por producto con los datos ya sincronizados del Dashboard (sin créditos de Alura). */

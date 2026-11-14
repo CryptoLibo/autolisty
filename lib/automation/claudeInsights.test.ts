@@ -13,12 +13,11 @@ describe("contexto para Claude", () => {
     repository.transitionJob(job.id, "PENDING_APPROVAL")
     repository.reviewJob(job.id, "reject", "Colores apagados")
     repository.recordJobEvent(job.id, "CLAUDE_EDIT", "edit", { reason: "Room incompleto", changes: { "attribute:Room": {} } })
-    repository.recordJobEvent(job.id, "SEO_CHECK", "Comprobación final: 1 aviso(s) — Faltan los colores.")
-    repository.recordJobEvent(job.id, "SEO_CHECK", "Comprobación final: todo correcto.")
+    repository.recordJobEvent(job.id, "SCHEDULED_REVIEW", "Revisión diaria: 1 cambio(s).")
     const feedback = listFeedback({}, db)
     expect(feedback.rejections[0]).toMatchObject({ note: "Colores apagados" })
     expect(feedback.edits[0]).toMatchObject({ fields: ["attribute:Room"], reason: "Room incompleto" })
-    expect(feedback.seoWarnings).toHaveLength(1)
+    expect(feedback.scheduledReviews).toHaveLength(1)
   })
 
   it("ventas: sin pedidos sincronizados no inventa nada", () => {

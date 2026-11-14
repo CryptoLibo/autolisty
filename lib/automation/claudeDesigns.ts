@@ -11,6 +11,7 @@ import {
 } from "./designIntake"
 import { AutomationRepository } from "./repository"
 import { submissionWarnings } from "./designIntake"
+import { ReviewReportStore } from "./reviewReports"
 import { AUTOMATION_JOB_STATUSES, type AutomationJob, type AutomationJobStatus } from "./types"
 import { deleteAutomationSource, uploadAutomationSource } from "../r2/automationSources"
 import { deleteListingAssets } from "../r2/deleteListingAssets"
@@ -75,6 +76,7 @@ export function listClaudeDesigns(options: ListDesignsOptions = {}) {
     since: options.since ? new Date(options.since).toISOString() : null,
   })
   if (options.detail === "full") return jobs.map(toClaudeDesignView)
+  const reviewed = new ReviewReportStore().lastReviewedAt(jobs.map((job) => job.productCode))
   // Resumen (M5): sin el brief completo.
   return jobs.map((job) => {
     const view = toClaudeDesignView(job)
@@ -88,6 +90,8 @@ export function listClaudeDesigns(options: ListDesignsOptions = {}) {
       reviewNote: view.reviewNote,
       lastError: view.lastError,
       etsyUrl: view.etsyUrl,
+      etsyDraftId: job.etsyDraftId,
+      lastScheduledReviewAt: reviewed.get(job.productCode) ?? null,
       createdAt: view.createdAt,
     }
   })

@@ -14,7 +14,6 @@
 // Los 3 pines se publican seguidos al detectar la publicación en Etsy, y se
 // guarda cada id al momento: un reintento nunca duplica un pin ya publicado.
 import { reviewPollDelayMs } from "./reviewPolling"
-import { checkSeoResult } from "../seo/seoCheck"
 import { withOpenAiUsage, type OpenAiUsage } from "../seo/openaiUsage"
 import type { EtsyTokenPayload } from "../etsy/auth"
 import { FIXED_ETSY_ATTRIBUTES } from "../etsy/fixedAttributes"
@@ -302,26 +301,8 @@ async function stepSeo(ctx: StepContext) {
     keywordResearch: keywordResearchFromBrief(ctx.job.briefJson),
     shopLessons: ctx.deps.getLessons?.(ctx.job.productType) ?? [],
   }))
-  const first = await generate()
-  let seo = first.result
-  recordUsage(ctx, "seo", first.usage)
-  // Comprobación final (E4): si algo no cumple las reglas, se regenera una vez y se queda
-  // la versión con menos avisos. El resultado queda en el historial del listing.
-  let issues = checkSeoResult(seo, { productCode: ctx.job.productCode })
-  if (issues.length) {
-    const retry = await generate()
-    recordUsage(ctx, "seo", retry.usage)
-    const retryIssues = checkSeoResult(retry.result, { productCode: ctx.job.productCode })
-    if (retryIssues.length < issues.length) {
-      seo = retry.result
-      issues = retryIssues
-    }
-  }
-  ctx.deps.repository.recordJobEvent(
-    ctx.job.id,
-    "SEO_CHECK",
-    issues.length ? `Comprobación final: ${issues.length} aviso(s) — ${issues.join(" ")}` : "Comprobación final: todo correcto."
-  )
+  const { result: seo, usage } = await generate()
+  recordUsage(ctx, "seo", usage)
   ctx.deps.repository.updatePostProductionFields(ctx.job.id, { seoJson: JSON.stringify(seo) })
   move(ctx, "SEO_READY", `SEO generado: ${seo.title}`)
 }

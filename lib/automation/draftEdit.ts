@@ -19,6 +19,8 @@ export type ListingEditInput = {
   altTexts?: unknown
   attributes?: unknown
   reason?: unknown
+  /** true = lo hace la revisión diaria programada: solo se permite en drafts. */
+  scheduledReview?: unknown
 }
 
 function optionalString(value: unknown, field: string, max: number) {
@@ -103,6 +105,10 @@ export async function editListingDraft(input: ListingEditInput) {
   if (!token) throw new Error("Etsy is not connected in Autolisty.")
   const shopId = Number((await getPrimaryShop(token)).shop_id)
   const listing = await getShopListing(token, shopId, job.etsyDraftId)
+  // La revisión diaria corrige sin preguntar, pero SOLO drafts: nunca un listing publicado.
+  if (input.scheduledReview === true && (job.status !== "WAITING_ETSY_REVIEW" || String(listing?.state || "") !== "draft")) {
+    throw new Error(`${productCode} is not a draft waiting for review (status ${job.status}, Etsy state ${String(listing?.state || "?")}); the scheduled review only edits drafts.`)
+  }
 
   const before = {
     title: String(listing?.title || ""),
@@ -176,7 +182,7 @@ export async function editListingDraft(input: ListingEditInput) {
     }
   }
 
-  repository.recordJobEvent(job.id, "CLAUDE_EDIT", `Claude edited ${Object.keys(changes).join(", ")}: ${edit.reason}`, {
+  repository.recordJobEvent(job.id, "CLAUDE_EDIT", `${input.scheduledReview === true ? "[revisión diaria] " : ""}Claude edited ${Object.keys(changes).join(", ")}: ${edit.reason}`, {
     reason: edit.reason,
     changes,
   })

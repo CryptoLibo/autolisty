@@ -930,6 +930,18 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_seo_lessons_status ON seo_lessons(status, product_type);
     `,
   },
+  {
+    // Informes de la revisión diaria de drafts (tarea programada de Claude).
+    version: 26,
+    sql: `
+      CREATE TABLE IF NOT EXISTS review_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        summary TEXT NOT NULL,
+        report_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {
