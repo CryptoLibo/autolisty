@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { openAutomationDatabase } from "./db/database"
 import { AutomationRepository } from "./repository"
-import { alertAgentLifecycle, alertNewPendingDesigns, alertStalledLocalJobs, parseAgentLifecycle } from "./ownerAlerts"
+import { alertAgentLifecycle, alertDraftsReady, alertNewPendingDesigns, alertStalledLocalJobs, parseAgentLifecycle } from "./ownerAlerts"
 
 function setup() {
   const database = openAutomationDatabase(":memory:")
@@ -106,6 +106,49 @@ describe("alertStalledLocalJobs", () => {
 
     // No repite el aviso.
     expect(await alertStalledLocalJobs(database, notify, new Date("2026-11-11T10:40:00.000Z"))).toEqual([])
+    expect(notify).toHaveBeenCalledTimes(1)
+  })
+
+  it("no avisa por los listings que solo esperan en la cola, y agrupa los que están a medias", async () => {
+    const { database, repository, notify } = setup()
+    database.prepare("INSERT INTO automation_agents (id, name, status, last_seen_at, created_at, updated_at) VALUES ('agent-1', 'Automaty', 'OFFLINE', ?, ?, ?)")
+      .run("2026-11-11T09:10:00.000Z", "2026-11-11T09:00:00.000Z", "2026-11-11T09:10:00.000Z")
+    const place = (status: string) => {
+      const job = repository.createJob({ productType: "frame_tv_art", sourcePrompt: "x" })
+      database.prepare("UPDATE automation_jobs SET status = ?, local_agent_id = 'agent-1', updated_at = ? WHERE id = ?")
+        .run(status, "2026-11-11T09:05:00.000Z", job.id)
+      return job
+    }
+    for (let index = 0; index < 20; index += 1) place("LOCAL_CLAIMED")
+    expect(await alertStalledLocalJobs(database, notify, new Date("2026-11-11T12:00:00.000Z"))).toEqual([])
+    expect(notify).not.toHaveBeenCalled()
+
+    place("LOCAL_BUILDING")
+    place("LOCAL_UPLOADING")
+    expect(await alertStalledLocalJobs(database, notify, new Date("2026-11-11T12:00:00.000Z"))).toHaveLength(2)
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: "Automaty dejó de responder", body: expect.stringContaining("2 listings") }))
+  })
+})
+
+describe("alertDraftsReady", () => {
+  it("un aviso por tanda de drafts listos, cuando dejan de llegar", async () => {
+    const { database, repository, notify } = setup()
+    expect(await alertDraftsReady(database, notify, new Date("2026-11-14T10:00:00.000Z"))).toBeNull()
+    const ready = (at: string) => {
+      const job = repository.createJob({ productType: "frame_tv_art", sourcePrompt: "x" })
+      database.prepare("UPDATE automation_jobs SET status = 'WAITING_ETSY_REVIEW' WHERE id = ?").run(job.id)
+      database.prepare("INSERT INTO automation_job_events (job_id, event_type, from_status, to_status, created_at) VALUES (?, 'STATUS_CHANGED', 'UPLOADING_VIDEO', 'WAITING_ETSY_REVIEW', ?)")
+        .run(job.id, at)
+    }
+    ready("2026-11-14T10:05:00.000Z")
+    ready("2026-11-14T10:12:00.000Z")
+    ready("2026-11-14T10:20:00.000Z")
+    // Aún llegan: espera.
+    expect(await alertDraftsReady(database, notify, new Date("2026-11-14T10:25:00.000Z"))).toBeNull()
+    const notification = await alertDraftsReady(database, notify, new Date("2026-11-14T10:31:00.000Z"))
+    expect(notification).toMatchObject({ title: "3 drafts nuevos en Etsy", body: "3 drafts esperan tu revisión." })
+    expect(await alertDraftsReady(database, notify, new Date("2026-11-14T11:31:00.000Z"))).toBeNull()
     expect(notify).toHaveBeenCalledTimes(1)
   })
 })

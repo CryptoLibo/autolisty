@@ -599,26 +599,8 @@ const EDIT_DRAFT_URL = (listingId: string) => `https://www.etsy.com/your/shops/m
 
 /** Avisos al móvil cuando hay algo que hacer o algo terminado. */
 export function notificationFor(job: AutomationJob): { title: string; body: string; url: string | null; tag: string } | null {
-  if (job.status === "WAITING_ETSY_REVIEW") {
-    let title = ""
-    try { title = job.seoJson ? (JSON.parse(job.seoJson) as EtsySeoResult).title : "" } catch { title = "" }
-    return {
-      title: "Draft listo para revisar en Etsy",
-      body: `${job.productCode}${title ? ` · ${title}` : ""}`,
-      url: job.etsyDraftId ? EDIT_DRAFT_URL(job.etsyDraftId) : "/automation",
-      tag: `draft-${job.productCode}`,
-    }
-  }
-  if (job.status === "COMPLETED") {
-    let board = ""
-    try { board = job.pinterestSeoJson ? (JSON.parse(job.pinterestSeoJson) as PinterestPlan).boardName : "" } catch { board = "" }
-    return {
-      title: "Listing completado",
-      body: `${job.productCode}: publicado en Etsy y pines en Pinterest${board ? ` ("${board}")` : ""}.`,
-      url: job.etsyUrl || "/automation",
-      tag: `done-${job.productCode}`,
-    }
-  }
+  // Solo incidencias, una por listing. Los drafts listos se avisan por tandas
+  // (alertDraftsReady) y un listing completado no avisa: lo publicaste tú.
   if (job.status === "NEEDS_ATTENTION") {
     return {
       title: "Un listing necesita atención",

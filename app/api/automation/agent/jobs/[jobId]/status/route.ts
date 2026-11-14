@@ -80,7 +80,16 @@ export async function PATCH(
 
     if (nextStatus === "NEEDS_ATTENTION") {
       const notification = notificationFor(updated)
-      if (notification) await notifyOwner({ ...notification, title: "Automaty necesita atención" })
+      if (notification) {
+        const paused = repository.getPipelineMode() === "PAUSED"
+        await notifyOwner({
+          ...notification,
+          title: paused ? "Automaty en pausa: varios fallos seguidos" : "Un diseño falló; Automaty sigue con el resto",
+          body: paused
+            ? `${notification.body} Revisa las incidencias y pulsa «Reanudar producción» en Automation.`
+            : notification.body,
+        })
+      }
     }
 
     return NextResponse.json({ ok: true, job: updated })

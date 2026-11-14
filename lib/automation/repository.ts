@@ -110,6 +110,8 @@ export const LOCAL_PRODUCTION_STATUSES: AutomationJobStatus[] = [
   "LOCAL_UPLOADING",
 ]
 const PRODUCTION_BLOCKING_STATUSES: AutomationJobStatus[] = LOCAL_PRODUCTION_STATUSES
+/** Fallos locales seguidos (en listings distintos) que pausan la producción. */
+export const LOCAL_FAILURES_TO_PAUSE = 3
 
 // LOCAL_CLAIMED = sincronizado a la cola local de Automaty, aún sin empezar.
 const LOCAL_IN_PROGRESS_STATUSES: AutomationJobStatus[] = ["LOCAL_BUILDING", "LOCAL_VALIDATING", "LOCAL_UPLOADING"]
@@ -806,6 +808,24 @@ export class AutomationRepository {
     if (result.changes !== 1) throw new Error("Temporary source is not available for deletion.")
   }
 
+  /** Listings distintos que han fallado en Automaty seguidos, desde el último terminado en local. */
+  consecutiveLocalFailures() {
+    const localStatuses = LOCAL_PRODUCTION_STATUSES.map((status) => `'${status}'`).join(", ")
+    const rows = this.database.prepare(`
+      SELECT job_id AS jobId, to_status AS toStatus FROM automation_job_events
+      WHERE event_type = 'STATUS_CHANGED'
+        AND (to_status = 'LOCAL_COMPLETE' OR (to_status = 'NEEDS_ATTENTION' AND from_status IN (${localStatuses})))
+      ORDER BY id DESC
+      LIMIT 50
+    `).all() as Array<{ jobId: string; toStatus: string }>
+    const failed = new Set<string>()
+    for (const row of rows) {
+      if (row.toStatus === "LOCAL_COMPLETE") break
+      failed.add(row.jobId)
+    }
+    return failed.size
+  }
+
   getPipelineMode(): AutomationPipelineMode {
     const row = this.database
       .prepare("SELECT setting_value FROM automation_settings WHERE setting_key = ?")
@@ -841,7 +861,7 @@ export class AutomationRepository {
       SELECT 1 AS found
       FROM automation_jobs
       WHERE status IN (${placeholders})
-         OR (status IN ('RETRY_WAIT', 'NEEDS_ATTENTION') AND resume_status IN (${placeholders}))
+         OR (status = 'RETRY_WAIT' AND resume_status IN (${placeholders}))
       LIMIT 1
     `).get(...PRODUCTION_BLOCKING_STATUSES, ...PRODUCTION_BLOCKING_STATUSES) as
       | { found: number }
@@ -946,10 +966,11 @@ export class AutomationRepository {
         ) VALUES (?, 'STATUS_CHANGED', ?, ?, ?, ?)
       `).run(jobId, current.status, nextStatus, options.message || null, now)
 
-      // Un fallo en Automaty (Photoshop, Upscayl, archivos) pausa la producción local
-      // para no repetir el error en toda la cola. Los fallos de pasos de servidor no.
+      // Un diseño que falla en Automaty no detiene la cola: queda en incidencias y se
+      // sigue con el siguiente. Solo se pausa si fallan LOCAL_FAILURES_TO_PAUSE listings
+      // distintos seguidos sin ningún éxito entre medias (Photoshop o Upscayl rotos).
       if (nextStatus === "NEEDS_ATTENTION" && LOCAL_PRODUCTION_STATUSES.includes(resumeStatus as AutomationJobStatus)) {
-        this.setPipelineMode("PAUSED")
+        if (this.consecutiveLocalFailures() >= LOCAL_FAILURES_TO_PAUSE) this.setPipelineMode("PAUSED")
       }
 
       return this.getJob(jobId)!

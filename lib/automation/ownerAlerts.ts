@@ -155,39 +155,78 @@ export async function alertAgentLifecycle(
 /** Sin latido de Automaty durante este tiempo con un listing a medias = posible caída. */
 export const STALLED_LOCAL_JOB_MS = 15 * 60_000
 
+/** A medias de verdad. LOCAL_CLAIMED es solo "en la cola de Automaty, sin empezar": no cuenta. */
+const LOCAL_IN_PROGRESS = ["LOCAL_BUILDING", "LOCAL_VALIDATING", "LOCAL_UPLOADING"]
+
 /**
- * Vigilante: listings en producción local cuyo agente lleva STALLED_LOCAL_JOB_MS sin
- * latido (PC apagado, sin red o agente caído). Avisa una sola vez por listing; el
- * estado no cambia, para que el agente pueda retomarlo al volver.
+ * Vigilante: listings a medias en Automaty cuyo agente lleva STALLED_LOCAL_JOB_MS sin
+ * latido (PC apagado, sin red o agente caído). Un solo aviso para todos, y nunca dos
+ * veces por el mismo listing; el estado no cambia, para que el agente lo retome al volver.
  */
 export async function alertStalledLocalJobs(database: Database.Database, notify: OwnerNotify, now = new Date()) {
   const cutoff = new Date(now.getTime() - STALLED_LOCAL_JOB_MS).toISOString()
   const stalled = database.prepare(`
-    SELECT j.id, j.product_code AS productCode, a.last_seen_at AS lastSeenAt
+    SELECT j.id, j.product_code AS productCode
     FROM automation_jobs j
     LEFT JOIN automation_agents a ON a.id = j.local_agent_id
-    WHERE j.status IN (${LOCAL_QUEUE_STATUSES.filter((status) => status !== "QUEUED_LOCAL").map(() => "?").join(", ")})
+    WHERE j.status IN (${LOCAL_IN_PROGRESS.map(() => "?").join(", ")})
       AND j.updated_at < ?
       AND (a.last_seen_at IS NULL OR a.last_seen_at < ?)
       AND NOT EXISTS (
         SELECT 1 FROM automation_job_events e
         WHERE e.job_id = j.id AND e.event_type = 'STALLED_ALERT' AND e.created_at > j.updated_at
       )
-  `).all(...LOCAL_QUEUE_STATUSES.filter((status) => status !== "QUEUED_LOCAL"), cutoff, cutoff) as Array<{ id: string; productCode: string; lastSeenAt: string | null }>
+  `).all(...LOCAL_IN_PROGRESS, cutoff, cutoff) as Array<{ id: string; productCode: string }>
+  if (!stalled.length) return []
 
-  for (const job of stalled) {
-    database.prepare(`
-      INSERT INTO automation_job_events (job_id, event_type, message, created_at)
-      VALUES (?, 'STALLED_ALERT', ?, ?)
-    `).run(job.id, "Automaty dejó de responder con este listing a medias.", now.toISOString())
-    await notify({
-      title: `${job.productCode} parado en Automaty`,
-      body: "Automaty dejó de responder a mitad de la producción. Si no vuelve solo, reinícialo desde Automation.",
-      url: "/automation",
-      tag: `stalled-${job.productCode}`,
-    }).catch(() => {})
-  }
+  const record = database.prepare(`
+    INSERT INTO automation_job_events (job_id, event_type, message, created_at)
+    VALUES (?, 'STALLED_ALERT', ?, ?)
+  `)
+  for (const job of stalled) record.run(job.id, "Automaty dejó de responder con este listing a medias.", now.toISOString())
+  await notify({
+    title: "Automaty dejó de responder",
+    body: `${stalled.length === 1 ? stalled[0].productCode : `${stalled.length} listings`} a medias. Si no vuelve solo, reinícialo desde Automation.`,
+    url: "/automation",
+    tag: "automaty-stalled",
+  }).catch(() => {})
   return stalled.map((job) => job.productCode)
+}
+
+const DRAFTS_READY_CURSOR_KEY = "alerts.drafts_ready_cursor"
+/** Se espera a que dejen de llegar drafts antes de avisar (un aviso por tanda, no por listing). */
+export const DRAFTS_READY_SETTLE_MS = 10 * 60_000
+
+/**
+ * Un aviso por tanda de drafts que pasan a esperar tu revisión en Etsy, cuando la
+ * tanda lleva DRAFTS_READY_SETTLE_MS sin crecer. La primera vez solo fija el cursor.
+ */
+export async function alertDraftsReady(database: Database.Database, notify: OwnerNotify, now = new Date()) {
+  const cursor = getSetting(database, DRAFTS_READY_CURSOR_KEY)
+  if (cursor === null) {
+    setSetting(database, DRAFTS_READY_CURSOR_KEY, now.toISOString())
+    return null
+  }
+  const batch = database.prepare(`
+    SELECT COUNT(DISTINCT job_id) AS count, MAX(created_at) AS latest FROM automation_job_events
+    WHERE event_type = 'STATUS_CHANGED' AND to_status = 'WAITING_ETSY_REVIEW' AND created_at > ?
+  `).get(cursor) as { count: number; latest: string | null }
+  if (!batch.count || !batch.latest) return null
+  if (now.getTime() - Date.parse(batch.latest) < DRAFTS_READY_SETTLE_MS) return null
+  setSetting(database, DRAFTS_READY_CURSOR_KEY, batch.latest)
+
+  const total = (database
+    .prepare("SELECT COUNT(*) AS count FROM automation_jobs WHERE status = 'WAITING_ETSY_REVIEW'")
+    .get() as { count: number }).count
+  if (!total) return null
+  const notification = {
+    title: batch.count === 1 ? "1 draft nuevo en Etsy" : `${batch.count} drafts nuevos en Etsy`,
+    body: `${plural(total, "draft espera", "drafts esperan")} tu revisión.`,
+    url: "/automation",
+    tag: "drafts-ready",
+  }
+  await notify(notification).catch(() => {})
+  return notification
 }
 
 /**

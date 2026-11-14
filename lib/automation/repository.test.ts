@@ -362,13 +362,38 @@ describe("Automaty local queue sync", () => {
     expect(() => repository.setJobPriority(a.id, 5)).toThrow(/not started/)
   })
 
-  it("pauses local production only for failures on Automaty", () => {
+  it("keeps producing when one design fails and pauses only after 3 different failures in a row", () => {
     database = openAutomationDatabase(":memory:")
     const repository = new AutomationRepository(database)
-    const a = queued(repository, "A")
+    const jobs = ["A", "B", "C", "D", "E"].map((code) => queued(repository, code))
     repository.syncAgentQueue("automaty")
-    repository.transitionJob(a.id, "LOCAL_BUILDING")
-    repository.transitionJob(a.id, "NEEDS_ATTENTION", { error: "Photoshop closed" })
+    const fail = (id: string) => {
+      repository.transitionJob(id, "LOCAL_BUILDING")
+      repository.transitionJob(id, "NEEDS_ATTENTION", { error: "Source.png must be at least 4096 x 4096 px." })
+    }
+
+    fail(jobs[0].id)
+    expect(repository.getPipelineMode()).toBe("RUNNING")
+    // La cola sigue: el fallido sale de la cola y el siguiente se produce.
+    expect(repository.syncAgentQueue("automaty").queue.map((job) => job.id)).not.toContain(jobs[0].id)
+
+    fail(jobs[1].id)
+    expect(repository.getPipelineMode()).toBe("RUNNING")
+
+    // Un éxito entre medias reinicia la cuenta.
+    repository.transitionJob(jobs[2].id, "LOCAL_BUILDING")
+    repository.transitionJob(jobs[2].id, "LOCAL_VALIDATING")
+    repository.transitionJob(jobs[2].id, "LOCAL_UPLOADING")
+    repository.transitionJob(jobs[2].id, "LOCAL_COMPLETE")
+    fail(jobs[3].id)
+    expect(repository.consecutiveLocalFailures()).toBe(1)
+    expect(repository.getPipelineMode()).toBe("RUNNING")
+
+    fail(jobs[4].id)
+    const f = queued(repository, "F")
+    repository.syncAgentQueue("automaty")
+    fail(f.id)
+    expect(repository.consecutiveLocalFailures()).toBe(3)
     expect(repository.getPipelineMode()).toBe("PAUSED")
   })
 })

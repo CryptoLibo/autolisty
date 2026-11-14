@@ -186,8 +186,8 @@ export async function editListingDraft(input: ListingEditInput) {
     reason: edit.reason,
     changes,
   })
-  // Transparencia: cada edición de Claude llega al móvil.
-  if (Object.keys(changes).length) {
+  // Las ediciones de la revisión diaria llegan resumidas en el aviso de su informe.
+  if (Object.keys(changes).length && input.scheduledReview !== true) {
     await notifyOwner({
       title: `Claude editó ${productCode}`,
       body: `Cambios: ${Object.keys(changes).map((key) => key.replace("attribute:", "")).join(", ")}.`,

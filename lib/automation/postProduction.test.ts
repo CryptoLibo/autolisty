@@ -243,7 +243,7 @@ describe("post-production worker", () => {
     expect(await runPostProductionTick(fakeDeps(repository))).toEqual([])
   })
 
-  it("consulta en bloque los drafts que esperan y avisa al móvil", async () => {
+  it("consulta en bloque los drafts que esperan, sin un aviso por listing", async () => {
     database = openAutomationDatabase(":memory:")
     const repository = new AutomationRepository(database)
     repository.addDrafts("frame_tv_art", ["9001", "9002"])
@@ -252,11 +252,7 @@ describe("post-production worker", () => {
     const notify = vi.fn(async () => {})
     const deps = fakeDeps(repository, { notify })
     await runPostProductionTick(deps)
-    expect(notify).toHaveBeenCalledTimes(2)
-    expect(notify).toHaveBeenCalledWith(expect.objectContaining({
-      title: "Draft listo para revisar en Etsy",
-      url: "https://www.etsy.com/your/shops/me/listing-editor/edit/9001",
-    }))
+    expect(notify).not.toHaveBeenCalled()
 
     const getListingsBatch = vi.fn(async () => new Map([
       ["9001", { state: "active", url: "https://www.etsy.com/listing/9001" }],
@@ -266,14 +262,12 @@ describe("post-production worker", () => {
     for (const job of [first, second]) {
       repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
     }
-    notify.mockClear()
     await runPostProductionTick({ ...deps, getListing, getListingsBatch })
     expect(getListingsBatch).toHaveBeenCalledTimes(1)
     expect(getListing).not.toHaveBeenCalled()
     expect(repository.getJob(first.id)!.status).toBe("COMPLETED")
     expect(repository.getJob(second.id)!.status).toBe("WAITING_ETSY_REVIEW")
-    expect(notify).toHaveBeenCalledTimes(1)
-    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: "Listing completado", url: "https://www.etsy.com/listing/9001" }))
+    expect(notify).not.toHaveBeenCalled()
   })
 
   it("no avisa de estados intermedios", () => {

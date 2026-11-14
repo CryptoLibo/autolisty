@@ -4,7 +4,7 @@ import crypto from "node:crypto"
 import { getAutomationDatabase } from "./db/database"
 import { AutomationRepository } from "./repository"
 import { runPostProductionTick, type PostProductionDeps } from "./postProduction"
-import { alertEtsyQuota, alertNewPendingDesigns, alertStalledLocalJobs } from "./ownerAlerts"
+import { alertDraftsReady, alertEtsyQuota, alertNewPendingDesigns, alertStalledLocalJobs } from "./ownerAlerts"
 import { SeoLessonStore } from "./seoLessons"
 import { runDailyBackupIfDue } from "./backup"
 import { getFreshToken } from "../integrations/tokenSession"
@@ -119,6 +119,7 @@ async function tick() {
       }
       await alertNewPendingDesigns(getAutomationDatabase(), (input) => notifyOwner(input))
       await alertStalledLocalJobs(getAutomationDatabase(), (input) => notifyOwner(input))
+      await alertDraftsReady(getAutomationDatabase(), (input) => notifyOwner(input))
       await alertEtsyQuota(getAutomationDatabase(), (input) => notifyOwner(input), getEtsyApiUsage())
       await runDailyBackupIfDue(getAutomationDatabase()).catch((error) =>
         console.error("[backup] failed:", error instanceof Error ? error.message : error))

@@ -3,7 +3,6 @@
 // (ajuste review.allow_publish = "on").
 import { getFreshToken } from "../integrations/tokenSession"
 import { activateListing, getPrimaryShop, getShopListing } from "../etsy/listings"
-import { notifyOwner } from "../notifications/webPush"
 import { AutomationRepository } from "./repository"
 import { getAutomationDatabase } from "./db/database"
 
@@ -40,11 +39,6 @@ export async function publishListingDraft(input: { productCode?: unknown; ownerA
   repository.recordJobEvent(job.id, "CLAUDE_PUBLISH", `${scheduled ? "[revisión diaria] " : ""}Claude publicó el listing${reason ? `: ${reason}` : "."}`)
   // El worker detecta la publicación en su próximo paso (estado, URL y pines de Pinterest).
   repository.checkReviewNow()
-  await notifyOwner({
-    title: `Claude publicó ${productCode}`,
-    body: reason || "Publicado en Etsy tras la revisión.",
-    url: published.url || "/automation",
-    tag: `claude-publish-${productCode}`,
-  }).catch(() => {})
+  // Sin aviso por listing: publicas tú desde el chat, y la revisión diaria lo resume en su informe.
   return { productCode, state: published.state ?? "active", url: published.url ?? null }
 }
