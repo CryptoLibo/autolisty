@@ -70,7 +70,7 @@ describe("Autolisty MCP server", () => {
       { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "list_designs", arguments: { status: "CANCELED", limit: 5 } } },
       handlers
     )
-    expect(handlers.listDesigns).toHaveBeenCalledWith({ status: "CANCELED", limit: 5 })
+    expect(handlers.listDesigns).toHaveBeenCalledWith({ status: "CANCELED", limit: 5, offset: undefined, since: null, detail: "summary" })
   })
 
   it("returns validation failures as tool errors Claude can read", async () => {

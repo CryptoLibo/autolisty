@@ -26,10 +26,11 @@ const ICONS: Record<AppSection, typeof Workflow> = {
   batch: Layers3,
 }
 
-// Orden en el PC; en el iPhone las tres primeras van en la barra y el resto en «Más».
-const DESKTOP_ORDER: AppSection[] = ["prompt", "automation", "single", "references", "image", "batch"]
-const MOBILE_PRIMARY: AppSection[] = ["prompt", "automation", "single"]
-const MOBILE_MORE: AppSection[] = ["references", "image", "batch"]
+// Dashboard y Automation siempre a la vista; el flujo manual anterior (C2) va agrupado en
+// «Herramientas manuales» en el PC y en «Más» en el iPhone.
+const DESKTOP_ORDER: AppSection[] = ["prompt", "automation"]
+const MOBILE_PRIMARY: AppSection[] = ["prompt", "automation"]
+const MOBILE_MORE: AppSection[] = ["single", "references", "image", "batch"]
 
 type Props = {
   active: AppSection
@@ -73,22 +74,25 @@ function Badge({ value }: { value?: number }) {
 export function AppNav({ active, onNavigate, badges = {} }: Props) {
   const [moreOpen, setMoreOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(false)
 
   useEffect(() => {
-    if (!moreOpen && !accountOpen) return
+    if (!moreOpen && !accountOpen && !toolsOpen) return
     const close = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setMoreOpen(false)
         setAccountOpen(false)
+        setToolsOpen(false)
       }
     }
     window.addEventListener("keydown", close)
     return () => window.removeEventListener("keydown", close)
-  }, [moreOpen, accountOpen])
+  }, [moreOpen, accountOpen, toolsOpen])
 
   const go = (section: AppSection) => {
     setMoreOpen(false)
     setAccountOpen(false)
+    setToolsOpen(false)
     onNavigate(section)
   }
 
@@ -100,7 +104,7 @@ export function AppNav({ active, onNavigate, badges = {} }: Props) {
           <a href={SECTION_PATHS.prompt} onClick={(event) => { event.preventDefault(); go("prompt") }} className="shrink-0">
             <Image src="/logo-final.png" alt="Autolisty" width={132} height={29} priority className="h-auto w-[132px]" />
           </a>
-          <nav aria-label="Secciones" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          <nav aria-label="Secciones" className="flex min-w-0 flex-1 items-center gap-1">
             {DESKTOP_ORDER.map((section) => (
               <NavLink
                 key={section}
@@ -115,6 +119,37 @@ export function AppNav({ active, onNavigate, badges = {} }: Props) {
                 <Badge value={badges[section]} />
               </NavLink>
             ))}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setToolsOpen((value) => !value)}
+                aria-expanded={toolsOpen}
+                className={`inline-flex h-9 shrink-0 items-center rounded-lg px-3.5 text-sm transition ${
+                  MOBILE_MORE.includes(active) ? "bg-white/[0.08] font-medium text-neutral-100" : "text-neutral-400 hover:bg-white/[0.04] hover:text-neutral-200"
+                }`}
+              >
+                Herramientas manuales
+              </button>
+              {toolsOpen ? (
+                <div className="absolute left-0 top-11 z-50 w-56 space-y-1 rounded-xl border border-white/10 bg-[#141416] p-2 shadow-2xl">
+                  {MOBILE_MORE.map((section) => {
+                    const Icon = ICONS[section]
+                    return (
+                      <NavLink
+                        key={section}
+                        section={section}
+                        active={active === section}
+                        onNavigate={go}
+                        className={`flex h-10 items-center gap-3 rounded-lg px-3 text-sm ${active === section ? "bg-white/[0.06] text-[#eeba2b]" : "text-neutral-200 hover:bg-white/[0.04]"}`}
+                      >
+                        <Icon size={16} aria-hidden="true" />
+                        {SECTION_LABELS[section]}
+                      </NavLink>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </div>
           </nav>
           <div className="relative shrink-0">
             <button
@@ -152,7 +187,7 @@ export function AppNav({ active, onNavigate, badges = {} }: Props) {
       </header>
       <nav
         aria-label="Navegación principal"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-white/[0.07] bg-[#0f0f11]/95 px-2 pt-1.5 pb-[max(env(safe-area-inset-bottom),8px)] backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 border-t border-white/[0.07] bg-[#0f0f11]/95 px-2 pt-1.5 pb-[max(env(safe-area-inset-bottom),8px)] backdrop-blur md:hidden"
       >
         {MOBILE_PRIMARY.map((section) => {
           const Icon = ICONS[section]
@@ -191,7 +226,7 @@ export function AppNav({ active, onNavigate, badges = {} }: Props) {
           <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-black/60" onClick={() => setMoreOpen(false)} />
           <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-white/10 bg-[#141416] px-4 pt-3 pb-[max(env(safe-area-inset-bottom),16px)]">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-semibold text-neutral-200">Más</span>
+              <span className="text-sm font-semibold text-neutral-200">Herramientas manuales</span>
               <button type="button" onClick={() => setMoreOpen(false)} aria-label="Cerrar" className="flex h-11 w-11 items-center justify-center text-neutral-400">
                 <X size={20} aria-hidden="true" />
               </button>
