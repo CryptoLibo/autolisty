@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // El despliegue compila en una carpeta aparte (.next-build) y cambia al final (C5).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   allowedDevOrigins: ["127.0.0.1"],
   turbopack: {
     root: __dirname,

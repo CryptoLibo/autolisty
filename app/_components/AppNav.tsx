@@ -18,7 +18,7 @@ import { AddPasskeyButton } from "@/app/_components/AddPasskeyButton"
 import { SECTION_LABELS, SECTION_PATHS, type AppSection } from "@/lib/sections"
 
 const ICONS: Record<AppSection, typeof Workflow> = {
-  prompt: LayoutDashboard,
+  dashboard: LayoutDashboard,
   automation: Workflow,
   single: NotebookPen,
   references: Sparkles,
@@ -28,8 +28,8 @@ const ICONS: Record<AppSection, typeof Workflow> = {
 
 // Dashboard y Automation siempre a la vista; el flujo manual anterior (C2) va agrupado en
 // «Herramientas manuales» en el PC y en «Más» en el iPhone.
-const DESKTOP_ORDER: AppSection[] = ["prompt", "automation"]
-const MOBILE_PRIMARY: AppSection[] = ["prompt", "automation"]
+const DESKTOP_ORDER: AppSection[] = ["dashboard", "automation"]
+const MOBILE_PRIMARY: AppSection[] = ["dashboard", "automation"]
 const MOBILE_MORE: AppSection[] = ["single", "references", "image", "batch"]
 
 type Props = {
@@ -101,7 +101,7 @@ export function AppNav({ active, onNavigate, badges = {} }: Props) {
       {/* PC y tablet: barra superior */}
       <header className="sticky top-0 z-40 hidden border-b border-white/[0.07] bg-[#0f0f11]/95 backdrop-blur md:block">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-6 lg:px-8">
-          <a href={SECTION_PATHS.prompt} onClick={(event) => { event.preventDefault(); go("prompt") }} className="shrink-0">
+          <a href={SECTION_PATHS.dashboard} onClick={(event) => { event.preventDefault(); go("dashboard") }} className="shrink-0">
             <Image src="/logo-final.png" alt="Autolisty" width={132} height={29} priority className="h-auto w-[132px]" />
           </a>
           <nav aria-label="Secciones" className="flex min-w-0 flex-1 items-center gap-1">

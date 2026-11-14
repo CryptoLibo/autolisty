@@ -3793,7 +3793,7 @@ export default function Workspace({ initialSection = null }: { initialSection?: 
         ) : null}
 
         <div>
-          {activeSection === "prompt" ? <DashboardWorkspace onOpenAutomation={() => setActiveSection("automation")} /> : activeSection === "references" ? (
+          {activeSection === "dashboard" ? <DashboardWorkspace onOpenAutomation={() => setActiveSection("automation")} /> : activeSection === "references" ? (
             <div className="space-y-6">
               <div className="border-b border-neutral-800 pb-4">
                 <h1 className="text-xl font-semibold text-neutral-100">Prompt Lab</h1>

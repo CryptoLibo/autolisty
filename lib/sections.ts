@@ -1,8 +1,8 @@
 // Secciones del espacio de trabajo y su ruta real (botón atrás, enlaces y la app instalada).
-export type AppSection = "prompt" | "references" | "image" | "single" | "batch" | "automation"
+export type AppSection = "dashboard" | "references" | "image" | "single" | "batch" | "automation"
 
 export const SECTION_PATHS: Record<AppSection, string> = {
-  prompt: "/dashboard",
+  dashboard: "/dashboard",
   automation: "/automation",
   single: "/listing",
   references: "/prompt-lab",
@@ -11,7 +11,7 @@ export const SECTION_PATHS: Record<AppSection, string> = {
 }
 
 export const SECTION_LABELS: Record<AppSection, string> = {
-  prompt: "Dashboard",
+  dashboard: "Dashboard",
   automation: "Automation",
   single: "Listing",
   references: "Prompt Lab",
@@ -27,8 +27,9 @@ export function sectionFromPath(pathname: string): AppSection | null {
   return null
 }
 
+// «prompt» es el nombre antiguo del Dashboard (guardado en navegadores y avisos viejos).
 const LEGACY_QUERY: Record<string, AppSection> = {
-  prompt: "prompt", references: "references", image: "image", single: "single", batch: "batch", automation: "automation",
+  prompt: "dashboard", dashboard: "dashboard", references: "references", image: "image", single: "single", batch: "batch", automation: "automation",
 }
 
 /** ?section=automation de los avisos antiguos. */

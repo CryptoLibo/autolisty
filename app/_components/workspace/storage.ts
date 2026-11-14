@@ -12,13 +12,13 @@ export const STORAGE_KEYS = {
 export const ICON_REV = "20260404";
 
 export function readStoredActiveSection(): AppSection {
-  if (typeof window === "undefined") return "prompt";
+  if (typeof window === "undefined") return "dashboard";
   // La ruta manda (/automation…); después ?section= de avisos antiguos; si no, la última sección usada.
   return (
     sectionFromPath(window.location.pathname) ||
     sectionFromQuery(new URLSearchParams(window.location.search).get("section")) ||
     sectionFromQuery(window.localStorage.getItem(STORAGE_KEYS.activeSection)) ||
-    "prompt"
+    "dashboard"
   );
 }
 

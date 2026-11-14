@@ -18,8 +18,13 @@ echo "Commit: $(git rev-parse --short HEAD)  $(git log -1 --format=%s)"
 step "Instalando dependencias exactas (npm ci)"
 npm ci --no-audit --no-fund --loglevel=error
 
-step "Compilando"
-npm run build
+step "Compilando en una carpeta aparte (la web sigue sirviendo la versión actual)"
+rm -rf .next-build
+NEXT_DIST_DIR=.next-build npm run build
+if [[ ! -f .next-build/BUILD_ID ]]; then
+  echo "ERROR: la compilación no generó .next-build/BUILD_ID; no se cambia nada."
+  exit 1
+fi
 
 step "Copia de seguridad de la base de Automation"
 DB_PATH="${AUTOMATION_DB_PATH:-}"
@@ -36,20 +41,40 @@ else
   echo "AVISO: no se encontró la base de Automation (AUTOMATION_DB_PATH); se omite la copia."
 fi
 
-step "Reiniciando PM2 ($PM2_NAME)"
-pm2 restart "$PM2_NAME" --update-env
-pm2 save
+APP_PORT="${APP_PORT:-}"
+if [[ -z "$APP_PORT" && -f .env.local ]]; then
+  APP_PORT="$(grep -E '^PORT=' .env.local | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+fi
+APP_PORT="${APP_PORT:-3000}"
 
-step "Comprobando que arrancó"
-sleep 5
-if pm2 jlist | node -e '
-  let raw = ""; process.stdin.on("data", (c) => (raw += c)).on("end", () => {
-    const app = JSON.parse(raw).find((p) => p.name === process.argv[1]);
-    process.exit(app && app.pm2_env.status === "online" ? 0 : 1);
-  });' "$PM2_NAME"; then
-  echo "PM2: $PM2_NAME online"
+healthy() {
+  # Una petición real a la app: /login debe responder 200.
+  for _ in $(seq 1 20); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${APP_PORT}/login" || true)"
+    if [[ "$code" == "200" ]]; then return 0; fi
+    sleep 3
+  done
+  return 1
+}
+
+step "Cambiando a la nueva versión"
+rm -rf .next-previous
+if [[ -d .next ]]; then mv .next .next-previous; fi
+mv .next-build .next
+pm2 restart "$PM2_NAME" --update-env
+
+step "Comprobando que responde (http://127.0.0.1:${APP_PORT}/login)"
+if healthy; then
+  echo "La app responde."
+  pm2 save
 else
-  echo "ERROR: $PM2_NAME no está online. Revisa: pm2 logs $PM2_NAME --lines 50"
+  echo "ERROR: la nueva versión no responde. Vuelvo a la anterior."
+  if [[ -d .next-previous ]]; then
+    rm -rf .next
+    mv .next-previous .next
+    pm2 restart "$PM2_NAME" --update-env
+    if healthy; then echo "Versión anterior restaurada y respondiendo."; else echo "La versión anterior tampoco responde: pm2 logs $PM2_NAME --lines 80"; fi
+  fi
   exit 1
 fi
 
