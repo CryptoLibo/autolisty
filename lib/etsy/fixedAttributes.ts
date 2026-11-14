@@ -1,11 +1,15 @@
 // Atributos fijos por producto (no dependen del diseño). Autolisty los pone en
 // cada draft para no depender de lo que tenga el draft base del pool.
 
+// «Number of pieces included» = obras distintas del listing (un set de 3 láminas = 3).
+// Los 5 archivos de wall art son la misma obra en 5 proporciones: 1 pieza (decisión del propietario).
 export const FIXED_ETSY_ATTRIBUTES: Record<string, Record<string, string[]>> = {
-  vertical_wall_art: { "Aspect ratio": ["2:3", "3:4", "4:5", "11:14", "5:7 (ISO ratio)"] },
-  nursery_wall_art: { "Aspect ratio": ["2:3", "3:4", "4:5", "11:14", "5:7 (ISO ratio)"] },
+  vertical_wall_art: { "Aspect ratio": ["2:3", "3:4", "4:5", "11:14", "5:7 (ISO ratio)"], "Number of pieces included": ["1"] },
+  nursery_wall_art: { "Aspect ratio": ["2:3", "3:4", "4:5", "11:14", "5:7 (ISO ratio)"], "Number of pieces included": ["1"] },
   // horizontal_wall_art: sin Aspect ratio (Etsy solo tiene proporciones verticales; decisión del propietario).
-  frame_tv_art: { "Aspect ratio": ["16:9"] },
+  horizontal_wall_art: { "Number of pieces included": ["1"] },
+  frame_tv_art: { "Aspect ratio": ["16:9"], "Number of pieces included": ["1"] },
+  png_designs: { "Number of pieces included": ["1"] },
 }
 
 /** Nombres de propiedades fijas que Claude también puede corregir con edit_listing. */
