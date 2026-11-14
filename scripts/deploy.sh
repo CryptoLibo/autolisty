@@ -45,6 +45,19 @@ APP_PORT="${APP_PORT:-}"
 if [[ -z "$APP_PORT" && -f .env.local ]]; then
   APP_PORT="$(grep -E '^PORT=' .env.local | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
 fi
+if [[ -z "$APP_PORT" ]]; then
+  # El puerto con el que PM2 arranca la app (variable PORT o argumento -p/--port).
+  APP_PORT="$(pm2 jlist 2>/dev/null | node -e '
+    let raw = ""; process.stdin.on("data", (c) => (raw += c)).on("end", () => {
+      try {
+        const app = JSON.parse(raw).find((p) => p.name === process.argv[1]);
+        const env = (app && app.pm2_env) || {};
+        const args = [].concat(env.args || []).join(" ");
+        const fromArgs = (args.match(/(?:-p|--port)[ =]?(\d+)/) || [])[1];
+        process.stdout.write(String(env.PORT || (env.env && env.env.PORT) || fromArgs || ""));
+      } catch { process.stdout.write(""); }
+    });' "$PM2_NAME" || true)"
+fi
 APP_PORT="${APP_PORT:-3000}"
 
 healthy() {
