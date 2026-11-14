@@ -84,6 +84,8 @@ export function parseListingEdit(input: ListingEditInput, productCode: string) {
   return { reason, title, description, tags, altTexts, attributes }
 }
 
+const MAX_EDITS_PER_HOUR = 30
+
 export async function editListingDraft(input: ListingEditInput) {
   const productCode = typeof input.productCode === "string" ? input.productCode.trim() : ""
   const repository = new AutomationRepository()
@@ -93,6 +95,10 @@ export async function editListingDraft(input: ListingEditInput) {
   // La autorización la da el propietario en el chat, para estos cambios concretos.
 
   const edit = parseListingEdit(input, productCode)
+  // Tope de seguridad (S5): como mucho 30 ediciones de Claude por hora.
+  if (repository.countRecentEvents("CLAUDE_EDIT", 60 * 60 * 1000) >= MAX_EDITS_PER_HOUR) {
+    throw new Error(`Edit limit reached (${MAX_EDITS_PER_HOUR} per hour). Try again later.`)
+  }
   const token = await getFreshToken("etsy")
   if (!token) throw new Error("Etsy is not connected in Autolisty.")
   const shopId = Number((await getPrimaryShop(token)).shop_id)

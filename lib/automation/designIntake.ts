@@ -250,3 +250,17 @@ export function assertPngDesignReady(productType: ProductType, bytes: Uint8Array
     )
   }
 }
+
+/** Avisos al enviar (M6): problemas que el SEO descubriría después. */
+export function submissionWarnings(brief: {
+  primaryKeyword?: { keyword: string } | null
+  tagCandidates?: Array<{ keyword: string }>
+}) {
+  const warnings: string[] = []
+  if (!brief.primaryKeyword?.keyword) warnings.push("No primaryKeyword: the SEO will not know the main search phrase.")
+  const long = (brief.tagCandidates || []).filter((tag) => tag.keyword.trim().length > 20).map((tag) => tag.keyword)
+  if (long.length) warnings.push(`Tag candidates over 20 characters will be dropped: ${long.join(", ")}.`)
+  if ((brief.tagCandidates || []).length < 13) warnings.push(`Only ${(brief.tagCandidates || []).length} tag candidates; send at least 13 real searched phrases.`)
+  return warnings
+}
+

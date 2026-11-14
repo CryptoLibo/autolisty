@@ -12,12 +12,14 @@ type JsonRpcMessage = { jsonrpc?: unknown; id?: JsonRpcId; method?: unknown; par
 
 export type McpToolHandlers = {
   submitDesign: (input: unknown) => Promise<unknown>
-  listDesigns: (input: { status?: string | null; limit?: number }) => Promise<unknown> | unknown
+  listDesigns: (input: { status?: string | null; limit?: number; offset?: number; since?: string | null; detail?: "summary" | "full" }) => Promise<unknown> | unknown
   reviewListing: (input: { productCode?: unknown }) => Promise<unknown>
   editListing: (input: Record<string, unknown>) => Promise<unknown>
   proposeLesson?: (input: Record<string, unknown>) => Promise<unknown> | unknown
   listLessons?: () => Promise<unknown> | unknown
   getStatus?: () => Promise<unknown> | unknown
+  listFeedback?: (input: { sinceDays?: number; limit?: number }) => Promise<unknown> | unknown
+  getSalesByListing?: (input: { period?: "7d" | "30d" | "90d"; limit?: number }) => Promise<unknown> | unknown
 }
 
 export class McpToolInputError extends Error {}
@@ -88,12 +90,15 @@ export const MCP_TOOLS = [
     name: "list_designs",
     title: "List submitted designs",
     description:
-      "List designs Claude has submitted, newest first, with status (PENDING_APPROVAL, QUEUED_LOCAL, ..., CANCELED), the owner's review note and the Etsy URL once published. Use it to check approvals and learn from rejection notes before creating the next batch.",
+      "List designs Claude has submitted, newest first, with status (PENDING_APPROVAL, QUEUED_LOCAL, ..., CANCELED), the owner's review note and the Etsy URL once published. Returns a compact summary by default (product code, status, primary keyword, note); ask detail=\"full\" for the whole brief. Use it to check approvals and learn from rejection notes before creating the next batch.",
     inputSchema: {
       type: "object",
       properties: {
         status: { type: "string", description: "Optional status filter, e.g. PENDING_APPROVAL or CANCELED." },
-        limit: { type: "integer", minimum: 1, maximum: 500 },
+        since: { type: "string", description: "Only designs created on or after this ISO date, e.g. 2026-11-01." },
+        limit: { type: "integer", minimum: 1, maximum: 500, description: "Default 50." },
+        offset: { type: "integer", minimum: 0, description: "Skip this many (pagination)." },
+        detail: { type: "string", enum: ["summary", "full"], description: "summary (default) or full brief." },
       },
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -181,6 +186,34 @@ export const MCP_TOOLS = [
     inputSchema: { type: "object", properties: {} },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
+  {
+    name: "list_feedback",
+    title: "List owner feedback",
+    description:
+      "Compact learning feed: the owner's rejection notes on your designs, the listing corrections you made with edit_listing (fields and reason) and the warnings of Autolisty's final SEO check. Use it before a new batch and before proposing lessons.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sinceDays: { type: "integer", minimum: 1, maximum: 365, description: "Default 30." },
+        limit: { type: "integer", minimum: 1, maximum: 200, description: "Per section; default 50." },
+      },
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "get_sales_by_listing",
+    title: "Shop sales by listing and product",
+    description:
+      "Units and revenue per listing (title, product code and type when Autolisty created it) and totals per product type, from the Etsy orders already synced in the Dashboard. Costs no Alura credits: use it to base research on what the shop already sells.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        period: { type: "string", enum: ["7d", "30d", "90d"], description: "Default 30d." },
+        limit: { type: "integer", minimum: 1, maximum: 200, description: "Listings to return; default 50." },
+      },
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
 ] as const
 
 function result(id: JsonRpcId, value: unknown) {
@@ -236,8 +269,21 @@ export async function handleMcpMessage(message: unknown, tools: McpToolHandlers)
         }
         if (call.name === "list_designs") {
           const limit = args.limit === undefined ? undefined : Number(args.limit)
+          const offset = args.offset === undefined ? undefined : Number(args.offset)
           const status = typeof args.status === "string" ? args.status : null
-          return result(id, toolResult({ designs: await tools.listDesigns({ status, limit }) }))
+          const since = typeof args.since === "string" ? args.since : null
+          const detail = args.detail === "full" ? "full" : "summary"
+          return result(id, toolResult({ designs: await tools.listDesigns({ status, limit, offset, since, detail }) }))
+        }
+        if (call.name === "list_feedback" && tools.listFeedback) {
+          const sinceDays = args.sinceDays === undefined ? undefined : Number(args.sinceDays)
+          const limit = args.limit === undefined ? undefined : Number(args.limit)
+          return result(id, toolResult({ feedback: await tools.listFeedback({ sinceDays, limit }) }))
+        }
+        if (call.name === "get_sales_by_listing" && tools.getSalesByListing) {
+          const period = args.period === "7d" || args.period === "90d" ? args.period : "30d"
+          const limit = args.limit === undefined ? undefined : Number(args.limit)
+          return result(id, toolResult({ sales: await tools.getSalesByListing({ period, limit }) }))
         }
         if (call.name === "edit_listing") {
           return result(id, toolResult({ edit: await tools.editListing(args) }))

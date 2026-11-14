@@ -288,15 +288,17 @@ export class AutomationRepository {
     return rows.map(mapJob)
   }
 
-  listJobsByOrigin(origin: AutomationJobOrigin, options: { status?: AutomationJobStatus; limit?: number } = {}) {
+  listJobsByOrigin(
+    origin: AutomationJobOrigin,
+    options: { status?: AutomationJobStatus; limit?: number; offset?: number; since?: string | null } = {}
+  ) {
     const safeLimit = Math.max(1, Math.min(500, Math.trunc(options.limit ?? 100)))
-    const rows = options.status
-      ? this.database
-          .prepare("SELECT * FROM automation_jobs WHERE origin = ? AND status = ? ORDER BY created_at DESC LIMIT ?")
-          .all(origin, options.status, safeLimit)
-      : this.database
-          .prepare("SELECT * FROM automation_jobs WHERE origin = ? ORDER BY created_at DESC LIMIT ?")
-          .all(origin, safeLimit)
+    const safeOffset = Math.max(0, Math.trunc(options.offset ?? 0))
+    const rows = this.database.prepare(`
+      SELECT * FROM automation_jobs
+      WHERE origin = ? AND (? IS NULL OR status = ?) AND (? IS NULL OR created_at >= ?)
+      ORDER BY created_at DESC LIMIT ? OFFSET ?
+    `).all(origin, options.status ?? null, options.status ?? null, options.since ?? null, options.since ?? null, safeLimit, safeOffset)
     return (rows as AutomationJobRow[]).map(mapJob)
   }
 
@@ -1057,6 +1059,12 @@ export class AutomationRepository {
     this.database.prepare(`UPDATE automation_jobs SET ${assignments}, updated_at = ? WHERE id = ?`)
       .run(...entries.map(([, value]) => value), new Date().toISOString(), jobId)
     return this.getJob(jobId)
+  }
+
+  countRecentEvents(eventType: string, windowMs: number) {
+    const row = this.database.prepare("SELECT COUNT(*) AS count FROM automation_job_events WHERE event_type = ? AND created_at >= ?")
+      .get(eventType, new Date(Date.now() - windowMs).toISOString()) as { count: number }
+    return row.count
   }
 
   recordJobEvent(jobId: string, eventType: string, message: string, metadata: unknown = null) {

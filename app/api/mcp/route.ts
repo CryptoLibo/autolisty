@@ -7,6 +7,7 @@ import { reviewListingDraft } from "@/lib/automation/draftReview"
 import { editListingDraft } from "@/lib/automation/draftEdit"
 import { SeoLessonStore } from "@/lib/automation/seoLessons"
 import { getProductionStatus } from "@/lib/automation/statusSummary"
+import { getSalesByListing, listFeedback } from "@/lib/automation/claudeInsights"
 import { notifyOwner } from "@/lib/notifications/webPush"
 
 export const runtime = "nodejs"
@@ -61,6 +62,8 @@ export async function POST(request: Request) {
     },
     listLessons: () => new SeoLessonStore().list(),
     getStatus: () => getProductionStatus(),
+    listFeedback: (input) => listFeedback(input),
+    getSalesByListing: (input) => getSalesByListing(input),
   })
   if (method === "tools/list" && response && "result" in response) {
     const tools = (response.result as { tools?: Array<{ name: string }> }).tools || []

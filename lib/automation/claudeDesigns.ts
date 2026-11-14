@@ -10,6 +10,7 @@ import {
   sniffImageMimeType,
 } from "./designIntake"
 import { AutomationRepository } from "./repository"
+import { submissionWarnings } from "./designIntake"
 import { AUTOMATION_JOB_STATUSES, type AutomationJob, type AutomationJobStatus } from "./types"
 import { deleteAutomationSource, uploadAutomationSource } from "../r2/automationSources"
 import { deleteListingAssets } from "../r2/deleteListingAssets"
@@ -60,16 +61,39 @@ async function downloadDesign(url: URL) {
   return body
 }
 
-export function listClaudeDesigns(options: { status?: string | null; limit?: number } = {}) {
+export function listClaudeDesigns(options: ListDesignsOptions = {}) {
   const status = options.status || undefined
   if (status && !AUTOMATION_JOB_STATUSES.includes(status as AutomationJobStatus)) {
     throw new DesignSubmissionError(`Unknown status filter "${status}".`)
   }
+  if (options.since && Number.isNaN(Date.parse(options.since))) throw new DesignSubmissionError('"since" must be an ISO date.')
   const repository = new AutomationRepository()
-  return repository
-    .listJobsByOrigin("claude", { status: status as AutomationJobStatus | undefined, limit: options.limit ?? 100 })
-    .map(toClaudeDesignView)
+  const jobs = repository.listJobsByOrigin("claude", {
+    status: status as AutomationJobStatus | undefined,
+    limit: options.limit ?? 50,
+    offset: options.offset ?? 0,
+    since: options.since ? new Date(options.since).toISOString() : null,
+  })
+  if (options.detail === "full") return jobs.map(toClaudeDesignView)
+  // Resumen (M5): sin el brief completo.
+  return jobs.map((job) => {
+    const view = toClaudeDesignView(job)
+    const brief = view.brief as { primaryKeyword?: { keyword?: string } | null; collection?: string | null } | null
+    return {
+      productCode: view.productCode,
+      productType: view.productType,
+      status: view.status,
+      primaryKeyword: brief?.primaryKeyword?.keyword ?? null,
+      collection: brief?.collection ?? null,
+      reviewNote: view.reviewNote,
+      lastError: view.lastError,
+      etsyUrl: view.etsyUrl,
+      createdAt: view.createdAt,
+    }
+  })
 }
+
+export type ListDesignsOptions = { status?: string | null; limit?: number; offset?: number; since?: string | null; detail?: "summary" | "full" }
 
 // Descarga la imagen de Kittl, la guarda en R2 y deja el job en PENDING_APPROVAL.
 export async function submitClaudeDesign(body: unknown, options: { replacesJobId?: string } = {}) {
@@ -107,7 +131,8 @@ export async function submitClaudeDesign(body: unknown, options: { replacesJobId
     const pending = repository.transitionJob(job.id, "PENDING_APPROVAL", {
       message: "Design submitted by Claude; waiting for owner approval.",
     })
-    return toClaudeDesignView(pending)
+    const warnings = submissionWarnings(submission.brief)
+    return { ...toClaudeDesignView(pending), ...(warnings.length ? { warnings } : {}) }
   } catch (error) {
     if (uploadedKey) {
       await deleteAutomationSource(uploadedKey).catch((cleanupError) =>

@@ -11,7 +11,7 @@ export async function GET(request: Request) {
   if (unauthorized) return unauthorized
   const params = new URL(request.url).searchParams
   try {
-    const designs = listClaudeDesigns({ status: params.get("status"), limit: Number(params.get("limit") || 100) })
+    const designs = listClaudeDesigns({ status: params.get("status"), limit: Number(params.get("limit") || 100), detail: "full" })
     return NextResponse.json({ designs })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to list designs."
