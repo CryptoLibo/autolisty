@@ -29,7 +29,7 @@ fi
 step "Copia de seguridad de la base de Automation"
 DB_PATH="${AUTOMATION_DB_PATH:-}"
 if [[ -z "$DB_PATH" && -f .env.local ]]; then
-  DB_PATH="$(grep -E '^AUTOMATION_DB_PATH=' .env.local | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+  DB_PATH="$(grep -E '^AUTOMATION_DB_PATH=' .env.local | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
 fi
 if [[ -n "$DB_PATH" && -f "$DB_PATH" ]]; then
   mkdir -p "$BACKUP_DIR"
@@ -43,7 +43,7 @@ fi
 
 APP_PORT="${APP_PORT:-}"
 if [[ -z "$APP_PORT" && -f .env.local ]]; then
-  APP_PORT="$(grep -E '^PORT=' .env.local | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+  APP_PORT="$(grep -E '^PORT=' .env.local | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
 fi
 if [[ -z "$APP_PORT" ]]; then
   # El puerto con el que PM2 arranca la app (variable PORT o argumento -p/--port).
