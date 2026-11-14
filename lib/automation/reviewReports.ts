@@ -19,6 +19,40 @@ export type ReviewReportInput = {
 
 export type ReviewReport = ReviewReportInput & { id: number; createdAt: string }
 
+// Informe de la tarea de creación de diseños: qué envió, qué descartó y por qué, créditos y
+// observaciones para que el propietario dé feedback sobre las imágenes.
+export type DesignReportInput = {
+  summary: string
+  designs: Array<{ productCode: string; productType: string; collection: string; notes: string }>
+  discarded: string[]
+  observations: string[]
+  credits: { kittl: string; alura: string }
+}
+
+export type DesignReport = DesignReportInput & { id: number; createdAt: string }
+
+export function parseDesignReport(input: Record<string, unknown>): DesignReportInput {
+  const summary = String(input.summary ?? "").trim()
+  if (summary.length < 10) throw new Error('"summary" is required.')
+  const designs = (Array.isArray(input.designs) ? input.designs : []).slice(0, 60).map((raw) => {
+    const item = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>
+    return {
+      productCode: String(item.productCode ?? "").trim().slice(0, 40),
+      productType: String(item.productType ?? "").trim().slice(0, 40),
+      collection: String(item.collection ?? "").trim().slice(0, 120),
+      notes: String(item.notes ?? "").trim().slice(0, 800),
+    }
+  })
+  const credits = (input.credits && typeof input.credits === "object" ? input.credits : {}) as Record<string, unknown>
+  return {
+    summary: summary.slice(0, 4000),
+    designs,
+    discarded: strings(input.discarded, 40),
+    observations: strings(input.observations, 30),
+    credits: { kittl: String(credits.kittl ?? "").slice(0, 200), alura: String(credits.alura ?? "").slice(0, 200) },
+  }
+}
+
 function strings(value: unknown, max: number, maxLength = 600) {
   return (Array.isArray(value) ? value : [])
     .map((item) => String(item ?? "").trim().slice(0, maxLength))
@@ -73,9 +107,23 @@ export class ReviewReportStore {
   }
 
   list(limit = 7) {
-    const rows = this.database.prepare("SELECT id FROM review_reports ORDER BY id DESC LIMIT ?")
+    const rows = this.database.prepare("SELECT id FROM review_reports WHERE kind = 'drafts' ORDER BY id DESC LIMIT ?")
       .all(Math.max(1, Math.min(60, Math.trunc(limit)))) as Array<{ id: number }>
     return rows.map((row) => this.get(row.id)!)
+  }
+
+  saveDesignReport(report: DesignReportInput): DesignReport {
+    const now = new Date().toISOString()
+    const result = this.database
+      .prepare("INSERT INTO review_reports (summary, report_json, created_at, kind) VALUES (?, ?, ?, 'designs')")
+      .run(report.summary, JSON.stringify(report), now)
+    return { ...report, id: Number(result.lastInsertRowid), createdAt: now }
+  }
+
+  listDesignReports(limit = 7): DesignReport[] {
+    const rows = this.database.prepare("SELECT id, report_json, created_at FROM review_reports WHERE kind = 'designs' ORDER BY id DESC LIMIT ?")
+      .all(Math.max(1, Math.min(60, Math.trunc(limit)))) as Array<{ id: number; report_json: string; created_at: string }>
+    return rows.map((row) => ({ ...(JSON.parse(row.report_json) as DesignReportInput), id: row.id, createdAt: row.created_at }))
   }
 
   /** Último momento en que la revisión diaria revisó cada listing (por código). */

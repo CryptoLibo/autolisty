@@ -942,6 +942,13 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    // Los informes son de la revisión de drafts o de la creación de diseños.
+    version: 27,
+    sql: `
+      ALTER TABLE review_reports ADD COLUMN kind TEXT NOT NULL DEFAULT 'drafts';
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

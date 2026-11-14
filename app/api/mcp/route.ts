@@ -9,7 +9,8 @@ import { SeoLessonStore } from "@/lib/automation/seoLessons"
 import { getProductionStatus } from "@/lib/automation/statusSummary"
 import { getSalesByListing, listFeedback } from "@/lib/automation/claudeInsights"
 import { getListingImages } from "@/lib/automation/listingImages"
-import { parseReviewReport, ReviewReportStore } from "@/lib/automation/reviewReports"
+import { parseDesignReport, parseReviewReport, ReviewReportStore } from "@/lib/automation/reviewReports"
+import { publishListingDraft } from "@/lib/automation/publishListing"
 import { notifyOwner } from "@/lib/notifications/webPush"
 
 export const runtime = "nodejs"
@@ -79,6 +80,9 @@ export async function POST(request: Request) {
       return report
     },
     listReviewReports: (input) => new ReviewReportStore().list(input.limit ?? 7),
+    publishListing: (input) => publishListingDraft(input),
+    saveDesignReport: (input) => new ReviewReportStore().saveDesignReport(parseDesignReport(input)),
+    listDesignReports: (input) => new ReviewReportStore().listDesignReports(input.limit ?? 7),
   })
   if (method === "tools/list" && response && "result" in response) {
     const tools = (response.result as { tools?: Array<{ name: string }> }).tools || []

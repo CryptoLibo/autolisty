@@ -23,6 +23,9 @@ export type McpToolHandlers = {
   viewListingImages?: (input: { productCode?: unknown; ranks?: unknown }) => Promise<{ productCode: string; images: Array<{ rank: number; mimeType: string; data: string }> }>
   saveReviewReport?: (input: Record<string, unknown>) => Promise<unknown> | unknown
   listReviewReports?: (input: { limit?: number }) => Promise<unknown> | unknown
+  publishListing?: (input: Record<string, unknown>) => Promise<unknown>
+  saveDesignReport?: (input: Record<string, unknown>) => Promise<unknown> | unknown
+  listDesignReports?: (input: { limit?: number }) => Promise<unknown> | unknown
 }
 
 export class McpToolInputError extends Error {}
@@ -268,6 +271,65 @@ export const MCP_TOOLS = [
     inputSchema: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 60, description: "Default 7." } } },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
+  {
+    name: "publish_listing",
+    title: "Publish an Etsy draft",
+    description:
+      "Publish one draft waiting for review (sets it active on Etsy; Etsy charges its listing fee). Use it ONLY when the owner explicitly approved publishing that listing in this conversation (ownerApproved=true). The daily scheduled review may only use it with scheduledReview=true once the owner has enabled it; until then the server refuses. Autolisty then detects the publication and publishes the Pinterest pins.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productCode: { type: "string", description: 'e.g. "LBCreaStudio-FT733P".' },
+        ownerApproved: { type: "boolean", description: "true only if the owner said yes to publishing THIS listing in the conversation." },
+        scheduledReview: { type: "boolean", description: "Only for the daily scheduled review, when enabled by the owner." },
+        reason: { type: "string", description: "Short note, e.g. 'Approved by the owner after review'." },
+      },
+      required: ["productCode"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "save_design_report",
+    title: "Save the daily design creation report",
+    description:
+      "At the end of the daily design creation run, save the report: summary, every design submitted (product code, product type, collection, notes on composition/style/what to watch), discarded generations and why, credits used (Kittl, Alura) and observations about repeated patterns in the images. The owner reads it and gives feedback on the images. Call it once per run, also when nothing was created.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        summary: { type: "string", minLength: 10, maxLength: 4000, description: "In Spanish." },
+        designs: {
+          type: "array",
+          maxItems: 60,
+          items: {
+            type: "object",
+            properties: {
+              productCode: { type: "string" },
+              productType: { type: "string" },
+              collection: { type: "string" },
+              notes: { type: "string", description: "Subject, composition, palette and anything doubtful." },
+            },
+            required: ["productCode"],
+          },
+        },
+        discarded: { type: "array", items: { type: "string" }, description: "Each discarded generation and why." },
+        observations: { type: "array", items: { type: "string" }, description: "Repeated patterns or small things to improve in the images or prompts." },
+        credits: {
+          type: "object",
+          properties: { kittl: { type: "string" }, alura: { type: "string" } },
+          description: "Credits used and remaining, e.g. '240 used, 1360 left'.",
+        },
+      },
+      required: ["summary", "designs"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: "list_design_reports",
+    title: "List daily design creation reports",
+    description: "The latest daily design creation reports (newest first), to review with the owner what was created and improve prompts and images.",
+    inputSchema: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 60, description: "Default 7." } } },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
 ] as const
 
 function result(id: JsonRpcId, value: unknown) {
@@ -347,6 +409,16 @@ export async function handleMcpMessage(message: unknown, tools: McpToolHandlers)
         if (call.name === "list_review_reports" && tools.listReviewReports) {
           const limit = args.limit === undefined ? undefined : Number(args.limit)
           return result(id, toolResult({ reports: await tools.listReviewReports({ limit }) }))
+        }
+        if (call.name === "publish_listing" && tools.publishListing) {
+          return result(id, toolResult({ published: await tools.publishListing(args) }))
+        }
+        if (call.name === "save_design_report" && tools.saveDesignReport) {
+          return result(id, toolResult({ report: await tools.saveDesignReport(args) }))
+        }
+        if (call.name === "list_design_reports" && tools.listDesignReports) {
+          const limit = args.limit === undefined ? undefined : Number(args.limit)
+          return result(id, toolResult({ reports: await tools.listDesignReports({ limit }) }))
         }
         if (call.name === "list_feedback" && tools.listFeedback) {
           const sinceDays = args.sinceDays === undefined ? undefined : Number(args.sinceDays)

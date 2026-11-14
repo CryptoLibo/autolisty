@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { openAutomationDatabase } from "./db/database"
 import { AutomationRepository } from "./repository"
-import { parseReviewReport, ReviewReportStore } from "./reviewReports"
+import { parseDesignReport, parseReviewReport, ReviewReportStore } from "./reviewReports"
 
 describe("informes de la revisión diaria", () => {
   it("guarda el informe y marca cada listing como revisado", () => {
@@ -17,5 +17,15 @@ describe("informes de la revisión diaria", () => {
     expect(store.list()).toHaveLength(1)
     expect(store.lastReviewedAt([job.productCode]).get(job.productCode)).toBeTruthy()
     expect(() => parseReviewReport({ summary: "x" })).toThrow(/summary/)
+
+    const design = store.saveDesignReport(parseDesignReport({
+      summary: "Enviados 3 diseños de Old World Santa.",
+      designs: [{ productCode: "LBCreaStudio-ABC123", productType: "frame_tv_art", collection: "Old World Santa", notes: "nieve suave" }],
+      discarded: ["1 con texto accidental"],
+      observations: ["Los fondos de bosque se repiten"],
+      credits: { kittl: "120", alura: "80" },
+    }))
+    expect(store.listDesignReports()[0].id).toBe(design.id)
+    expect(store.list()).toHaveLength(1)
   })
 })

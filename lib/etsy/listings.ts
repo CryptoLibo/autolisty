@@ -331,3 +331,16 @@ export async function uploadListingFile({
 
   return await response.json();
 }
+
+/** Publica un draft (state=active). Etsy cobra la tarifa de publicación al activarlo. */
+export async function activateListing(token: EtsyTokenPayload, shopId: number, listingId: string) {
+  const response = await etsyFetch(`/application/shops/${shopId}/listings/${listingId}`, token, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ state: "active" }),
+  });
+  if (!response.ok) {
+    throw new Error(await parseEtsyError(response, "Failed to publish the Etsy listing."));
+  }
+  return await response.json() as { state?: string; url?: string };
+}
