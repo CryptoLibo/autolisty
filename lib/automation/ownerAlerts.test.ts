@@ -109,3 +109,17 @@ describe("alertStalledLocalJobs", () => {
     expect(notify).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("cupo de Etsy", () => {
+  it("avisa una sola vez al día al pasar del 70 %", async () => {
+    const { openAutomationDatabase } = await import("./db/database")
+    const { alertEtsyQuota } = await import("./ownerAlerts")
+    const db = openAutomationDatabase(":memory:")
+    const notify = vi.fn(async () => {})
+    const usage = { day: "2026-11-14", usedFraction: 0.75, dailyLimit: 10000, remainingToday: 2500 }
+    expect(await alertEtsyQuota(db, notify, usage)).toBe(true)
+    expect(await alertEtsyQuota(db, notify, usage)).toBe(false)
+    expect(await alertEtsyQuota(db, notify, { ...usage, usedFraction: 0.5, day: "2026-11-15" })).toBe(false)
+    expect(notify).toHaveBeenCalledTimes(1)
+  })
+})

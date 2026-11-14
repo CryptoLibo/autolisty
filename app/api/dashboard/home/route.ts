@@ -38,6 +38,8 @@ export async function GET(request: Request) {
         etsyConnected: Boolean(etsy),
         pinterestConnected: Boolean(pinterest),
         etsyCallsToday: getEtsyApiUsage().calls,
+        etsyDailyLimit: getEtsyApiUsage().dailyLimit,
+        etsyRemainingToday: getEtsyApiUsage().remainingToday,
         appVersion: currentVersion(),
       },
     }, { headers: { "Cache-Control": "private, no-store" } })

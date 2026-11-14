@@ -178,3 +178,29 @@ export async function alertStalledLocalJobs(database: Database.Database, notify:
   }
   return stalled.map((job) => job.productCode)
 }
+
+/**
+ * Aviso al pasar del 70 % del cupo diario de llamadas a Etsy (E1), una vez al día.
+ * `usedFraction` sale de las cabeceras de Etsy (null si aún no hay datos).
+ */
+export async function alertEtsyQuota(
+  database: Database.Database,
+  notify: OwnerNotify,
+  usage: { day: string; usedFraction: number | null; dailyLimit: number | null; remainingToday: number | null }
+) {
+  if (usage.usedFraction == null || usage.usedFraction < 0.7) return false
+  const key = "alerts.etsy_quota_day"
+  const row = database.prepare("SELECT setting_value FROM automation_settings WHERE setting_key = ?").get(key) as { setting_value: string } | undefined
+  if (row?.setting_value === usage.day) return false
+  database.prepare(`
+    INSERT INTO automation_settings (setting_key, setting_value, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, updated_at = excluded.updated_at
+  `).run(key, usage.day, new Date().toISOString())
+  await notify({
+    title: "Llamadas a Etsy: más del 70 % de hoy",
+    body: `Quedan ${usage.remainingToday ?? "?"} de ${usage.dailyLimit ?? "?"} llamadas. La producción sigue; conviene no lanzar tareas grandes hoy.`,
+    url: "/dashboard",
+    tag: "etsy-quota",
+  }).catch(() => {})
+  return true
+}

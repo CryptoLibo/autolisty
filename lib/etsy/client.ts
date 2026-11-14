@@ -7,12 +7,20 @@ const MIN_INTERVAL_MS = 120
 const TIMEOUT_MS = 30_000
 const MAX_RETRIES = 2
 
-const usage = { day: "", calls: 0, rateLimited: 0, errors: 0 }
+const usage = {
+  day: "",
+  calls: 0,
+  rateLimited: 0,
+  errors: 0,
+  // Lo que Etsy dice en cada respuesta (x-limit-per-day / x-remaining-today).
+  dailyLimit: null as number | null,
+  remainingToday: null as number | null,
+}
 let nextSlot = 0
 
 function rollDay() {
   const today = new Date().toISOString().slice(0, 10)
-  if (usage.day !== today) Object.assign(usage, { day: today, calls: 0, rateLimited: 0, errors: 0 })
+  if (usage.day !== today) Object.assign(usage, { day: today, calls: 0, rateLimited: 0, errors: 0, dailyLimit: null, remainingToday: null })
 }
 
 function countCall(kind: "call" | "rateLimited" | "error") {
@@ -22,10 +30,13 @@ function countCall(kind: "call" | "rateLimited" | "error") {
   if (kind === "error") usage.errors += 1
 }
 
-/** Llamadas a Etsy de hoy (desde el último arranque del servidor). */
+/** Llamadas a Etsy de hoy (desde el último arranque del servidor) y el cupo diario según Etsy. */
 export function getEtsyApiUsage() {
   rollDay()
-  return { ...usage }
+  const usedFraction = usage.dailyLimit && usage.remainingToday != null
+    ? (usage.dailyLimit - usage.remainingToday) / usage.dailyLimit
+    : null
+  return { ...usage, usedFraction }
 }
 
 async function waitForSlot() {
@@ -73,6 +84,11 @@ export async function etsyFetch(
       }
       throw error
     }
+
+    const limit = Number(response.headers.get("x-limit-per-day"))
+    const remaining = Number(response.headers.get("x-remaining-today"))
+    if (Number.isFinite(limit) && limit > 0) usage.dailyLimit = limit
+    if (response.headers.has("x-remaining-today") && Number.isFinite(remaining)) usage.remainingToday = remaining
 
     // 429: Etsy no procesó la petición, se puede repetir con cualquier método.
     const retryable = response.status === 429 || (idempotent && response.status >= 500)

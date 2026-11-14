@@ -4,7 +4,7 @@ import crypto from "node:crypto"
 import { getAutomationDatabase } from "./db/database"
 import { AutomationRepository } from "./repository"
 import { runPostProductionTick, type PostProductionDeps } from "./postProduction"
-import { alertNewPendingDesigns, alertStalledLocalJobs } from "./ownerAlerts"
+import { alertEtsyQuota, alertNewPendingDesigns, alertStalledLocalJobs } from "./ownerAlerts"
 import { SeoLessonStore } from "./seoLessons"
 import { runDailyBackupIfDue } from "./backup"
 import { getFreshToken } from "../integrations/tokenSession"
@@ -16,7 +16,7 @@ import { uploadDeliveryPdf } from "../r2/uploadDeliveryPdf"
 import { generatePinterestCopy } from "../seo/pinterestSeo"
 import { findBoardByName, findExistingPinterestPin, publishPinterestPin } from "../pinterest/publishing"
 import { recordPublishedPin } from "../dashboard/pinterest-analytics"
-import { etsyFetch } from "../etsy/client"
+import { etsyFetch, getEtsyApiUsage } from "../etsy/client"
 import { notifyOwner } from "../notifications/webPush"
 
 const TICK_MS = 60_000
@@ -119,6 +119,7 @@ async function tick() {
       }
       await alertNewPendingDesigns(getAutomationDatabase(), (input) => notifyOwner(input))
       await alertStalledLocalJobs(getAutomationDatabase(), (input) => notifyOwner(input))
+      await alertEtsyQuota(getAutomationDatabase(), (input) => notifyOwner(input), getEtsyApiUsage())
       await runDailyBackupIfDue(getAutomationDatabase()).catch((error) =>
         console.error("[backup] failed:", error instanceof Error ? error.message : error))
     } finally {

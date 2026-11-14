@@ -6,7 +6,10 @@ import type { DashboardHome as HomeData, Kpi } from "@/lib/dashboard/home"
 import type { DashboardPeriod } from "@/lib/dashboard/overview"
 
 type Home = HomeData & {
-  health: { etsyConnected: boolean; pinterestConnected: boolean; etsyCallsToday: number; appVersion: string | null }
+  health: {
+    etsyConnected: boolean; pinterestConnected: boolean; etsyCallsToday: number; appVersion: string | null
+    etsyDailyLimit?: number | null; etsyRemainingToday?: number | null
+  }
 }
 
 const card = "rounded-xl border border-white/[0.08] bg-[#141416]"
@@ -340,7 +343,12 @@ export function DashboardHome({ period, reloadId }: { period: DashboardPeriod; r
       <section aria-label="Salud del sistema" className="flex flex-wrap gap-x-5 gap-y-2 border-t border-white/[0.07] pt-4 text-[13px] text-neutral-400">
         <span><span className={data.health.etsyConnected ? "text-emerald-400" : "text-red-400"} aria-hidden="true">● </span>Etsy {data.health.etsyConnected ? "conectado" : "sin conectar"}</span>
         <span><span className={data.health.pinterestConnected ? "text-emerald-400" : "text-red-400"} aria-hidden="true">● </span>Pinterest {data.health.pinterestConnected ? "conectado" : "sin conectar"}</span>
-        <span>Llamadas a Etsy hoy: {count(data.health.etsyCallsToday)}</span>
+        <span>
+          Llamadas a Etsy hoy: {count(data.health.etsyCallsToday)}
+          {data.health.etsyDailyLimit && data.health.etsyRemainingToday != null
+            ? ` · quedan ${count(data.health.etsyRemainingToday)} de ${count(data.health.etsyDailyLimit)}`
+            : ""}
+        </span>
         <span>Pedidos sincronizados {ago(data.salesSyncedAt)}</span>
         <span>Última copia {ago(data.lastBackupAt)}</span>
         <span>Token de Etsy renovado {ago(data.credentialsRenewedAt.etsy)}</span>
