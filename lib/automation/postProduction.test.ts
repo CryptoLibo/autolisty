@@ -243,7 +243,7 @@ describe("post-production worker", () => {
     expect(await runPostProductionTick(fakeDeps(repository))).toEqual([])
   })
 
-  it("consulta en bloque los drafts que esperan, sin un aviso por listing", async () => {
+  it("consulta en bloque los drafts que esperan; avisa al completar, no por cada draft listo", async () => {
     database = openAutomationDatabase(":memory:")
     const repository = new AutomationRepository(database)
     repository.addDrafts("frame_tv_art", ["9001", "9002"])
@@ -267,7 +267,8 @@ describe("post-production worker", () => {
     expect(getListing).not.toHaveBeenCalled()
     expect(repository.getJob(first.id)!.status).toBe("COMPLETED")
     expect(repository.getJob(second.id)!.status).toBe("WAITING_ETSY_REVIEW")
-    expect(notify).not.toHaveBeenCalled()
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: "Listing completado", url: "https://www.etsy.com/listing/9001" }))
   })
 
   it("no avisa de estados intermedios", () => {
