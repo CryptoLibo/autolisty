@@ -123,3 +123,24 @@ describe("cupo de Etsy", () => {
     expect(notify).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("modo manual y pausa", () => {
+  it("avisa del modo manual y de que la producción está en pausa al encender", async () => {
+    const { openAutomationDatabase } = await import("./db/database")
+    const { AutomationRepository } = await import("./repository")
+    const { alertAgentLifecycle, parseAgentLifecycle } = await import("./ownerAlerts")
+    const db = openAutomationDatabase(":memory:")
+    const notify = vi.fn(async () => {})
+    expect(parseAgentLifecycle({ event: "manual" })?.event).toBe("manual")
+    const manual = await alertAgentLifecycle(db, notify, { agentName: "Automaty", event: "manual", summary: {}, previousLastSeenAt: null })
+    expect(manual?.title).toMatch(/modo manual/)
+
+    const repository = new AutomationRepository(db)
+    const job = repository.createJob({ productType: "frame_tv_art", sourcePrompt: "x" })
+    repository.transitionJob(job.id, "SOURCE_READY")
+    repository.transitionJob(job.id, "QUEUED_LOCAL")
+    repository.requestPipelinePause()
+    const started = await alertAgentLifecycle(db, notify, { agentName: "Automaty", event: "started", summary: {}, previousLastSeenAt: null })
+    expect(started?.body).toMatch(/EN PAUSA/)
+  })
+})

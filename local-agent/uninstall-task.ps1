@@ -8,3 +8,9 @@ if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
 } else {
   Write-Output "'$taskName' is not installed."
 }
+
+$choiceTaskName = "Automaty Startup Choice"
+if (Get-ScheduledTask -TaskName $choiceTaskName -ErrorAction SilentlyContinue) {
+  Unregister-ScheduledTask -TaskName $choiceTaskName -Confirm:$false
+  Write-Output "Removed '$choiceTaskName'."
+}

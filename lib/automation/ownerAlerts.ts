@@ -69,7 +69,7 @@ export async function alertNewPendingDesigns(database: Database.Database, notify
   return notification
 }
 
-export type AgentLifecycleEvent = "started" | "shutdown"
+export type AgentLifecycleEvent = "started" | "shutdown" | "manual"
 
 export type AgentSessionSummary = {
   produced?: number
@@ -80,7 +80,7 @@ export type AgentSessionSummary = {
 export function parseAgentLifecycle(body: unknown): { event: AgentLifecycleEvent; summary: AgentSessionSummary } | null {
   if (!body || typeof body !== "object") return null
   const { event, summary } = body as { event?: unknown; summary?: unknown }
-  if (event !== "started" && event !== "shutdown") return null
+  if (event !== "started" && event !== "shutdown" && event !== "manual") return null
   const raw = summary && typeof summary === "object" ? summary as Record<string, unknown> : {}
   const count = (value: unknown) => Math.max(0, Math.min(10_000, Math.floor(Number(value) || 0)))
   return {
@@ -108,17 +108,28 @@ export async function alertAgentLifecycle(
   const now = input.now || new Date()
   let notification: { title: string; body: string; url: string; tag: string } | null = null
 
-  if (input.event === "started") {
+  if (input.event === "manual") {
+    notification = {
+      title: `${input.agentName} en modo manual`,
+      body: "Lo estás usando tú: hoy no producirá ni se apagará solo.",
+      url: "/automation",
+      tag: "automaty-power",
+    }
+  } else if (input.event === "started") {
     const previous = input.previousLastSeenAt ? Date.parse(input.previousLastSeenAt) : NaN
     if (Number.isFinite(previous) && now.getTime() - previous < AGENT_RESTART_GRACE_MS) return null
     const queued = (database.prepare(`
       SELECT COUNT(*) AS count FROM automation_jobs WHERE status IN (${LOCAL_QUEUE_STATUSES.map(() => "?").join(", ")})
     `).get(...LOCAL_QUEUE_STATUSES) as { count: number }).count
+    const paused = (database.prepare("SELECT setting_value FROM automation_settings WHERE setting_key = 'production_pipeline_mode'")
+      .get() as { setting_value: string } | undefined)?.setting_value === "PAUSED"
     notification = {
       title: `${input.agentName} encendido`,
-      body: queued
-        ? `${plural(queued, "diseño", "diseños")} en cola para producir.`
-        : "No hay diseños en cola; se apagará en 30 minutos.",
+      body: queued && paused
+        ? `${plural(queued, "diseño", "diseños")} en cola, pero la producción está EN PAUSA: no producirá nada. Revisa la incidencia y pulsa «Reanudar producción» en Automation.`
+        : queued
+          ? `${plural(queued, "diseño", "diseños")} en cola para producir.`
+          : "No hay diseños en cola; se apagará en 30 minutos.",
       url: "/automation",
       tag: "automaty-power",
     }

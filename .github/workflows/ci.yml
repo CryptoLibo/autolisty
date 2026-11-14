@@ -31,7 +31,7 @@ jobs:
       - name: Tests
         run: npm test
       - name: Agente local (sintaxis)
-        run: node --check local-agent/agent.mjs
+        run: node --check local-agent/agent.mjs && node scripts/check-agent.mjs
       - name: Build
         run: npm run build
       - name: Lint

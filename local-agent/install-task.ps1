@@ -9,7 +9,11 @@ param(
   # Sin nada que producir en la sesión: apagar N minutos después de encender (0 = no).
   [int]$ShutdownWhenNoWorkMinutes = 30,
   # Tiempo máximo de Autobuildy por listing antes de cortarlo (minutos).
-  [int]$JobTimeoutMinutes = 90
+  [int]$JobTimeoutMinutes = 90,
+  # Ventana de inicio: segundos para elegir "Lo uso yo" antes de seguir con la automatización.
+  [int]$ChoiceSeconds = 180,
+  # Si la automatización no da señales de vida en estos minutos, se apaga el PC.
+  [int]$WatchdogMinutes = 10
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,6 +34,7 @@ $configPath = Join-Path $AgentRoot "config.json"
 New-Item -ItemType Directory -Path $appRoot, $secretsRoot, (Join-Path $AgentRoot "logs"), (Join-Path $AgentRoot "state"), (Join-Path $AgentRoot "jobs") -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $sourceRoot "agent.mjs") -Destination (Join-Path $appRoot "agent.mjs") -Force
 Copy-Item -LiteralPath (Join-Path $sourceRoot "run-agent.ps1") -Destination (Join-Path $appRoot "run-agent.ps1") -Force
+Copy-Item -LiteralPath (Join-Path $sourceRoot "startup-choice.ps1") -Destination (Join-Path $appRoot "startup-choice.ps1") -Force
 
 if (-not (Test-Path -LiteralPath $tokenPath -PathType Leaf)) {
   throw "Create $tokenPath with the machine token before installing the task."
@@ -71,5 +76,13 @@ $settings = New-ScheduledTaskSettingsSet `
   -DontStopIfGoingOnBatteries
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+# Ventana de inicio ("Lo uso yo" / "Automatización").
+$choiceTaskName = "Automaty Startup Choice"
+$choiceArguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$appRoot\startup-choice.ps1`" -AgentRoot `"$AgentRoot`" -ChoiceSeconds $ChoiceSeconds -WatchdogMinutes $WatchdogMinutes"
+$choiceAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $choiceArguments
+$choiceSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+Register-ScheduledTask -TaskName $choiceTaskName -Action $choiceAction -Trigger $trigger -Principal $principal -Settings $choiceSettings -Force | Out-Null
+
 Write-Output "Installed '$taskName'. It starts at logon in the interactive Photoshop session."
+Write-Output "Installed '$choiceTaskName' (startup window, $ChoiceSeconds s to choose)."
 Write-Output "Start manually with: Start-ScheduledTask -TaskName '$taskName'"

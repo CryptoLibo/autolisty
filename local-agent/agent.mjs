@@ -5,7 +5,7 @@ import path from "node:path"
 import { spawn } from "node:child_process"
 
 // Versión del agente: llega en cada latido y se ve en el Dashboard (C3). Súbela al cambiar el agente.
-const AGENT_VERSION = "1.9.0"
+const AGENT_VERSION = "1.9.1"
 const LOG_MAX_BYTES = 5 * 1024 * 1024
 const UPLOAD_CONCURRENCY = 3
 const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000
@@ -194,7 +194,7 @@ function createApi(config) {
   }
 }
 
-async function runProcess(executablePath, args, log) {
+async function runProcess(executablePath, args, log, timeoutMinutes) {
   await log("Launching Autobuildy automation mode.")
   return new Promise((resolve, reject) => {
     const child = spawn(executablePath, args, {
@@ -205,11 +205,11 @@ async function runProcess(executablePath, args, log) {
     let timedOut = false
     const timer = setTimeout(() => {
       timedOut = true
-      void log("Autobuildy timed out; killing it and Photoshop.", { minutes: config.jobTimeoutMinutes })
+      void log("Autobuildy timed out; killing it and Photoshop.", { minutes: timeoutMinutes })
       // Mata el árbol de procesos de Autobuildy y Photoshop (puede estar colgado fuera del árbol).
       spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true }).on("error", () => {})
       spawn("taskkill.exe", ["/IM", "Photoshop.exe", "/F"], { windowsHide: true }).on("error", () => {})
-    }, config.jobTimeoutMinutes * 60_000)
+    }, timeoutMinutes * 60_000)
     child.stdout.on("data", (chunk) => void log("Autobuildy", { output: String(chunk).trim().slice(0, 1000) }))
     child.stderr.on("data", (chunk) => {
       stderrTail = (stderrTail + String(chunk)).slice(-4000)
@@ -219,7 +219,7 @@ async function runProcess(executablePath, args, log) {
     child.on("close", (code) => {
       clearTimeout(timer)
       if (timedOut) {
-        return reject(new Error(`Autobuildy superó el tiempo máximo (${config.jobTimeoutMinutes} min) y se detuvo; revisa Photoshop en Automaty.`))
+        return reject(new Error(`Autobuildy superó el tiempo máximo (${timeoutMinutes} min) y se detuvo; revisa Photoshop en Automaty.`))
       }
       if (code === 0) return resolve()
       // La primera línea del error de Autobuildy (sin la pila) llega a Autolisty.
@@ -344,7 +344,7 @@ async function processJob(config, api, claimedJob, statePath, log) {
       resultPath,
     })
     await writeJsonAtomic(statePath, { jobId: job.id, productCode: job.productCode, phase: "BUILDING", requestPath, resultPath })
-    await runProcess(config.autobuildyExecutable, ["--automation-request", requestPath], log)
+    await runProcess(config.autobuildyExecutable, ["--automation-request", requestPath], log, config.jobTimeoutMinutes)
   } else if (!(await pathExists(resultPath))) {
     throw new Error(`Cannot resume ${job.status}: the Autobuildy checkpoint is missing.`)
   }
@@ -468,6 +468,9 @@ async function main() {
   // Mantenimiento: si existe este archivo, el agente no apaga el PC.
   const noShutdownPath = path.join(config.spoolRoot, "NO_SHUTDOWN")
   let noShutdownLogged = false
+  // Modo manual (lo crea la ventana de inicio cuando vas a usar el PC): no produce ni apaga.
+  const manualModePath = path.join(config.spoolRoot, "MANUAL_MODE")
+  let manualMode = false
 
   const heartbeatTimer = setInterval(() => {
     void api.heartbeat().catch((error) => log("Heartbeat failed.", { error: error.message }))
@@ -478,6 +481,17 @@ async function main() {
   try {
     while (true) {
       let processed = false
+      const manualNow = await pathExists(manualModePath)
+      if (manualNow !== manualMode) {
+        manualMode = manualNow
+        idleSince = Date.now()
+        await log(manualMode ? "Manual mode: no production and no shutdown." : "Back to automatic mode.")
+        if (manualMode) await api.heartbeat("manual").catch((error) => log("Manual notice failed.", { error: error.message }))
+      }
+      if (manualMode) {
+        await sleep(config.pollIntervalSeconds * 1000)
+        continue
+      }
       try {
         // 1) Sincronizar: confirmar limpiezas, recibir la cola local y las limpiezas pendientes.
         const sync = await api.sync(pendingCleanupAcks)
