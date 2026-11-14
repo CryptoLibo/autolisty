@@ -36,7 +36,8 @@ export function EtsySalesPanel({ sales, syncing, onSync, compact = false }: {
   return <section className="space-y-4 border-t border-white/10 pt-6">
     <SectionHeading eyebrow="ETSY / VENTAS" title="Pedidos e ingresos" description="Recibos creados en el período; importes de pedidos pagados o completados, no beneficio neto."
       action={<div className="flex flex-wrap gap-2">
-        {sales && !sales.authorized && <a href="/api/etsy/auth/start" className="inline-flex items-center gap-1 rounded-md border border-[#eeba2b]/40 px-3 py-2 text-xs font-medium text-[#f1cc61] hover:bg-[#eeba2b]/10">
+        {sales && !sales.authorized && // eslint-disable-next-line @next/next/no-html-link-for-pages -- ruta de API (OAuth), no una página
+          <a href="/api/etsy/auth/start" className="inline-flex items-center gap-1 rounded-md border border-[#eeba2b]/40 px-3 py-2 text-xs font-medium text-[#f1cc61] hover:bg-[#eeba2b]/10">
           {sales.connected ? "Reautorizar Etsy" : "Conectar Etsy"} <ArrowUpRight size={14} aria-hidden="true" /></a>}
         <button type="button" onClick={onSync} disabled={syncing || !sales?.authorized}
           className="inline-flex items-center gap-2 rounded-md border border-white/15 px-3 py-2 text-xs font-medium text-neutral-200 hover:border-[#eeba2b]/50 disabled:opacity-40">

@@ -46,6 +46,7 @@ export function PinterestAnalyticsPanel({ data, syncing, onSync }: { data: Pinte
     <SectionHeading eyebrow="PINTEREST / ANALÍTICA" title="Rendimiento orgánico" description="Datos de Pinterest API. Clics salientes no equivalen a visitas verificadas en Etsy ni a ventas atribuidas."
       action={<div className="flex flex-wrap gap-2">
         {data && (!data.connected || !data.authorized || data.errorCode === "authentication_expired" || data.errorCode === "permission_or_account_denied") &&
+          // eslint-disable-next-line @next/next/no-html-link-for-pages -- ruta de API (OAuth), no una página
           <a href="/api/pinterest/auth/start" className="inline-flex items-center gap-1 rounded border border-[#eeba2b]/40 px-3 py-2 text-xs text-[#f1cc61] hover:bg-[#eeba2b]/10">{data.connected ? "Reautorizar" : "Conectar Pinterest"}<ArrowUpRight size={14}/></a>}
         <button type="button" onClick={onSync} disabled={syncing || !data?.authorized} className="inline-flex items-center gap-2 rounded border border-white/15 px-3 py-2 text-xs text-neutral-200 hover:border-[#eeba2b]/50 disabled:opacity-40"><RefreshCw size={14} className={syncing?"animate-spin":""}/> Sincronizar</button>
       </div>}/>

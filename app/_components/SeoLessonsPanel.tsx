@@ -48,7 +48,9 @@ export default function SeoLessonsPanel() {
   }, [])
 
   useEffect(() => {
-    void load()
+    // Primera carga fuera del render del efecto (evita renders en cascada).
+    const timer = window.setTimeout(() => void load(), 0)
+    return () => window.clearTimeout(timer)
   }, [load])
 
   async function setStatus(id: number, status: Lesson["status"]) {

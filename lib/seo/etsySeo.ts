@@ -1154,7 +1154,7 @@ function buildPngDesignTitle(
   }
 
   const targetPrefixWords = Math.max(1, maxWords - 2)
-  let tokens = prefix.split(/\s+/).filter(Boolean)
+  const tokens = prefix.split(/\s+/).filter(Boolean)
   while (countWords(tokens.join(" ")) > targetPrefixWords) {
     tokens.pop()
   }
