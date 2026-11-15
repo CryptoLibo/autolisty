@@ -10,7 +10,7 @@ Whether you are creating apparel, gifts, accessories, or merchandise for your sh
 
 - High-resolution 300 DPI artwork for crisp, professional results
 - Transparent background for flexible placement on different products
-- Square 5000 x 5000 px canvas with room to resize for your project
+- Square 4096 x 4096 px canvas with room to resize for your project
 - Suitable for personal projects, small businesses, and Print on Demand
 - Unlimited physical end-product sales included
 - Instant digital download with no waiting and no shipping
@@ -21,7 +21,7 @@ This design is a strong choice for KEYWORD_4 that feels expressive, marketable, 
 
 You will receive 1 high-resolution PNG file:
 
-- 5000 x 5000 pixels
+- 4096 x 4096 pixels
 - 300 DPI
 - Transparent background
 - High-resolution, print-ready artwork
