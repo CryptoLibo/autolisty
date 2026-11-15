@@ -156,7 +156,6 @@ export async function POST(request: Request) {
       ok: true,
       job: queuedJob,
       sourcePreviewUrl: `/api/automation/jobs/${job.id}/source`,
-      pinterest: pinterestQueue?.byJob[job.id] ?? null,
     })
   } catch (error: unknown) {
     if (uploadedKey) {
