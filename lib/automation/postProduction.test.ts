@@ -269,6 +269,39 @@ describe("post-production worker", () => {
     expect(JSON.parse(current.pinterestSeoJson!).pins[0].pinId).toBe("a1")
   })
 
+  it("un plan de antes de la cola conserva sus textos y no republica lo que pudo salir", async () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    repository.addDrafts("frame_tv_art", ["9001"])
+    const job = frameTvJob(repository, { video: false })
+    const findExistingPin = vi.fn(async () => "already-there")
+    const deps = fakeDeps(repository, {
+      findExistingPin,
+      now: () => new Date("2026-11-16T12:00:00Z"),
+      getListing: vi.fn(async () => ({ state: "active", url: "https://www.etsy.com/listing/9001" })),
+    })
+    await advanceJob(job, deps)
+    // Plan antiguo: pin 1 publicado, pin 2 con intento cortado por un error 500.
+    const oldPlan = {
+      boardId: "77", boardName: "Frame TV Art",
+      pins: [
+        { id: "pin-1", imageUrl: "u1", title: "Old 1", description: "d", pinId: "p1", publishingAt: "2026-11-15T10:00:00Z" },
+        { id: "pin-2", imageUrl: "u2", title: "Old 2", description: "d", pinId: null, publishingAt: "2026-11-15T10:01:00Z" },
+        { id: "pin-3", imageUrl: "u3", title: "Old 3", description: "d", pinId: null },
+      ],
+    }
+    repository.updatePostProductionFields(job.id, { pinterestSeoJson: JSON.stringify(oldPlan), nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
+    await runPostProductionTick(deps)
+    expect(deps.generatePinCopy).not.toHaveBeenCalled()
+    const plan = JSON.parse(repository.getJob(job.id)!.pinterestSeoJson!)
+    expect(plan.pins.map((pin: { title: string }) => pin.title)).toEqual(["Old 1", "Old 2", "Old 3"])
+    expect(plan.pins[0].pinId).toBe("p1")
+    // El pin 2 ya existía en Pinterest: se detecta y no se vuelve a publicar.
+    expect(findExistingPin).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ title: "Old 2" }))
+    expect(plan.pins[1].pinId).toBe("already-there")
+    expect(deps.publishPin).not.toHaveBeenCalled()
+  })
+
   it("avisa si no existe el tablero con el nombre del producto", async () => {
     database = openAutomationDatabase(":memory:")
     const repository = new AutomationRepository(database)

@@ -527,13 +527,15 @@ async function stepPinterest(ctx: StepContext) {
   if (!etsyUrl) throw new PostProductionError("Falta la URL pública del listing de Etsy.")
 
   let plan = parsePlan(ctx.job)
-  if (!plan || (!plan.version && plan.pins.every((pin) => !pin.pinId))) {
+  if (!plan) {
     plan = await buildPinterestPlan(ctx, etsyUrl)
     ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan), nextAttemptAt: null })!
     const first = plan.pins[0]?.keyword
     ctx.deps.repository.recordJobEvent(ctx.job.id, "PINTEREST_PLANNED", `3 pines preparados${first ? ` (búsquedas: ${plan.pins.map((pin) => pin.keyword).filter(Boolean).join(" · ")})` : ""}.`)
   } else if (!plan.version) {
-    // Plan antiguo con pines ya publicados: sus textos se mantienen y entra en la cola.
+    // Plan antiguo (de antes de la cola): se mantienen sus textos y sus marcas de
+    // publicación, así un pin que Pinterest creó aunque respondiera error se detecta
+    // por título y no se publica dos veces. Los pines ya publicados no se tocan.
     plan.version = 2
     plan.createdAt ||= ctx.job.updatedAt
     ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan), nextAttemptAt: null })!
