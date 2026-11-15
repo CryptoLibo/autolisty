@@ -49,6 +49,12 @@ function isAgentOnline(agent: AutomationAgent) {
 export function AutomationWorkspace() {
   const [jobs, setJobs] = useState<QueueJob[]>([])
   const [pipelineMode, setPipelineMode] = useState<AutomationPipelineMode>("RUNNING")
+  const [pinterestQueue, setPinterestQueue] = useState<{
+    pausedUntil: string | null
+    dailyCap: number
+    today: { published: number; pending: number }
+    tomorrow: { pending: number }
+  } | null>(null)
   const [agents, setAgents] = useState<AutomationAgent[]>([])
   const [managingJobId, setManagingJobId] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<EtsyDraftPoolItem[]>([])
@@ -187,6 +193,7 @@ export function AutomationWorkspace() {
 
       setJobs(jobsData.jobs || [])
       setPipelineMode(jobsData.pipelineMode || "RUNNING")
+      setPinterestQueue(jobsData.pinterestQueue || null)
       setAgents(jobsData.agents || [])
       setDrafts(draftsData.drafts || [])
       setDraftSummary(draftsData.summary || [])
@@ -720,6 +727,19 @@ export function AutomationWorkspace() {
         )
       ) : tabJobs.length ? (
         <>
+        {currentTab === "published" && pinterestQueue ? (
+          <section aria-label="Cola de Pinterest" className={`p-4 ${card} ${pinterestQueue.pausedUntil ? "border-orange-400/30" : ""}`}>
+            <div className="text-[13px] text-neutral-400">Cola de Pinterest</div>
+            <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-neutral-200">
+              <span>Hoy: {pinterestQueue.today.published} publicados · {pinterestQueue.today.pending} pendientes</span>
+              <span>Mañana: {pinterestQueue.tomorrow.pending} en cola</span>
+              <span className="text-neutral-400">Máximo {pinterestQueue.dailyCap} al día, de 10:00 a 24:00, 25 min entre pines</span>
+            </div>
+            {pinterestQueue.pausedUntil ? (
+              <p className="mt-2 text-[13px] text-orange-300">En pausa por bloqueo de Pinterest hasta las {new Date(pinterestQueue.pausedUntil).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}. Sigue sola.</p>
+            ) : null}
+          </section>
+        ) : null}
         {currentTab === "review" ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-neutral-400">Al publicarlos en Etsy, Autolisty lo detecta solo (cada 5 min por la tarde, cada 30 el resto del día).</p>

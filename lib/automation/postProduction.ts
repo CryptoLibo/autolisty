@@ -11,8 +11,9 @@
 //
 // Cada estado "-ING" se puede repetir: si el servidor se reinicia o un paso
 // falla, el trabajo vuelve a ese estado y el paso se ejecuta de nuevo entero.
-// Los 3 pines se publican seguidos al detectar la publicación en Etsy, y se
-// guarda cada id al momento: un reintento nunca duplica un pin ya publicado.
+// Al detectar la publicación en Etsy se preparan los 3 pines y entran en la cola de
+// Pinterest (pinterestQueue): salen espaciados, uno cada vez, y cada id se guarda al
+// momento, así un reintento nunca duplica un pin ya publicado.
 import { reviewPollDelayMs } from "./reviewPolling"
 import { withOpenAiUsage, type OpenAiUsage } from "../seo/openaiUsage"
 import type { EtsyTokenPayload } from "../etsy/auth"
@@ -27,6 +28,7 @@ import type { DesignBrief } from "./designIntake"
 import { getProductionProductContract } from "./productContracts"
 import type { AutomationRepository } from "./repository"
 import type { AutomationJob, AutomationJobFile, AutomationJobStatus } from "./types"
+import { completedNotification, parsePlan, runPinterestQueue, type PinterestPlan } from "./pinterestQueue"
 
 export type PostProductionDeps = {
   repository: AutomationRepository
@@ -61,13 +63,9 @@ export type PostProductionDeps = {
   /** Busca en el tablero un pin ya publicado con ese título y enlace (opcional; evita duplicados). */
   findExistingPin?: (token: PinterestTokenPayload, input: { boardId: string; title: string; link: string }) => Promise<string | null>
   recordPin: (input: { pinId: string; boardId: string; title: string; destinationUrl: string; imageUrl: string }) => void
+  /** Título, tags y descripción actuales del listing en Etsy (opcional; para los textos de los pines). */
+  getListingText?: (token: EtsyTokenPayload, listingId: string) => Promise<{ title?: string; tags?: string[]; description?: string } | null>
   now?: () => Date
-}
-
-type PinterestPlan = {
-  boardId: string
-  boardName: string
-  pins: Array<{ id: string; imageUrl: string; title: string; description: string; pinId: string | null; publishingAt?: string | null }>
 }
 
 type DraftRef = { token: EtsyTokenPayload; shopId: number; listingId: string }
@@ -439,89 +437,112 @@ async function stepCheckPublished(ctx: StepContext) {
   })!
 }
 
-async function stepPinterest(ctx: StepContext) {
-  if (ctx.job.status === "ETSY_ACTIVE") move(ctx, "PINTEREST_PUBLISHING")
-  const etsyUrl = ctx.job.etsyUrl
-  if (!etsyUrl) throw new PostProductionError("Falta la URL pública del listing de Etsy.")
+/** Títulos de pines demasiado parecidos (iguales o que empiezan igual). null = bien. */
+export function pinTitlesProblem(titles: string[]) {
+  const words = titles.map((title) => title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean))
+  for (let a = 0; a < words.length; a += 1) {
+    for (let b = a + 1; b < words.length; b += 1) {
+      if (words[a].join(" ") === words[b].join(" ")) return `Los pines ${a + 1} y ${b + 1} tienen el mismo título.`
+      if (words[a].slice(0, 3).join(" ") === words[b].slice(0, 3).join(" ")) return `Los pines ${a + 1} y ${b + 1} empiezan igual ("${words[a].slice(0, 3).join(" ")}").`
+    }
+  }
+  return null
+}
+
+/** Prepara los 3 pines: tablero, imágenes y textos distintos a partir del listing actual en Etsy. */
+async function buildPinterestPlan(ctx: StepContext, etsyUrl: string): Promise<PinterestPlan> {
   const token = await ctx.deps.getPinterestToken()
   if (!token) throw new PostProductionError("Pinterest no está conectado en Autolisty. Conéctalo y reintenta.")
+  // El tablero se llama exactamente como el producto (p. ej. "Frame TV Art").
+  const boardName = getProductionProductContract(ctx.job.productType).label
+  const board = await ctx.deps.findBoard(token, boardName)
+  if (!board) throw new PostProductionError(`No hay un tablero de Pinterest llamado "${boardName}".`)
 
-  let plan = ctx.job.pinterestSeoJson ? (JSON.parse(ctx.job.pinterestSeoJson) as PinterestPlan) : null
-  if (!plan) {
-    // El tablero se llama exactamente como el producto (p. ej. "Frame TV Art").
-    const boardName = getProductionProductContract(ctx.job.productType).label
-    const board = await ctx.deps.findBoard(token, boardName)
-    if (!board) throw new PostProductionError(`No hay un tablero de Pinterest llamado "${boardName}".`)
-
-    const images = [1, 2, 3].map((index) => {
-      const file = fileBySlot(ctx.files, `pinterest:${index}`)
-      if (!file?.r2Key) throw new PostProductionError(`Falta el pin ${index} en R2.`)
-      return { id: `pin-${index}`, url: ctx.deps.publicUrl(file.r2Key) }
-    })
-    const seo = parseSeo(ctx.job)
-    const { result: copy, usage } = await withOpenAiUsage(() => ctx.deps.generatePinCopy({
-      productType: ctx.job.productType,
-      listingTitle: seo.title,
-      listingDescription: seo.description_final,
-      listingKeywords: [...briefKeywords(ctx.job.briefJson), ...seo.description_keywords_5],
-      destinationLink: etsyUrl,
-      pins: images,
-    }))
-    recordUsage(ctx, "pinterest", usage)
-    plan = {
-      boardId: board.id,
-      boardName: board.name,
-      pins: images.map((image, index) => {
-        const text = copy.pins.find((item) => item.id === image.id) || copy.pins[index]
-        return {
-          id: image.id,
-          imageUrl: image.url,
-          title: text?.title || seo.title.slice(0, 100),
-          description: text?.description || "",
-          pinId: null,
-        }
-      }),
-    }
-    ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan) })!
-  }
-
-  for (const pin of plan.pins) {
-    if (pin.pinId) continue
-    // Si un intento anterior se cortó tras publicar y antes de guardar el id, el pin ya existe.
-    if (pin.publishingAt && ctx.deps.findExistingPin) {
-      const existing = await ctx.deps.findExistingPin(token, { boardId: plan.boardId, title: pin.title, link: etsyUrl })
-      if (existing) {
-        pin.pinId = existing
-        ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan) })!
-        continue
-      }
-    }
-    // Se guarda la intención antes de publicar.
-    pin.publishingAt = (ctx.deps.now?.() ?? new Date()).toISOString()
-    ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan) })!
-    const published = await ctx.deps.publishPin(token, {
-      boardId: plan.boardId,
-      title: pin.title,
-      description: pin.description,
-      link: etsyUrl,
-      imageUrl: pin.imageUrl,
-      altText: pin.title.slice(0, 500),
-    })
-    pin.pinId = published.pinId
-    ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan) })!
+  const images = [1, 2, 3].map((index) => {
+    const file = fileBySlot(ctx.files, `pinterest:${index}`)
+    if (!file?.r2Key) throw new PostProductionError(`Falta el pin ${index} en R2.`)
+    return { id: `pin-${index}`, url: ctx.deps.publicUrl(file.r2Key) }
+  })
+  const seo = parseSeo(ctx.job)
+  // Título y tags tal como están ahora en Etsy (pueden haberse corregido tras el SEO original).
+  let current: { title?: string; tags?: string[]; description?: string } | null = null
+  if (ctx.deps.getListingText && ctx.job.etsyDraftId) {
     try {
-      ctx.deps.recordPin({
-        pinId: published.pinId,
-        boardId: published.boardId,
-        title: pin.title,
-        destinationUrl: etsyUrl,
-        imageUrl: pin.imageUrl,
-      })
+      const etsyToken = await ctx.deps.getEtsyToken()
+      if (etsyToken) current = await ctx.deps.getListingText(etsyToken, ctx.job.etsyDraftId)
     } catch (error) {
-      ctx.deps.repository.recordJobEvent(ctx.job.id, "WARNING", `Pin publicado pero sin vínculo analítico: ${errorMessage(error)}`)
+      ctx.deps.repository.recordJobEvent(ctx.job.id, "WARNING", `No se pudo leer el listing actual de Etsy; se usa el SEO original: ${errorMessage(error)}`)
     }
   }
-  move(ctx, "COMPLETED", `${plan.pins.length} pines publicados en "${plan.boardName}".`)
+  const tags = current?.tags?.length ? current.tags : seo.tags_13
+  const input = {
+    productType: ctx.job.productType,
+    listingTitle: current?.title || seo.title,
+    listingDescription: current?.description || seo.description_final,
+    listingTags: tags,
+    listingKeywords: [...new Set([...briefKeywords(ctx.job.briefJson), ...tags, ...seo.description_keywords_5])],
+    destinationLink: etsyUrl,
+    pins: images,
+  }
+  let { result: copy, usage } = await withOpenAiUsage(() => ctx.deps.generatePinCopy(input))
+  recordUsage(ctx, "pinterest", usage)
+  const problem = pinTitlesProblem(images.map((image, index) => (copy.pins.find((item) => item.id === image.id) || copy.pins[index])?.title || ""))
+  if (problem) {
+    // Una segunda vuelta con la indicación concreta de qué corregir.
+    ;({ result: copy, usage } = await withOpenAiUsage(() => ctx.deps.generatePinCopy({
+      ...input,
+      feedback: `${problem} Each pin title must target a different search phrase and start with different words.`,
+    })))
+    recordUsage(ctx, "pinterest", usage)
+    const still = pinTitlesProblem(copy.pins.map((pin) => pin.title))
+    if (still) ctx.deps.repository.recordJobEvent(ctx.job.id, "WARNING", `Títulos de pines parecidos tras regenerar: ${still}`)
+  }
+  const now = (ctx.deps.now || (() => new Date()))()
+  return {
+    version: 2,
+    createdAt: now.toISOString(),
+    boardId: board.id,
+    boardName: board.name,
+    pins: images.map((image, index) => {
+      const text = copy.pins.find((item) => item.id === image.id) || copy.pins[index]
+      return {
+        id: image.id,
+        imageUrl: image.url,
+        title: text?.title || input.listingTitle.slice(0, 100),
+        description: text?.description || "",
+        keyword: text?.keyword || null,
+        pinId: null,
+      }
+    }),
+  }
+}
+
+/**
+ * Al publicarse en Etsy: prepara los 3 pines y los deja en la cola de Pinterest
+ * (pinterestQueue publica uno cada vez, espaciados). Termina cuando sale el último.
+ */
+async function stepPinterest(ctx: StepContext) {
+  if (ctx.job.status === "ETSY_ACTIVE") move(ctx, "PINTEREST_PUBLISHING", "Pines en la cola de Pinterest.")
+  const etsyUrl = ctx.job.etsyUrl
+  if (!etsyUrl) throw new PostProductionError("Falta la URL pública del listing de Etsy.")
+
+  let plan = parsePlan(ctx.job)
+  if (!plan || (!plan.version && plan.pins.every((pin) => !pin.pinId))) {
+    plan = await buildPinterestPlan(ctx, etsyUrl)
+    ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan), nextAttemptAt: null })!
+    const first = plan.pins[0]?.keyword
+    ctx.deps.repository.recordJobEvent(ctx.job.id, "PINTEREST_PLANNED", `3 pines preparados${first ? ` (búsquedas: ${plan.pins.map((pin) => pin.keyword).filter(Boolean).join(" · ")})` : ""}.`)
+  } else if (!plan.version) {
+    // Plan antiguo con pines ya publicados: sus textos se mantienen y entra en la cola.
+    plan.version = 2
+    plan.createdAt ||= ctx.job.updatedAt
+    ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { pinterestSeoJson: JSON.stringify(plan), nextAttemptAt: null })!
+  } else if (ctx.job.nextAttemptAt) {
+    ctx.job = ctx.deps.repository.updatePostProductionFields(ctx.job.id, { nextAttemptAt: null })!
+  }
+  if (plan.pins.every((pin) => pin.pinId)) {
+    move(ctx, "COMPLETED", `${plan.pins.length} pines publicados en "${plan.boardName}".`)
+  }
 }
 
 const STEP_BY_STATUS: Partial<Record<AutomationJobStatus, (ctx: StepContext) => Promise<void>>> = {
@@ -601,16 +622,7 @@ const EDIT_DRAFT_URL = (listingId: string) => `https://www.etsy.com/your/shops/m
 export function notificationFor(job: AutomationJob): { title: string; body: string; url: string | null; tag: string } | null {
   // Incidencias y listings completados (publicado + pines de Pinterest). Los drafts
   // listos se avisan por tandas (alertDraftsReady).
-  if (job.status === "COMPLETED") {
-    let board = ""
-    try { board = job.pinterestSeoJson ? (JSON.parse(job.pinterestSeoJson) as PinterestPlan).boardName : "" } catch { board = "" }
-    return {
-      title: "Listing completado",
-      body: `${job.productCode}: publicado en Etsy y pines en Pinterest${board ? ` ("${board}")` : ""}.`,
-      url: job.etsyUrl || "/automation",
-      tag: `done-${job.productCode}`,
-    }
-  }
+  if (job.status === "COMPLETED") return completedNotification(job, parsePlan(job)?.boardName || "")
   if (job.status === "NEEDS_ATTENTION") {
     return {
       title: "Un listing necesita atención",
@@ -638,6 +650,12 @@ export async function runPostProductionTick(deps: PostProductionDeps, limit = 25
       const notification = notificationFor(updated)
       if (notification) await deps.notify(notification).catch(() => {})
     }
+  }
+  // Cola de Pinterest: como mucho un pin por pasada, si ya le toca.
+  try {
+    await runPinterestQueue(deps)
+  } catch (error) {
+    console.error("[pinterest-queue] failed:", errorMessage(error))
   }
   return results
 }

@@ -102,6 +102,10 @@ export function createPostProductionDeps(): PostProductionDeps {
     publishPin: publishPinterestPin,
     findExistingPin: findExistingPinterestPin,
     recordPin: (input) => recordPublishedPin(getAutomationDatabase(), input),
+    getListingText: async (token, listingId) => {
+      const data = await getShopListing(token, 0, listingId) as { title?: string; tags?: string[]; description?: string }
+      return { title: data.title, tags: Array.isArray(data.tags) ? data.tags : undefined, description: data.description }
+    },
   }
 }
 

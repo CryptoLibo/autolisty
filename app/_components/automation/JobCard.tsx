@@ -13,6 +13,20 @@ export type QueueJob = AutomationJob & {
   /** Lista ligera: el título del SEO y si hay miniatura, ya calculados en el servidor. */
   seoTitle?: string | null
   hasThumbnail?: boolean
+  /** Progreso en la cola de Pinterest (solo listings publicados con pines pendientes). */
+  pinterest?: { published: number; total: number; nextAt: string | null } | null
+}
+
+/** «hoy ~14:20», «mañana ~10:25» o «jue 19 ~11:00». */
+export function whenLabel(iso: string) {
+  const date = new Date(iso)
+  const time = date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
+  const dayKey = (value: Date) => value.toLocaleDateString("en-CA")
+  const today = new Date()
+  const tomorrow = new Date(today.getTime() + 86_400_000)
+  if (dayKey(date) === dayKey(today)) return `hoy ~${time}`
+  if (dayKey(date) === dayKey(tomorrow)) return `mañana ~${time}`
+  return `${date.toLocaleDateString("es-ES", { weekday: "short", day: "numeric" })} ~${time}`
 }
 
 export type DesignBriefView = {
@@ -154,7 +168,11 @@ export function JobCard({ job, actions }: { job: QueueJob; actions: Actions }) {
         </div>
         <h3 className="line-clamp-2 text-sm font-medium leading-5 text-neutral-100">{title}</h3>
         <StageBar job={job} />
-        <div className={`text-xs ${issue ? "text-orange-300" : "text-neutral-400"}`}>{STATUS_LABELS[job.status]}</div>
+        <div className={`text-xs ${issue ? "text-orange-300" : "text-neutral-400"}`}>
+          {job.status === "PINTEREST_PUBLISHING" && job.pinterest
+            ? `Pinterest ${job.pinterest.published}/${job.pinterest.total}${job.pinterest.nextAt ? ` · próximo pin: ${whenLabel(job.pinterest.nextAt)}` : ""}`
+            : STATUS_LABELS[job.status]}
+        </div>
         {issue && job.lastError ? <p className="line-clamp-3 text-xs leading-5 text-orange-200/80">{job.lastError}</p> : null}
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px]">

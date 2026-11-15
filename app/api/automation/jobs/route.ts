@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { requireOwnerApi } from "@/lib/auth/owner"
 import { getProductionProductContract } from "@/lib/automation/productContracts"
 import { AutomationRepository } from "@/lib/automation/repository"
+import { pinterestQueueOverview } from "@/lib/automation/pinterestQueue"
 import { PRODUCT_OPTIONS, type ProductType } from "@/lib/products"
 import {
   deleteAutomationSource,
@@ -47,6 +48,12 @@ export async function GET() {
   if (unauthorized) return unauthorized
 
   const repository = new AutomationRepository()
+  let pinterestQueue: ReturnType<typeof pinterestQueueOverview> | null = null
+  try {
+    pinterestQueue = pinterestQueueOverview(repository)
+  } catch {
+    pinterestQueue = null
+  }
   // Lista ligera (U7): sin el SEO completo, pines ni lista de archivos; el detalle
   // (historial) se pide al abrir cada tarjeta.
   const jobs = repository.listJobs(200).map((job) => {
@@ -63,6 +70,7 @@ export async function GET() {
       hasThumbnail: files.some((file) =>
         (file.slotKey === "source:primary" || file.slotKey === "listing:1") && Boolean(file.r2Key) && file.status !== "DELETED"),
       sourcePreviewUrl: `/api/automation/jobs/${job.id}/source`,
+      pinterest: pinterestQueue?.byJob[job.id] ?? null,
     }
   })
 
@@ -71,6 +79,7 @@ export async function GET() {
     agents: repository.listAgents(),
     pipelineMode: repository.getPipelineMode(),
     jobsByStatus: repository.countByStatus(),
+    pinterestQueue: pinterestQueue ? { ...pinterestQueue, byJob: undefined } : null,
   })
 }
 
@@ -147,6 +156,7 @@ export async function POST(request: Request) {
       ok: true,
       job: queuedJob,
       sourcePreviewUrl: `/api/automation/jobs/${job.id}/source`,
+      pinterest: pinterestQueue?.byJob[job.id] ?? null,
     })
   } catch (error: unknown) {
     if (uploadedKey) {

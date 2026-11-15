@@ -35,11 +35,15 @@ export type GeneratePinterestCopyInput = {
   listingTitle: string
   listingDescription: string
   listingKeywords?: string[]
+  /** Tags actuales del listing en Etsy. */
+  listingTags?: string[]
+  /** Indicación tras un intento con títulos demasiado parecidos. */
+  feedback?: string
   destinationLink: string
   pins: Array<{ id: string; url: string }>
 }
 
-export type PinterestCopy = { id: string; title: string; description: string }
+export type PinterestCopy = { id: string; title: string; description: string; keyword?: string }
 
 export async function generatePinterestCopy(body: GeneratePinterestCopyInput): Promise<{ pins: PinterestCopy[] }> {
   {
@@ -48,6 +52,8 @@ export async function generatePinterestCopy(body: GeneratePinterestCopyInput): P
       listingTitle,
       listingDescription,
       listingKeywords = [],
+      listingTags = [],
+      feedback,
       destinationLink,
       pins = [],
     } = body
@@ -65,14 +71,24 @@ WRITING GOALS
 - When product_type is png_designs, focus on the visible phrase or subject, niche, audience, creative project ideas, apparel inspiration, and finished physical-product uses. Do not describe it as wall decor unless the image genuinely shows that use.
 - When product_type is png_designs, make it clear that the listing is a reusable PNG design without presenting a T-shirt as the only possible use.
 
+SEARCH INTENT (most important)
+- Pinterest is a visual search engine: each title answers something people actually search for.
+- The pins of one listing are published on different days and compete for different searches.
+- Give EACH pin a DIFFERENT target search phrase taken from listing_keywords / listing_tags
+  (or a close, natural variation of them). Never use the same phrase for two pins.
+- Example for a stag painting: pin 1 "stag painting", pin 2 "red deer in snow", pin 3 "winter stag".
+
 TITLE RULES
 - Max 100 characters.
-- Clear, specific, and attractive in feed.
-- Use the strongest decor/search angle for the image.
-- Avoid keyword stuffing.
+- Lead with that pin's target search phrase, then a natural decor/use angle.
+- The three titles must be clearly different: never the same title, and never the same first three words.
+- Same SEO logic for all three: specific, searchable, attractive in feed.
+- Avoid keyword stuffing and avoid brand names.
 
 DESCRIPTION RULES
 - Max 800 characters.
+- Built around that pin's target search phrase, plus one or two related phrases.
+- Different wording from the other pins' descriptions.
 - Use the listing context and keywords naturally.
 - Write for organic discovery.
 - Mention decor context, style, creative niche, audience, or physical-product use case when relevant.
@@ -102,6 +118,9 @@ ${listingDescription}
 listing_keywords:
 ${JSON.stringify(listingKeywords)}
 
+listing_tags:
+${JSON.stringify(listingTags)}
+${feedback ? `\nFIX FROM PREVIOUS ATTEMPT:\n${feedback}\n` : ""}
 destination_link:
 ${destinationLink}
 
@@ -110,6 +129,7 @@ Return JSON in this exact shape:
   "pins": [
     {
       "id": "",
+      "keyword": "",
       "title": "",
       "description": ""
     }
@@ -163,6 +183,7 @@ Return JSON in this exact shape:
         id: pin.id,
         title: normalizePinTitle(found.title, listingTitle),
         description: normalizePinDescription(found.description),
+        keyword: cleanText(found.keyword).slice(0, 100) || undefined,
       }
     })
 

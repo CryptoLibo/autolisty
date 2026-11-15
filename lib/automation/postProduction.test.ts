@@ -155,55 +155,118 @@ describe("post-production worker", () => {
     expect(deps.generateSeo).toHaveBeenCalledTimes(1)
   })
 
-  it("detecta la publicación y publica los 3 pines en el tablero del producto", async () => {
+  it("al publicarse en Etsy prepara los 3 pines y la cola los saca de uno en uno, con 24 h entre pines del listing", async () => {
     database = openAutomationDatabase(":memory:")
     const repository = new AutomationRepository(database)
     repository.addDrafts("frame_tv_art", ["9001"])
     const job = frameTvJob(repository, { video: false })
-    const deps = fakeDeps(repository)
+    let now = new Date("2026-11-16T12:00:00Z")
+    const notify = vi.fn(async () => {})
+    const getListingText = vi.fn(async () => ({ title: "Etsy Title Now", tags: ["stag painting", "red deer in snow"], description: "Etsy desc" }))
+    const deps = fakeDeps(repository, { now: () => now, notify, getListingText })
     await advanceJob(job, deps)
 
     deps.getListing = vi.fn(async () => ({ state: "active", url: "https://www.etsy.com/listing/9001" }))
     repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
-    const results = await runPostProductionTick(deps)
-    expect(results).toEqual([{ productCode: job.productCode, status: "COMPLETED" }])
-    const done = repository.getJob(job.id)!
-    expect(done.etsyUrl).toBe("https://www.etsy.com/listing/9001")
+    await runPostProductionTick(deps)
+    let current = repository.getJob(job.id)!
+    expect(current.status).toBe("PINTEREST_PUBLISHING")
+    expect(current.etsyUrl).toBe("https://www.etsy.com/listing/9001")
     expect(deps.findBoard).toHaveBeenCalledWith(expect.anything(), "Frame TV Art")
-    expect(deps.publishPin).toHaveBeenCalledTimes(3)
+    // Textos a partir del listing actual de Etsy, no del SEO original.
+    expect(vi.mocked(deps.generatePinCopy).mock.calls[0][0]).toMatchObject({ listingTitle: "Etsy Title Now", listingTags: ["stag painting", "red deer in snow"] })
+    expect(deps.publishPin).toHaveBeenCalledTimes(1)
     expect(vi.mocked(deps.publishPin).mock.calls[0][1]).toMatchObject({
       boardId: "77",
       link: "https://www.etsy.com/listing/9001",
       imageUrl: `https://files.example/pinterest/${job.productCode}/pin-1.jpg`,
       title: "Title pin-1",
     })
+
+    // 30 minutos después no sale el pin 2: espera 24 h desde el pin 1.
+    now = new Date("2026-11-16T12:30:00Z")
+    await runPostProductionTick(deps)
+    expect(deps.publishPin).toHaveBeenCalledTimes(1)
+
+    now = new Date("2026-11-17T12:05:00Z")
+    await runPostProductionTick(deps)
+    expect(deps.publishPin).toHaveBeenCalledTimes(2)
+    expect(notify).not.toHaveBeenCalled()
+
+    now = new Date("2026-11-18T12:10:00Z")
+    await runPostProductionTick(deps)
+    current = repository.getJob(job.id)!
+    expect(current.status).toBe("COMPLETED")
+    expect(deps.publishPin).toHaveBeenCalledTimes(3)
     expect(deps.recordPin).toHaveBeenCalledTimes(3)
-    expect(JSON.parse(done.pinterestSeoJson!).pins.map((pin: { pinId: string }) => pin.pinId)).toEqual(["pin1", "pin2", "pin3"])
+    expect(deps.generatePinCopy).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(current.pinterestSeoJson!).pins.map((pin: { pinId: string }) => pin.pinId)).toEqual(["pin1", "pin2", "pin3"])
+    // «Listing completado» solo al salir el pin 3.
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: "Listing completado", url: "https://www.etsy.com/listing/9001" }))
   })
 
-  it("si un pin falla, el reintento no repite los ya publicados", async () => {
+  it("regenera los textos si dos pines tienen títulos que empiezan igual", async () => {
     database = openAutomationDatabase(":memory:")
     const repository = new AutomationRepository(database)
     repository.addDrafts("frame_tv_art", ["9001"])
     const job = frameTvJob(repository, { video: false })
-    const publishPin = vi.fn()
-      .mockResolvedValueOnce({ pinId: "a1", boardId: "77" })
-      .mockRejectedValueOnce(new Error("Pinterest HTTP 503"))
-      .mockResolvedValue({ pinId: "a2", boardId: "77" })
+    const generatePinCopy = vi.fn()
+      .mockResolvedValueOnce({ pins: [1, 2, 3].map((n) => ({ id: `pin-${n}`, title: `Winter stag painting idea ${n}`, description: "d" })) })
+      .mockResolvedValueOnce({ pins: [
+        { id: "pin-1", title: "Stag painting for cabin decor", description: "d" },
+        { id: "pin-2", title: "Red deer in snow wall art", description: "d" },
+        { id: "pin-3", title: "Winter stag Frame TV art", description: "d" },
+      ] })
     const deps = fakeDeps(repository, {
-      publishPin,
+      generatePinCopy,
+      now: () => new Date("2026-11-16T12:00:00Z"),
       getListing: vi.fn(async () => ({ state: "active", url: "https://www.etsy.com/listing/9001" })),
     })
     await advanceJob(job, deps)
     repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
-    const failed = await advanceJob(repository.getJob(job.id)!, deps)
-    expect(failed.status).toBe("RETRY_WAIT")
-    expect(failed.resumeStatus).toBe("PINTEREST_PUBLISHING")
+    await advanceJob(repository.getJob(job.id)!, deps)
+    expect(generatePinCopy).toHaveBeenCalledTimes(2)
+    expect(generatePinCopy.mock.calls[1][0].feedback).toMatch(/empiezan igual/)
+    const titles = JSON.parse(repository.getJob(job.id)!.pinterestSeoJson!).pins.map((pin: { title: string }) => pin.title)
+    expect(titles).toEqual(["Stag painting for cabin decor", "Red deer in snow wall art", "Winter stag Frame TV art"])
+  })
 
-    const done = await advanceJob(repository.getJob(job.id)!, deps)
-    expect(done.status).toBe("COMPLETED")
-    expect(publishPin).toHaveBeenCalledTimes(4)
-    expect(deps.generatePinCopy).toHaveBeenCalledTimes(1)
+  it("si Pinterest bloquea, pausa toda la cola 6 h con un solo aviso y sin mandar el listing a incidencias", async () => {
+    database = openAutomationDatabase(":memory:")
+    const repository = new AutomationRepository(database)
+    repository.addDrafts("frame_tv_art", ["9001"])
+    const job = frameTvJob(repository, { video: false })
+    let now = new Date("2026-11-16T12:00:00Z")
+    const notify = vi.fn(async () => {})
+    const publishPin = vi.fn()
+      .mockRejectedValueOnce(new Error('Pinterest pin request failed (HTTP 429): {"code":9,"message":"block (Pins) in place to combat spam"}'))
+      .mockResolvedValue({ pinId: "a1", boardId: "77" })
+    const deps = fakeDeps(repository, {
+      publishPin,
+      notify,
+      now: () => now,
+      getListing: vi.fn(async () => ({ state: "active", url: "https://www.etsy.com/listing/9001" })),
+    })
+    await advanceJob(job, deps)
+    repository.updatePostProductionFields(job.id, { nextAttemptAt: new Date(Date.now() - 1000).toISOString() })
+    await runPostProductionTick(deps)
+    let current = repository.getJob(job.id)!
+    expect(current.status).toBe("PINTEREST_PUBLISHING")
+    expect(current.retryCount).toBe(0)
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: "Pinterest en pausa hasta las 18:00" }))
+
+    now = new Date("2026-11-16T17:30:00Z")
+    await runPostProductionTick(deps)
+    expect(publishPin).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledTimes(1)
+
+    now = new Date("2026-11-16T18:01:00Z")
+    await runPostProductionTick(deps)
+    current = repository.getJob(job.id)!
+    expect(publishPin).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(current.pinterestSeoJson!).pins[0].pinId).toBe("a1")
   })
 
   it("avisa si no existe el tablero con el nombre del producto", async () => {
@@ -265,10 +328,10 @@ describe("post-production worker", () => {
     await runPostProductionTick({ ...deps, getListing, getListingsBatch })
     expect(getListingsBatch).toHaveBeenCalledTimes(1)
     expect(getListing).not.toHaveBeenCalled()
-    expect(repository.getJob(first.id)!.status).toBe("COMPLETED")
+    // Publicado: sus pines entran en la cola; ni aviso por draft listo ni por pin.
+    expect(repository.getJob(first.id)!.status).toBe("PINTEREST_PUBLISHING")
     expect(repository.getJob(second.id)!.status).toBe("WAITING_ETSY_REVIEW")
-    expect(notify).toHaveBeenCalledTimes(1)
-    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: "Listing completado", url: "https://www.etsy.com/listing/9001" }))
+    expect(notify).not.toHaveBeenCalled()
   })
 
   it("no avisa de estados intermedios", () => {

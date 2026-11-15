@@ -1082,6 +1082,36 @@ export class AutomationRepository {
     return this.getJob(jobId)
   }
 
+  getSettingValue(key: string): string | null {
+    const row = this.database
+      .prepare("SELECT setting_value FROM automation_settings WHERE setting_key = ?")
+      .get(key) as { setting_value: string } | undefined
+    return row?.setting_value ?? null
+  }
+
+  setSettingValue(key: string, value: string | null) {
+    if (value === null) {
+      this.database.prepare("DELETE FROM automation_settings WHERE setting_key = ?").run(key)
+      return
+    }
+    this.database.prepare(`
+      INSERT INTO automation_settings (setting_key, setting_value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, updated_at = excluded.updated_at
+    `).run(key, value, new Date().toISOString())
+  }
+
+  /** Pines publicados por Autolisty desde una fecha (tabla de analítica; para sembrar la cola). */
+  autolistyPinsSince(sinceIso: string): Array<{ at: string; boardId: string | null }> {
+    try {
+      return this.database.prepare(`
+        SELECT published_at AS at, board_id AS boardId FROM dashboard_pinterest_pins
+        WHERE published_via_autolisty = 1 AND published_at >= ? ORDER BY published_at ASC
+      `).all(sinceIso) as Array<{ at: string; boardId: string | null }>
+    } catch {
+      return []
+    }
+  }
+
   countRecentEvents(eventType: string, windowMs: number) {
     const row = this.database.prepare("SELECT COUNT(*) AS count FROM automation_job_events WHERE event_type = ? AND created_at >= ?")
       .get(eventType, new Date(Date.now() - windowMs).toISOString()) as { count: number }
