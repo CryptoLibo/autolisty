@@ -11,6 +11,8 @@ import { getSalesByListing, listFeedback } from "@/lib/automation/claudeInsights
 import { getListingImages } from "@/lib/automation/listingImages"
 import { parseDesignReport, parseReviewReport, ReviewReportStore } from "@/lib/automation/reviewReports"
 import { publishListingDraft } from "@/lib/automation/publishListing"
+import { requestMediaRefresh } from "@/lib/automation/mediaRefresh"
+import { AutomationRepository } from "@/lib/automation/repository"
 import { notifyOwner } from "@/lib/notifications/webPush"
 
 export const runtime = "nodejs"
@@ -81,6 +83,7 @@ export async function POST(request: Request) {
     },
     listReviewReports: (input) => new ReviewReportStore().list(input.limit ?? 7),
     publishListing: (input) => publishListingDraft(input),
+    refreshListingMedia: async (input) => requestMediaRefresh(input, { repository: new AutomationRepository() }),
     saveDesignReport: (input) => new ReviewReportStore().saveDesignReport(parseDesignReport(input)),
     listDesignReports: (input) => new ReviewReportStore().listDesignReports(input.limit ?? 7),
   })

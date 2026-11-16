@@ -2,6 +2,7 @@
 import { getAutomationDatabase } from "./db/database"
 import { getEtsyApiUsage } from "../etsy/client"
 import { SeoLessonStore } from "./seoLessons"
+import { MediaRefreshRepository, mediaRefreshSummary } from "./mediaRefresh"
 
 export function getProductionStatus() {
   const database = getAutomationDatabase()
@@ -34,6 +35,7 @@ export function getProductionStatus() {
     waitingForDrafts,
     automaty: agent,
     etsyApiToday: getEtsyApiUsage(),
+    mediaRefresh: mediaRefreshSummary(new MediaRefreshRepository(database)),
     lessons: {
       active: lessons.filter((lesson) => lesson.status === "ACTIVE").length,
       proposed: lessons.filter((lesson) => lesson.status === "PROPOSED").length,

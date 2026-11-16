@@ -949,6 +949,38 @@ const MIGRATIONS = [
       ALTER TABLE review_reports ADD COLUMN kind TEXT NOT NULL DEFAULT 'drafts';
     `,
   },
+  {
+    // Regenerar mockups y vídeo de un listing ya terminado y sustituirlos en Etsy.
+    version: 28,
+    sql: `
+      CREATE TABLE IF NOT EXISTS automation_media_refreshes (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL REFERENCES automation_jobs(id),
+        scope TEXT NOT NULL,
+        status TEXT NOT NULL,
+        agent_id TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        message TEXT,
+        last_error TEXT,
+        next_attempt_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_media_refresh_status ON automation_media_refreshes(status, created_at);
+      CREATE TABLE IF NOT EXISTS automation_media_refresh_files (
+        refresh_id TEXT NOT NULL REFERENCES automation_media_refreshes(id),
+        slot_key TEXT NOT NULL,
+        relative_path TEXT NOT NULL,
+        r2_key TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        byte_size INTEGER NOT NULL,
+        sha256 TEXT NOT NULL,
+        verified_at TEXT,
+        PRIMARY KEY (refresh_id, slot_key)
+      );
+    `,
+  },
 ] as const
 
 export function runAutomationMigrations(database: Database.Database, upToVersion = AUTOMATION_SCHEMA_VERSION) {

@@ -9,8 +9,9 @@ import { SeoLessonStore } from "./seoLessons"
 import { runDailyBackupIfDue } from "./backup"
 import { getFreshToken } from "../integrations/tokenSession"
 import { getPrimaryShop, getShopListing } from "../etsy/listings"
-import { syncDraftFile, syncDraftImages, syncDraftText, syncDraftVideo } from "../etsy/draftSync"
-import { generateEtsySeo } from "../seo/etsySeo"
+import { replaceListingImageAtRank, replaceListingVideo, syncDraftFile, syncDraftImages, syncDraftText, syncDraftVideo } from "../etsy/draftSync"
+import { generateEtsySeo, generateImageAltTexts } from "../seo/etsySeo"
+import { applyNextMediaRefresh, MediaRefreshRepository } from "./mediaRefresh"
 import { generateDeliveryPdf } from "../r2/generateDeliveryPdf"
 import { uploadDeliveryPdf } from "../r2/uploadDeliveryPdf"
 import { generatePinterestCopy } from "../seo/pinterestSeo"
@@ -109,6 +110,25 @@ export function createPostProductionDeps(): PostProductionDeps {
   }
 }
 
+// Regeneraciones de medios subidas por Automaty: una por pasada.
+async function applyMediaRefreshes(deps: PostProductionDeps) {
+  await applyNextMediaRefresh({
+    refreshes: new MediaRefreshRepository(),
+    repository: deps.repository,
+    getEtsyToken: deps.getEtsyToken,
+    getShopId: deps.getShopId,
+    publicUrl: deps.publicUrl,
+    replaceImage: replaceListingImageAtRank,
+    replaceVideo: replaceListingVideo,
+    generateAltTexts: generateImageAltTexts,
+    getListingTitle: async (ref) => {
+      const data = await getShopListing(ref.token, ref.shopId, ref.listingId) as { title?: string }
+      return data.title ? String(data.title) : null
+    },
+    notify: deps.notify,
+  })
+}
+
 let running = false
 
 async function tick() {
@@ -117,7 +137,8 @@ async function tick() {
   try {
     if (!acquireLock()) return
     try {
-      const results = await runPostProductionTick(createPostProductionDeps())
+      const deps = createPostProductionDeps()
+      const results = await runPostProductionTick(deps)
       for (const result of results) {
         console.log(`[post-production] ${result.productCode} → ${result.status}`)
       }
@@ -125,6 +146,8 @@ async function tick() {
       await alertStalledLocalJobs(getAutomationDatabase(), (input) => notifyOwner(input))
       await alertDraftsReady(getAutomationDatabase(), (input) => notifyOwner(input))
       await alertEtsyQuota(getAutomationDatabase(), (input) => notifyOwner(input), getEtsyApiUsage())
+      await applyMediaRefreshes(deps).catch((error) =>
+        console.error("[media-refresh] failed:", error instanceof Error ? error.message : error))
       await runDailyBackupIfDue(getAutomationDatabase()).catch((error) =>
         console.error("[backup] failed:", error instanceof Error ? error.message : error))
     } finally {

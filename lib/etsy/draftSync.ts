@@ -252,3 +252,49 @@ export async function syncDraftVideo(
     throw new Error(`Failed while uploading the Etsy listing video (HTTP ${response.status}): ${message.slice(0, 300)}`)
   }
 }
+
+/** Sustituye la foto de una posición de un listing (publicado o draft) sin tocar las demás. */
+export async function replaceListingImageAtRank(
+  { token, shopId, listingId }: DraftRef,
+  image: { url: string; rank: number; altText?: string }
+) {
+  try {
+    const asset = await fetchAsset(image.url)
+    await uploadListingImage({
+      token,
+      shopId,
+      listingId,
+      fileBuffer: asset.fileBuffer,
+      contentType: asset.contentType,
+      filename: getFilenameFromUrl(image.url, `mockup-${image.rank}.jpg`),
+      rank: image.rank,
+      altText: image.altText,
+      overwrite: true,
+    })
+  } catch (error) {
+    throw wrapStepError(`Failed while replacing the Etsy image at position ${image.rank}`, error)
+  }
+}
+
+/** Borra el vídeo actual del listing (si hay) y sube el nuevo. */
+export async function replaceListingVideo(
+  { token, shopId, listingId }: DraftRef,
+  input: { url: string; name: string }
+) {
+  const listed = await etsyFetch(`/application/listings/${listingId}/videos`, token)
+  if (listed.ok) {
+    const data = await listed.json().catch(() => ({})) as { results?: Array<{ video_id?: number }> }
+    for (const video of data.results || []) {
+      if (!video.video_id) continue
+      const removed = await etsyFetch(`/application/shops/${shopId}/listings/${listingId}/videos/${video.video_id}`, token, { method: "DELETE" })
+      if (!removed.ok && removed.status !== 404) {
+        const message = await removed.text().catch(() => "")
+        throw new Error(`Failed while deleting the Etsy listing video (HTTP ${removed.status}): ${message.slice(0, 300)}`)
+      }
+    }
+  } else if (listed.status !== 404) {
+    const message = await listed.text().catch(() => "")
+    throw new Error(`Failed while reading the Etsy listing videos (HTTP ${listed.status}): ${message.slice(0, 300)}`)
+  }
+  await syncDraftVideo({ token, shopId, listingId }, input)
+}

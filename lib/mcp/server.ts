@@ -24,6 +24,7 @@ export type McpToolHandlers = {
   saveReviewReport?: (input: Record<string, unknown>) => Promise<unknown> | unknown
   listReviewReports?: (input: { limit?: number }) => Promise<unknown> | unknown
   publishListing?: (input: Record<string, unknown>) => Promise<unknown>
+  refreshListingMedia?: (input: Record<string, unknown>) => Promise<unknown>
   saveDesignReport?: (input: Record<string, unknown>) => Promise<unknown> | unknown
   listDesignReports?: (input: { limit?: number }) => Promise<unknown> | unknown
 }
@@ -289,6 +290,25 @@ export const MCP_TOOLS = [
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
   {
+    name: "refresh_listing_media",
+    title: "Regenerate mockups and video of finished listings",
+    description:
+      "Queue a media refresh for listings already finished by the automation: Automaty re-renders them from the final design file and Autolisty replaces on Etsy the generated photos (Horizontal Wall Art, with new alt texts) and the video (all products). Title, tags, price, fixed shop images and sales are not touched. Use it ONLY when the owner explicitly approved it in the conversation (ownerApproved=true). Give productCodes, or allCompleted=true (optionally filtered by productTypes). get_status shows progress.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productCodes: { type: "array", items: { type: "string" }, maxItems: 300 },
+        allCompleted: { type: "boolean", description: "Every listing the automation finished." },
+        productTypes: { type: "array", items: { type: "string" }, description: "Optional filter, e.g. [\"horizontal_wall_art\"]." },
+        scope: { type: "string", enum: ["auto", "video"], description: "auto (default): photos+video for horizontal, video for the rest. video: only the video." },
+        ownerApproved: { type: "boolean", description: "true only if the owner approved this refresh in the conversation." },
+        reason: { type: "string" },
+      },
+      required: ["ownerApproved"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  {
     name: "save_design_report",
     title: "Save the daily design creation report",
     description:
@@ -412,6 +432,9 @@ export async function handleMcpMessage(message: unknown, tools: McpToolHandlers)
         }
         if (call.name === "publish_listing" && tools.publishListing) {
           return result(id, toolResult({ published: await tools.publishListing(args) }))
+        }
+        if (call.name === "refresh_listing_media" && tools.refreshListingMedia) {
+          return result(id, toolResult({ refresh: await tools.refreshListingMedia(args) }))
         }
         if (call.name === "save_design_report" && tools.saveDesignReport) {
           return result(id, toolResult({ report: await tools.saveDesignReport(args) }))

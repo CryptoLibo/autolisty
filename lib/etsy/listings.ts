@@ -172,6 +172,7 @@ export async function uploadListingImage({
   contentType,
   rank,
   altText,
+  overwrite = false,
 }: {
   token: EtsyTokenPayload;
   shopId: number;
@@ -181,11 +182,16 @@ export async function uploadListingImage({
   contentType: string;
   rank: number;
   altText?: string;
+  /** true: sustituye la foto que ya hay en esa posición (en vez de insertar otra). */
+  overwrite?: boolean;
 }) {
   async function send(alt: string | undefined) {
     const form = new FormData();
     form.append("image", new Blob([toBlobPart(fileBuffer)], { type: contentType }), filename);
     form.append("rank", String(rank));
+    if (overwrite) {
+      form.append("overwrite", "true");
+    }
 
     if (alt) {
       form.append("alt_text", alt);

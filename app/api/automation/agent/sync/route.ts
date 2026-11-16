@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { requireAutomationAgent } from "@/lib/auth/automationAgent"
 import { AutomationRepository } from "@/lib/automation/repository"
+import { MediaRefreshRepository, refreshSlots } from "@/lib/automation/mediaRefresh"
+import type { ProductType } from "@/lib/products"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -29,6 +31,10 @@ export async function POST(request: Request) {
     capabilities: body?.capabilities,
   })
   const result = repository.syncAgentQueue(agent.agentId, { cleanedJobIds })
+  // Regenerar medios solo cuando no hay listings nuevos que producir.
+  const refreshes = new MediaRefreshRepository()
+  const refresh = result.queue.length === 0 ? refreshes.claimForAgent(agent.agentId) : null
+  const refreshJob = refresh ? repository.getJob(refresh.jobId) : null
 
   return NextResponse.json({
     ok: true,
@@ -44,5 +50,17 @@ export async function POST(request: Request) {
     })),
     cleanup: result.cleanup.map((job) => ({ id: job.id, productCode: job.productCode, status: job.status })),
     newlySynced: result.assignedNow.length,
+    refresh: refresh && refreshJob
+      ? {
+          id: refresh.id,
+          status: refresh.status,
+          scope: refresh.scope,
+          jobId: refreshJob.id,
+          productCode: refreshJob.productCode,
+          productType: refreshJob.productType,
+          slots: refreshSlots(refreshJob.productType as ProductType, refresh.scope),
+          sourceUrl: `/api/automation/agent/refresh/${refresh.id}/source`,
+        }
+      : null,
   })
 }

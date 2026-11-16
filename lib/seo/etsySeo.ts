@@ -2130,3 +2130,35 @@ Return JSON in this exact shape:
     return output as EtsySeoResult
   }
 }
+
+/**
+ * Alt text nuevo para fotos ya publicadas (regeneración de mockups): uno por foto,
+ * a partir de la imagen real, con la frase principal del título.
+ */
+export async function generateImageAltTexts({
+  productType,
+  listingTitle,
+  images,
+}: {
+  productType: string
+  listingTitle: string
+  images: Array<{ position: number; url: string }>
+}) {
+  const configPath = path.join(process.cwd(), "product_configs", `${productType}.json`)
+  const productConfig = resolveProductConfig(JSON.parse(fs.readFileSync(configPath, "utf8")))
+  const prepared = []
+  for (const image of images) {
+    prepared.push({
+      id: `image-${image.position}`,
+      position: image.position,
+      dataUrl: await fetchRemoteImageAsDataUrl(image.url, `listing image ${image.position}`),
+    })
+  }
+  const filled = await fillMissingAltTexts({
+    productConfig,
+    listingTitle,
+    media: prepared.map((image) => ({ id: image.id, position: image.position, alt_text: "" })),
+    images: prepared,
+  })
+  return new Map(filled.map((item) => [item.position, item.alt_text]))
+}

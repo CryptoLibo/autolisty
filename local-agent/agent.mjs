@@ -5,7 +5,7 @@ import path from "node:path"
 import { spawn } from "node:child_process"
 
 // Versión del agente: llega en cada latido y se ve en el Dashboard (C3). Súbela al cambiar el agente.
-const AGENT_VERSION = "1.9.1"
+const AGENT_VERSION = "1.10.0"
 const LOG_MAX_BYTES = 5 * 1024 * 1024
 const UPLOAD_CONCURRENCY = 3
 const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000
@@ -189,6 +189,22 @@ function createApi(config) {
     ).then((result) => result.body),
     confirm: (jobId, slotKey) => request(
       `/api/automation/agent/jobs/${encodeURIComponent(jobId)}/files/confirm`,
+      { method: "POST", body: JSON.stringify({ slotKey }) }
+    ).then((result) => result.body),
+    // Regeneración de medios de un listing ya terminado.
+    refreshStatus: (refreshId, status, message = null, error = null) => request(
+      `/api/automation/agent/refresh/${encodeURIComponent(refreshId)}/status`,
+      { method: "POST", body: JSON.stringify({ status, message, error }) }
+    ).then((result) => result.body),
+    downloadRefreshSource: (refreshId) => request(
+      `/api/automation/agent/refresh/${encodeURIComponent(refreshId)}/source`
+    ),
+    refreshPresign: (refreshId, file) => request(
+      `/api/automation/agent/refresh/${encodeURIComponent(refreshId)}/files/presign`,
+      { method: "POST", body: JSON.stringify(file) }
+    ).then((result) => result.body),
+    refreshConfirm: (refreshId, slotKey) => request(
+      `/api/automation/agent/refresh/${encodeURIComponent(refreshId)}/files/confirm`,
       { method: "POST", body: JSON.stringify({ slotKey }) }
     ).then((result) => result.body),
   }
@@ -380,6 +396,71 @@ async function processJob(config, api, claimedJob, statePath, log) {
   await log("Local production completed and temporary workspace released.", { productCode: job.productCode })
 }
 
+// Regenerar mockups/vídeo de un listing ya terminado: se vuelve a producir desde el
+// diseño final (descargado de R2) y se suben solo los medios del listing pedidos.
+async function processRefresh(config, api, refresh, log) {
+  const jobRoot = path.join(config.spoolRoot, "refresh", refresh.productCode)
+  await fsp.rm(jobRoot, { recursive: true, force: true })
+  await fsp.mkdir(jobRoot, { recursive: true })
+  await log("Media refresh started.", { productCode: refresh.productCode, slots: refresh.slots })
+  if (refresh.status !== "LOCAL_BUILDING") await api.refreshStatus(refresh.id, "LOCAL_BUILDING", "Restarting the media refresh.")
+
+  const download = await api.downloadRefreshSource(refresh.id)
+  const filename = download.headers.get("x-source-filename") || "Source.jpg"
+  const sourcePath = path.join(jobRoot, `Source${path.extname(filename).toLowerCase() || ".jpg"}`)
+  await fsp.writeFile(sourcePath, Buffer.from(download.body))
+  const expectedSha = download.headers.get("x-source-sha256")
+  if (expectedSha && await sha256File(sourcePath) !== expectedSha) throw new Error("Downloaded final design checksum does not match.")
+
+  const requestPath = path.join(jobRoot, "autobuildy-request.json")
+  const resultPath = path.join(jobRoot, "autobuildy-result.json")
+  await writeJsonAtomic(requestPath, {
+    version: 1,
+    jobId: `refresh-${refresh.id}`,
+    productCode: refresh.productCode,
+    productType: refresh.productType,
+    sourcePath,
+    listingNumber: 1,
+    resultPath,
+    // La carpeta del listing puede seguir en este PC: se rehace desde cero.
+    replaceExisting: true,
+  })
+  await runProcess(config.autobuildyExecutable, ["--automation-request", requestPath], log, config.jobTimeoutMinutes)
+  const result = JSON.parse(await fsp.readFile(resultPath, "utf8"))
+  if (!result.ok || !result.listingPath) throw new Error(result.error || "Autobuildy did not return a completed listing.")
+  const listingPath = assertListingPath(result.listingPath, refresh.productCode)
+
+  const files = []
+  for (const slot of refresh.slots) {
+    const filename = await findSlotFile(listingPath, slot)
+    if (!filename) {
+      if (slot === 2) {
+        await log("Media refresh without video (Autobuildy produced none).", { productCode: refresh.productCode })
+        continue
+      }
+      throw new Error(`Refreshed listing is missing media ${slot}.`)
+    }
+    const filePath = path.join(listingPath, filename)
+    const stat = await fsp.stat(filePath)
+    files.push({
+      relativePath: filename,
+      filePath,
+      byteSize: stat.size,
+      sha256: await sha256File(filePath),
+      contentType: MIME_TYPES[path.extname(filePath).toLowerCase()] || "application/octet-stream",
+    })
+  }
+  await api.refreshStatus(refresh.id, "LOCAL_UPLOADING", `${files.length} refreshed files ready for R2.`)
+  const uploadApi = {
+    presign: (_id, file) => api.refreshPresign(refresh.id, file),
+    confirm: (_id, slotKey) => api.refreshConfirm(refresh.id, slotKey),
+  }
+  for (const file of files) await uploadFile(uploadApi, refresh.id, file, log)
+  await api.refreshStatus(refresh.id, "UPLOADED", `${files.length} refreshed files verified in R2.`)
+  await fsp.rm(jobRoot, { recursive: true, force: true })
+  await log("Media refresh uploaded.", { productCode: refresh.productCode, files: files.length })
+}
+
 function localSourcePathFor(config, job) {
   const sourceFile = job.files.find((file) => file.slotKey === "source:primary")
   if (!sourceFile?.sha256 || !sourceFile.relativePath) throw new Error("The assigned source metadata is incomplete.")
@@ -535,6 +616,22 @@ async function main() {
               session.needsAttention += 1
               await log("Local production needs attention.", { productCode: next.productCode, error: message })
               await api.status(next.id, "NEEDS_ATTENTION", "Local production stopped safely.", message).catch(() => {})
+            }
+          }
+        } else if (sync.refresh) {
+          // 4) Sin listings que producir: regenerar medios de listings ya terminados.
+          processed = true
+          workedThisSession = true
+          try {
+            await processRefresh(config, api, sync.refresh, log)
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            if (error instanceof TransientApiError) {
+              await log("Connection problem during media refresh; it will restart.", { productCode: sync.refresh.productCode, error: message })
+              processed = false
+            } else {
+              await log("Media refresh failed.", { productCode: sync.refresh.productCode, error: message })
+              await api.refreshStatus(sync.refresh.id, "FAILED", "Media refresh stopped.", message).catch(() => {})
             }
           }
         }
