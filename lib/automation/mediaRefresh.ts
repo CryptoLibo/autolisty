@@ -356,7 +356,7 @@ export function requestMediaRefresh(
   if (productTypes) jobs = jobs.filter((job) => productTypes.has(job.productType))
   const results = []
   for (const job of jobs) {
-    if (!job.etsyDraftId || !["COMPLETED", "PINTEREST_PUBLISHING", "ETSY_ACTIVE"].includes(job.status)) {
+    if (!job.etsyDraftId || !["COMPLETED", "PINTEREST_PUBLISHING", "ETSY_ACTIVE", "WAITING_ETSY_REVIEW"].includes(job.status)) {
       results.push({ productCode: job.productCode, queued: false, reason: `status ${job.status}` })
       continue
     }
