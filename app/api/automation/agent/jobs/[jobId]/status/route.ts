@@ -4,7 +4,8 @@ import { notifyOwner } from "@/lib/notifications/webPush"
 import { requireAutomationAgent } from "@/lib/auth/automationAgent"
 import { AutomationRepository } from "@/lib/automation/repository"
 import { validateAutomationOutputFiles } from "@/lib/automation/outputFiles"
-import { deleteAutomationSource } from "@/lib/r2/automationSources"
+import { archiveAutomationSource, deleteAutomationSource } from "@/lib/r2/automationSources"
+import { originalArchiveKey } from "@/lib/automation/mediaRefresh"
 import type { AutomationJobStatus } from "@/lib/automation/types"
 
 export const runtime = "nodejs"
@@ -57,8 +58,27 @@ export async function PATCH(
         .listJobFiles(jobId)
         .find((file) => file.slotKey === "source:primary")
       if (source?.r2Key && source.status !== "DELETED") {
-        await deleteAutomationSource(source.r2Key)
-        repository.markTemporarySourceDeleted(jobId)
+        // La original de Kittl se conserva (privada) antes de borrar la copia temporal.
+        let archived = false
+        try {
+          const archiveKey = originalArchiveKey(current.productCode, source.relativePath)
+          await archiveAutomationSource(source.r2Key, archiveKey)
+          repository.registerArchivedOriginal(jobId, {
+            relativePath: source.relativePath,
+            r2Key: archiveKey,
+            contentType: source.contentType,
+            byteSize: source.byteSize,
+            sha256: source.sha256,
+          })
+          archived = true
+        } catch (error) {
+          console.error("Unable to archive the original source:", error)
+          repository.recordJobEvent(jobId, "WARNING", "No se pudo guardar la imagen original en R2; se conserva la copia temporal.")
+        }
+        if (archived) {
+          await deleteAutomationSource(source.r2Key)
+          repository.markTemporarySourceDeleted(jobId)
+        }
       }
     }
 

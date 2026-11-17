@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
@@ -35,4 +36,18 @@ export async function getAutomationSource(key: string) {
 
 export async function deleteAutomationSource(key: string) {
   await r2.send(new DeleteObjectCommand({ Bucket: getBucket(), Key: key }))
+}
+
+/**
+ * Guarda una copia permanente de la fuente original (la imagen de Kittl) en la
+ * carpeta privada del listing, para regenerar medios o hacer pruebas manuales.
+ */
+export async function archiveAutomationSource(sourceKey: string, targetKey: string) {
+  const bucket = getBucket()
+  await r2.send(new CopyObjectCommand({
+    Bucket: bucket,
+    Key: targetKey,
+    CopySource: `${bucket}/${sourceKey.split("/").map(encodeURIComponent).join("/")}`,
+    MetadataDirective: "COPY",
+  }))
 }

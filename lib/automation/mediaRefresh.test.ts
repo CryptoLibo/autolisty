@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type Database from "better-sqlite3"
 import { openAutomationDatabase } from "./db/database"
 import { AutomationRepository } from "./repository"
-import { applyNextMediaRefresh, MediaRefreshRepository, refreshR2Key, refreshSlots, requestMediaRefresh } from "./mediaRefresh"
+import { applyNextMediaRefresh, MediaRefreshRepository, originalArchiveKey, refreshR2Key, refreshSlots, refreshSourceSlots, requestMediaRefresh } from "./mediaRefresh"
 
 let database: Database.Database | null = null
 afterEach(() => { database?.close(); database = null })
@@ -18,6 +18,9 @@ describe("regeneración de medios", () => {
     expect(refreshSlots("horizontal_wall_art", "images_video")).toEqual([1, 12, 3, 4, 6, 7, 9, 10, 2])
     expect(refreshSlots("frame_tv_art", "video")).toEqual([2])
     expect(refreshR2Key("LBCreaStudio-AAAAAA", "12345678-abcd", "7.jpg")).toBe("mockups/LBCreaStudio-AAAAAA/refresh-12345678/7.jpg")
+    // La original de Kittl va a la carpeta privada del listing y se usa antes que el entregable.
+    expect(originalArchiveKey("LBCreaStudio-AAAAAA", "sources/x/Design.PNG")).toBe("deliverables/LBCreaStudio-AAAAAA/original.png")
+    expect(refreshSourceSlots("horizontal_wall_art")).toEqual(["original:primary", "deliverable:ratio_3_2"])
   })
 
   it("exige aprobación del dueño y no duplica una regeneración en curso", () => {

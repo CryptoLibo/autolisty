@@ -788,6 +788,21 @@ export class AutomationRepository {
     if (result.changes !== 1) throw new Error("Temporary source is not ready for verification.")
   }
 
+  /** Copia permanente de la imagen original (fuente de Kittl) del listing. */
+  registerArchivedOriginal(jobId: string, input: { relativePath: string; r2Key: string; contentType: string | null; byteSize: number | null; sha256: string | null }) {
+    const now = new Date().toISOString()
+    this.database.prepare(`
+      INSERT INTO automation_job_files (
+        id, job_id, slot_key, role, position, relative_path, r2_key,
+        content_type, byte_size, sha256, status, uploaded_at, verified_at, created_at, updated_at
+      ) VALUES (?, ?, 'original:primary', 'ORIGINAL', NULL, ?, ?, ?, ?, ?, 'VERIFIED', ?, ?, ?, ?)
+      ON CONFLICT(job_id, slot_key) DO UPDATE SET
+        relative_path = excluded.relative_path, r2_key = excluded.r2_key, content_type = excluded.content_type,
+        byte_size = excluded.byte_size, sha256 = excluded.sha256, status = 'VERIFIED',
+        verified_at = excluded.verified_at, deleted_at = NULL, updated_at = excluded.updated_at
+    `).run(crypto.randomUUID(), jobId, input.relativePath, input.r2Key, input.contentType, input.byteSize, input.sha256, now, now, now, now)
+  }
+
   /** Marca como borrados todos los archivos del trabajo (tras borrarlos de R2). */
   markAllFilesDeleted(jobId: string) {
     const now = new Date().toISOString()

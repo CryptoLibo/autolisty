@@ -1,6 +1,6 @@
 import crypto from "node:crypto"
 import { NextResponse } from "next/server"
-import { refreshSourceSlot } from "@/lib/automation/mediaRefresh"
+import { refreshSourceSlots } from "@/lib/automation/mediaRefresh"
 import { readR2Object } from "@/lib/r2/readObject"
 import type { ProductType } from "@/lib/products"
 import { loadAssignedRefresh } from "../shared"
@@ -8,13 +8,15 @@ import { loadAssignedRefresh } from "../shared"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// Fuente para volver a producir: el entregable final más grande del listing.
+// Fuente para volver a producir: la original de Kittl o, si no se guardó, el entregable más grande.
 export async function GET(request: Request, context: { params: Promise<{ refreshId: string }> }) {
   const { refreshId } = await context.params
   const loaded = await loadAssignedRefresh(request, refreshId)
   if ("error" in loaded) return loaded.error
-  const slot = refreshSourceSlot(loaded.job.productType as ProductType)
-  const file = loaded.repository.listJobFiles(loaded.job.id).find((candidate) => candidate.slotKey === slot)
+  const jobFiles = loaded.repository.listJobFiles(loaded.job.id)
+  const file = refreshSourceSlots(loaded.job.productType as ProductType)
+    .map((slot) => jobFiles.find((candidate) => candidate.slotKey === slot && candidate.r2Key && candidate.status !== "DELETED"))
+    .find(Boolean)
   if (!file?.r2Key || file.status === "DELETED") {
     return NextResponse.json({ error: "The final design file is not available in R2." }, { status: 404 })
   }

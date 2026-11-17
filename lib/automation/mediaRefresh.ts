@@ -107,6 +107,20 @@ export function refreshR2Key(productCode: string, refreshId: string, relativePat
   return `mockups/${productCode}/refresh-${refreshId.slice(0, 8)}/${filename}`
 }
 
+/** Dónde se guarda la imagen original de Kittl: carpeta privada del listing. */
+export function originalArchiveKey(productCode: string, relativePath: string) {
+  const extension = (relativePath.match(/\.[a-z0-9]+$/i)?.[0] || ".png").toLowerCase()
+  return `deliverables/${productCode}/original${extension}`
+}
+
+/**
+ * Fuente para volver a producir los mockups: la imagen original de Kittl si está
+ * guardada; si no (listings anteriores), el entregable más grande.
+ */
+export function refreshSourceSlots(productType: ProductType) {
+  return ["original:primary", refreshSourceSlot(productType)]
+}
+
 /** El entregable más grande sirve de fuente para volver a producir los mockups. */
 export function refreshSourceSlot(productType: ProductType) {
   const preferred: Record<ProductType, string> = {
