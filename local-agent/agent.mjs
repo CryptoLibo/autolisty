@@ -5,7 +5,7 @@ import path from "node:path"
 import { spawn } from "node:child_process"
 
 // Versión del agente: llega en cada latido y se ve en el Dashboard (C3). Súbela al cambiar el agente.
-const AGENT_VERSION = "1.10.0"
+const AGENT_VERSION = "1.10.1"
 const LOG_MAX_BYTES = 5 * 1024 * 1024
 const UPLOAD_CONCURRENCY = 3
 const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000
@@ -424,6 +424,8 @@ async function processRefresh(config, api, refresh, log) {
     resultPath,
     // La carpeta del listing puede seguir en este PC: se rehace desde cero.
     replaceExisting: true,
+    // Solo medios: la fuente ya es la imagen final u original, sin pasar por Upscayl.
+    mediaOnly: true,
   })
   await runProcess(config.autobuildyExecutable, ["--automation-request", requestPath], log, config.jobTimeoutMinutes)
   const result = JSON.parse(await fsp.readFile(resultPath, "utf8"))
