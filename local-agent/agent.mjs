@@ -5,7 +5,7 @@ import path from "node:path"
 import { spawn } from "node:child_process"
 
 // Versión del agente: llega en cada latido y se ve en el Dashboard (C3). Súbela al cambiar el agente.
-const AGENT_VERSION = "1.10.1"
+const AGENT_VERSION = "1.10.2"
 const LOG_MAX_BYTES = 5 * 1024 * 1024
 const UPLOAD_CONCURRENCY = 3
 const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000
@@ -126,16 +126,18 @@ class TransientApiError extends Error {}
 function createApi(config) {
   async function request(endpoint, options = {}) {
     let response
+    // Las descargas de diseños grandes (entregable de 8400 px o más) pueden tardar más de 2 minutos.
+    const { timeoutMs = 120_000, ...fetchOptions } = options
     try {
       response = await fetch(`${config.serverUrl}${endpoint}`, {
-      ...options,
+      ...fetchOptions,
       headers: {
         authorization: `Bearer ${config.token}`,
         "x-autolisty-agent-id": config.agentId,
         ...(options.body && typeof options.body === "string" ? { "content-type": "application/json" } : {}),
         ...(options.headers || {}),
       },
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(timeoutMs),
     })
     } catch (error) {
       throw new TransientApiError(`Autolisty unreachable: ${error instanceof Error ? error.message : String(error)}`)
@@ -181,7 +183,8 @@ function createApi(config) {
       { method: "PATCH", body: JSON.stringify({ status, message, error }) }
     ).then((result) => result.body),
     downloadSource: (jobId) => request(
-      `/api/automation/agent/jobs/${encodeURIComponent(jobId)}/source`
+      `/api/automation/agent/jobs/${encodeURIComponent(jobId)}/source`,
+      { timeoutMs: UPLOAD_TIMEOUT_MS }
     ),
     presign: (jobId, file) => request(
       `/api/automation/agent/jobs/${encodeURIComponent(jobId)}/files/presign`,
@@ -197,7 +200,8 @@ function createApi(config) {
       { method: "POST", body: JSON.stringify({ status, message, error }) }
     ).then((result) => result.body),
     downloadRefreshSource: (refreshId) => request(
-      `/api/automation/agent/refresh/${encodeURIComponent(refreshId)}/source`
+      `/api/automation/agent/refresh/${encodeURIComponent(refreshId)}/source`,
+      { timeoutMs: UPLOAD_TIMEOUT_MS }
     ),
     refreshPresign: (refreshId, file) => request(
       `/api/automation/agent/refresh/${encodeURIComponent(refreshId)}/files/presign`,
